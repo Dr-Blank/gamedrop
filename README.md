@@ -2,6 +2,27 @@
 
 Self-hostable price tracker for board game buyers. Add any Shopify store, track prices and stock, get push notifications on price drops and back-in-stock events. Optional BGG integration shows ratings and game info alongside store prices.
 
+## Quick Start
+
+```yaml
+services:
+  gamedrop:
+    image: ghcr.io/dr-blank/gamedrop:latest
+    restart: unless-stopped
+    ports:
+      - "8765:8000"
+    volumes:
+      - ./gamedrop-data:/data
+```
+
+```bash
+docker compose up -d
+```
+
+Open **http://localhost:8765** — configure BGG token and notifications at `/settings`.
+
+---
+
 ## Features
 
 - **BGG game page** — shows price, stock, and store link for any tracked store
@@ -75,42 +96,34 @@ Vite proxies all `/api` requests to the backend on `:8765` automatically — no 
 
 ## Production (Docker / Dockge)
 
-Production is **one container, one port**. The Docker build compiles SvelteKit to static files; FastAPI serves them alongside the API.
+One container, one port. The Docker image bundles the SvelteKit SPA — FastAPI serves both the API and frontend.
 
 ```
-Container (port 8765)
+Container (port 8000)
   └── FastAPI
         ├── /api/*   → backend logic
         └── /*       → SvelteKit SPA (static)
 ```
 
-The `docker-compose.yml` is ready to go — just replace `dr-blank` with the actual GitHub username the image was pushed to, create `backend/.env`, and start.
+### Deploy
 
-To build locally instead, comment out the `image:` line and uncomment the `build:` block in `docker-compose.yml`.
+1. Save the compose snippet from [Quick Start](#quick-start) as `docker-compose.yml`
+2. `docker compose up -d`
+3. Open **http://\<host\>:8765** and configure everything at `/settings`
 
-### Deploy steps
+Data persists in `./gamedrop-data` across restarts and updates.
 
-1. Copy the project to your host (or clone from git)
-2. Create `backend/.env`:
-   ```
-   BGG_API_TOKEN=your_token
-   NTFY_SERVER=https://ntfy.example.com
-   NTFY_TOPIC=board-game-tracker
-   NTFY_TOKEN=optional_access_token   # only if ntfy server requires auth
-   ```
-   Alternatively: skip `.env` entirely and configure everything via the web UI at `/settings` after first start.
-3. Start the stack in Dockge → **New Stack** → point at `docker-compose.yml`
-4. Nginx reverse proxy:
-   ```nginx
-   location / {
-       proxy_pass http://<host-ip>:8765;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-   }
-   ```
-5. Update `api_base` in the userscript to your public URL (e.g. `https://bgg.example.com/api`)
+### Nginx reverse proxy
 
-Data persists in the `gamedrop-data` Docker volume across restarts and image updates.
+```nginx
+location / {
+    proxy_pass http://<host-ip>:8765;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+Update `api_base` in the userscript to your public URL (e.g. `https://bgg.example.com/api`).
 
 ---
 
