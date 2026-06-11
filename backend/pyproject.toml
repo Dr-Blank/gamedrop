@@ -21,6 +21,7 @@ dependencies = [
 dev = [
     "pre-commit>=4.0",
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "ruff>=0.9",
 ]
 
@@ -40,3 +41,11 @@ known-first-party = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

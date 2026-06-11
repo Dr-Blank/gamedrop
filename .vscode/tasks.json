@@ -71,6 +71,55 @@
       "options": { "cwd": "${workspaceFolder}/frontend" },
       "presentation": { "panel": "shared", "reveal": "always" },
       "problemMatcher": []
+    },
+    {
+      "label": "Release: Bump Patch",
+      "type": "shell",
+      "command": "bash scripts/bump-version.sh patch",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Release: Bump Minor",
+      "type": "shell",
+      "command": "bash scripts/bump-version.sh minor",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Release: Bump Major",
+      "type": "shell",
+      "command": "bash scripts/bump-version.sh major",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Pre-release: Bump Minor",
+      "type": "shell",
+      "command": "bash scripts/bump-version.sh minor ${input:preReleaseSuffix}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Pre-release: Bump Major",
+      "type": "shell",
+      "command": "bash scripts/bump-version.sh major ${input:preReleaseSuffix}",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always" },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "preReleaseSuffix",
+      "type": "pickString",
+      "description": "Pre-release suffix (appended to version, e.g. 0.2.0rc1)",
+      "options": ["rc1", "rc2", "alpha1", "alpha2", "beta1", "beta2"],
+      "default": "rc1"
     }
   ]
 }
