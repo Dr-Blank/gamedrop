@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, desc, select
@@ -12,14 +10,12 @@ router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 class WatchlistAdd(BaseModel):
     product_id: int
-    target_price: Optional[float] = None
+    target_price: float | None = None
 
 
 @router.get("/")
 def list_watchlist(session: Session = Depends(get_session)):
-    items = session.exec(
-        select(WatchlistItem).where(WatchlistItem.active == True)
-    ).all()
+    items = session.exec(select(WatchlistItem).where(WatchlistItem.active)).all()
     result = []
     for item in items:
         product = session.get(Product, item.product_id)
@@ -32,12 +28,14 @@ def list_watchlist(session: Session = Depends(get_session)):
             .order_by(desc(PriceSnapshot.recorded_at))
             .limit(1)
         ).first()
-        result.append({
-            "watchlist": item,
-            "product": product,
-            "store": store,
-            "latest_price": latest,
-        })
+        result.append(
+            {
+                "watchlist": item,
+                "product": product,
+                "store": store,
+                "latest_price": latest,
+            }
+        )
     return result
 
 
@@ -48,8 +46,7 @@ def add_to_watchlist(body: WatchlistAdd, session: Session = Depends(get_session)
         raise HTTPException(404, "Product not found")
 
     existing = session.exec(
-        select(WatchlistItem)
-        .where(WatchlistItem.product_id == body.product_id)
+        select(WatchlistItem).where(WatchlistItem.product_id == body.product_id)
     ).first()
     if existing:
         existing.target_price = body.target_price
@@ -78,6 +75,7 @@ def update_watchlist(
     item.target_price = body.target_price
     session.add(item)
     session.commit()
+    session.refresh(item)
     return item
 
 
