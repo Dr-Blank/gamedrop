@@ -1,4 +1,4 @@
-from python_ntfy import NtfyClient, ViewAction, MessagePriority
+from python_ntfy import MessagePriority, NtfyClient, ViewAction
 
 from .config import get_setting
 
@@ -19,7 +19,9 @@ def notify_price_drop(
 ):
     pct = round((old_price - new_price) / old_price * 100)
     msg = f"{old_price:.0f} → {new_price:.0f}  ({pct}% off)\n{store_name}"
-    actions = [ViewAction(label="View on store", url=product_url)] if product_url else None
+    actions = (
+        [ViewAction(label="View on store", url=product_url)] if product_url else None
+    )
     _client().send(
         message=msg,
         title=f"📉 {product_title}",
@@ -35,7 +37,9 @@ def notify_back_in_stock(
     product_url: str | None,
     store_name: str,
 ):
-    actions = [ViewAction(label="View on store", url=product_url)] if product_url else None
+    actions = (
+        [ViewAction(label="View on store", url=product_url)] if product_url else None
+    )
     _client().send(
         message=f"{price:.0f}  ·  {store_name}",
         title=f"✅ Back in stock: {product_title}",

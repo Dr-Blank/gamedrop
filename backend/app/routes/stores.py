@@ -1,5 +1,4 @@
 import asyncio
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -18,15 +17,15 @@ class StoreCreate(BaseModel):
     type: str = "shopify"
     base_url: str
     collection_path: str = "/collections/board-games"
-    scrape_config: Optional[str] = None
+    scrape_config: str | None = None
 
 
 class StorePatch(BaseModel):
-    name: Optional[str] = None
-    base_url: Optional[str] = None
-    collection_path: Optional[str] = None
-    enabled: Optional[bool] = None
-    scrape_config: Optional[str] = None
+    name: str | None = None
+    base_url: str | None = None
+    collection_path: str | None = None
+    enabled: bool | None = None
+    scrape_config: str | None = None
 
 
 @router.get("/")
@@ -44,7 +43,9 @@ def create_store(body: StoreCreate, session: Session = Depends(get_session)):
 
 
 @router.patch("/{store_id}")
-def update_store(store_id: str, body: StorePatch, session: Session = Depends(get_session)):
+def update_store(
+    store_id: str, body: StorePatch, session: Session = Depends(get_session)
+):
     store = session.get(Store, store_id)
     if not store:
         raise HTTPException(404, "Store not found")
@@ -77,7 +78,7 @@ async def sync_all_stores(session: Session = Depends(get_session)):
             "store_id": s.id,
             "result": r if not isinstance(r, Exception) else {"error": str(r)},
         }
-        for s, r in zip(stores, results)
+        for s, r in zip(stores, results, strict=False)
     ]
 
 
@@ -93,7 +94,7 @@ async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
 @router.get("/{store_id}/products")
 def list_products(
     store_id: str,
-    q: Optional[str] = None,
+    q: str | None = None,
     session: Session = Depends(get_session),
 ):
     query = select(Product).where(Product.store_id == store_id)

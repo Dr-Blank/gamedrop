@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 from datetime import datetime, timedelta
 
@@ -26,7 +27,9 @@ def _auth_headers() -> dict:
     return {}
 
 
-async def _xml_get(path: str, params: dict = {}) -> dict:
+async def _xml_get(path: str, params: dict = None) -> dict:
+    if params is None:
+        params = {}
     global _last_request_at
     async with _bgg_lock:
         now = asyncio.get_event_loop().time()
@@ -35,7 +38,7 @@ async def _xml_get(path: str, params: dict = {}) -> dict:
             await asyncio.sleep(wait)
 
         async with httpx.AsyncClient(timeout=30) as client:
-            for attempt in range(5):
+            for _attempt in range(5):
                 r = await client.get(
                     f"{BGG_API}{path}",
                     params=params,
@@ -58,11 +61,15 @@ async def search_games(query: str) -> list[dict]:
     results = []
     for item in items:
         name = item.get("name", {})
-        results.append({
-            "bgg_id": int(item["@id"]),
-            "name": name.get("@value", "") if isinstance(name, dict) else "",
-            "year": item.get("yearpublished", {}).get("@value") if isinstance(item.get("yearpublished"), dict) else None,
-        })
+        results.append(
+            {
+                "bgg_id": int(item["@id"]),
+                "name": name.get("@value", "") if isinstance(name, dict) else "",
+                "year": item.get("yearpublished", {}).get("@value")
+                if isinstance(item.get("yearpublished"), dict)
+                else None,
+            }
+        )
     return results
 
 
@@ -111,10 +118,8 @@ async def get_game(bgg_id: int) -> dict:
         ranks = [ranks]
     for rank in ranks:
         if rank.get("@name") == "boardgame":
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 result["rank"] = int(rank["@value"])
-            except (ValueError, TypeError):
-                pass
 
     with Session(engine) as session:
         cached = session.get(BggCache, bgg_id)

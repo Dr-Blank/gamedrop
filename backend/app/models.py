@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+
 from sqlmodel import Field, SQLModel
 
 
@@ -18,13 +18,13 @@ class Store(SQLModel, table=True):
 
 
 class Product(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     store_id: str = Field(foreign_key="store.id")
     external_id: str
     title: str
-    handle: Optional[str] = None
-    url: Optional[str] = None
-    bgg_id: Optional[int] = None
+    handle: str | None = None
+    url: str | None = None
+    bgg_id: int | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
@@ -32,12 +32,12 @@ class Product(SQLModel, table=True):
 
 
 class PriceSnapshot(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="product.id")
-    variant_id: Optional[str] = None
-    variant_title: Optional[str] = None
+    variant_id: str | None = None
+    variant_title: str | None = None
     price: float
-    compare_at_price: Optional[float] = None
+    compare_at_price: float | None = None
     available: bool = True
     recorded_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -49,16 +49,17 @@ class BggCache(SQLModel, table=True):
 
 
 class WatchlistItem(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="product.id")
-    target_price: Optional[float] = None
-    last_notified_price: Optional[float] = None
+    target_price: float | None = None
+    last_notified_price: float | None = None
     active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class AppSetting(SQLModel, table=True):
     """Key-value config store. UI values take priority over env vars."""
+
     key: str = Field(primary_key=True)
     value: str
     updated_at: datetime = Field(default_factory=datetime.utcnow)

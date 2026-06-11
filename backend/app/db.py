@@ -1,7 +1,10 @@
 import os
-from sqlmodel import SQLModel, create_engine, Session
 
-DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "../../data"))
+from sqlmodel import Session, SQLModel, create_engine
+
+DATA_DIR = os.environ.get(
+    "DATA_DIR", os.path.join(os.path.dirname(__file__), "../../data")
+)
 os.makedirs(DATA_DIR, exist_ok=True)
 
 DATABASE_URL = f"sqlite:///{DATA_DIR}/tracker.db"

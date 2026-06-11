@@ -49,7 +49,10 @@ async def test_bgg():
         if r.status_code == 200:
             return {"ok": True, "message": "BGG API reachable and token valid"}
         if r.status_code == 401:
-            return {"ok": False, "message": "Token rejected (401). Register at boardgamegeek.com/using_the_xml_api"}
+            return {
+                "ok": False,
+                "message": "Token rejected (401). Register at boardgamegeek.com/using_the_xml_api",
+            }
         return {"ok": False, "message": f"Unexpected status {r.status_code}"}
     except Exception as e:
         return {"ok": False, "message": str(e)}
@@ -58,6 +61,7 @@ async def test_bgg():
 @router.post("/test/ntfy")
 async def test_ntfy():
     from ..notifier import _client
+
     try:
         _client().send(
             message="Test notification from Board Game Tracker ✓",

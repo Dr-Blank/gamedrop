@@ -1,7 +1,5 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select, desc
+from sqlmodel import Session, desc, select
 
 from ..db import get_session
 from ..models import PriceSnapshot, Product
@@ -30,7 +28,7 @@ def price_history(
 @router.get("/search")
 def search_by_name(
     q: str,
-    store_id: Optional[str] = None,
+    store_id: str | None = None,
     session: Session = Depends(get_session),
 ):
     """Search products by name, return with latest price snapshot."""

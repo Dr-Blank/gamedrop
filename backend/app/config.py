@@ -3,9 +3,12 @@ Settings resolution order: DB (set via UI) > environment variable > default.
 This lets users configure everything through the UI while still supporting
 headless/Docker deployments via env vars or .env file.
 """
+
 import os
 from datetime import datetime
+
 from sqlmodel import Session
+
 from .db import engine
 from .models import AppSetting
 

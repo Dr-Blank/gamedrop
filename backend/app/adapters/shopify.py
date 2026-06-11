@@ -35,28 +35,32 @@ class ShopifyAdapter(StoreAdapter):
                 if not products:
                     break
                 for p in products:
-                    results.append({
-                        "external_id": str(p["id"]),
-                        "title": p["title"],
-                        "handle": p.get("handle"),
-                        "url": (
-                            f"{base}/products/{p['handle']}"
-                            if p.get("handle") else None
-                        ),
-                        "variants": [
-                            {
-                                "variant_id": str(v["id"]),
-                                "variant_title": v.get("title", "Default"),
-                                "price": float(v.get("price", 0)),
-                                "compare_at_price": (
-                                    float(v["compare_at_price"])
-                                    if v.get("compare_at_price") else None
-                                ),
-                                "available": v.get("available", True),
-                            }
-                            for v in p.get("variants", [])
-                        ],
-                    })
+                    results.append(
+                        {
+                            "external_id": str(p["id"]),
+                            "title": p["title"],
+                            "handle": p.get("handle"),
+                            "url": (
+                                f"{base}/products/{p['handle']}"
+                                if p.get("handle")
+                                else None
+                            ),
+                            "variants": [
+                                {
+                                    "variant_id": str(v["id"]),
+                                    "variant_title": v.get("title", "Default"),
+                                    "price": float(v.get("price", 0)),
+                                    "compare_at_price": (
+                                        float(v["compare_at_price"])
+                                        if v.get("compare_at_price")
+                                        else None
+                                    ),
+                                    "available": v.get("available", True),
+                                }
+                                for v in p.get("variants", [])
+                            ],
+                        }
+                    )
                 page += 1
                 if delay:
                     await asyncio.sleep(delay)

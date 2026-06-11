@@ -4,7 +4,7 @@ from sqlmodel import Session, desc, select
 
 from .adapters.shopify import ShopifyAdapter
 from .db import engine
-from .models import Product, PriceSnapshot, Store, WatchlistItem
+from .models import PriceSnapshot, Product, Store, WatchlistItem
 from .notifier import notify_back_in_stock, notify_price_drop, notify_target_reached
 
 
@@ -14,17 +14,25 @@ def get_adapter(store: Store):
     raise ValueError(f"Unknown store type: {store.type}")
 
 
-def _check_watchlist(session: Session, product: Product, old_snap: PriceSnapshot | None, new_snap: PriceSnapshot):
+def _check_watchlist(
+    session: Session,
+    product: Product,
+    old_snap: PriceSnapshot | None,
+    new_snap: PriceSnapshot,
+):
     item = session.exec(
-        select(WatchlistItem)
-        .where(WatchlistItem.product_id == product.id, WatchlistItem.active == True)
+        select(WatchlistItem).where(
+            WatchlistItem.product_id == product.id, WatchlistItem.active
+        )
     ).first()
     if not item:
         return
 
     # back in stock
     if old_snap and not old_snap.available and new_snap.available:
-        notify_back_in_stock(product.title, new_snap.price, product.url, product.store_id)
+        notify_back_in_stock(
+            product.title, new_snap.price, product.url, product.store_id
+        )
         item.last_notified_price = new_snap.price
         session.add(item)
         return
@@ -40,15 +48,25 @@ def _check_watchlist(session: Session, product: Product, old_snap: PriceSnapshot
             new_snap.price <= item.target_price
             and item.last_notified_price != new_snap.price
         ):
-            notify_target_reached(product.title, item.target_price, new_snap.price, product.url, product.store_id)
+            notify_target_reached(
+                product.title,
+                item.target_price,
+                new_snap.price,
+                product.url,
+                product.store_id,
+            )
             item.last_notified_price = new_snap.price
             session.add(item)
-    elif old_price and new_snap.price < old_price:
-        # any drop — notify once per price level
-        if item.last_notified_price != new_snap.price:
-            notify_price_drop(product.title, old_price, new_snap.price, product.url, product.store_id)
-            item.last_notified_price = new_snap.price
-            session.add(item)
+    elif (
+        old_price
+        and new_snap.price < old_price
+        and item.last_notified_price != new_snap.price
+    ):
+        notify_price_drop(
+            product.title, old_price, new_snap.price, product.url, product.store_id
+        )
+        item.last_notified_price = new_snap.price
+        session.add(item)
 
 
 async def sync_store(store: Store) -> dict:
@@ -127,6 +145,6 @@ async def sync_store(store: Store) -> dict:
 
 async def sync_all_stores():
     with Session(engine) as session:
-        stores = session.exec(select(Store).where(Store.enabled == True)).all()
+        stores = session.exec(select(Store).where(Store.enabled)).all()
     for store in stores:
         await sync_store(store)
