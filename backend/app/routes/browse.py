@@ -1,8 +1,7 @@
 import json
-from typing import Optional
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, text
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -13,19 +12,17 @@ router = APIRouter(prefix="/browse", tags=["browse"])
 
 @router.get("/")
 def browse(
-    q: Optional[str] = None,
-    store_id: Optional[str] = None,
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
-    in_stock: Optional[bool] = None,
-    has_bgg: Optional[bool] = None,
-    min_bgg_rating: Optional[float] = None,
-    sort: str = "title",        # title | price_asc | price_desc | bgg_rating
+    q: str | None = None,
+    store_id: str | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
+    in_stock: bool | None = None,
+    has_bgg: bool | None = None,
+    sort: str = "title",  # title | price_asc | price_desc
     page: int = 1,
     limit: int = 48,
     session: Session = Depends(get_session),
 ):
-    # Latest snapshot per product via correlated subquery
     latest_subq = (
         select(
             PriceSnapshot.product_id,
@@ -61,7 +58,6 @@ def browse(
     if max_price is not None:
         stmt = stmt.where(PriceSnapshot.price <= max_price)
 
-    # Apply sort before pagination
     if sort == "price_asc":
         stmt = stmt.order_by(PriceSnapshot.price.asc())
     elif sort == "price_desc":
@@ -90,26 +86,13 @@ def browse(
                         "thumbnail": parsed.get("thumbnail"),
                         "bgg_url": parsed.get("bgg_url"),
                     }
-
-        # Filter by BGG rating after fetching (SQLite can't query JSON inline)
-        if min_bgg_rating and bgg_data:
-            try:
-                if float(bgg_data.get("avg_rating") or 0) < min_bgg_rating:
-                    continue
-            except (TypeError, ValueError):
-                continue
-        elif min_bgg_rating and not bgg_data:
-            continue
-
-        results.append({
-            "product": product,
-            "latest_price": snap,
-            "bgg": bgg_data,
-        })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        results.append({"product": product, "latest_price": snap, "bgg": bgg_data})
 
     return {"items": results, "page": page, "limit": limit}
 
 
 @router.get("/stores")
 def browse_stores(session: Session = Depends(get_session)):
-    return session.exec(select(Store).where(Store.enabled == True)).all()
+    return session.exec(select(Store).where(Store.enabled)).all()
