@@ -1,0 +1,20 @@
+services:
+  app:
+    image: ghcr.io/dr-blank/gamedrop:latest
+    # To build locally instead:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: gamedrop
+    restart: unless-stopped
+    ports:
+      - "8765:8000"
+    volumes:
+      - gamedrop-data:/data
+    env_file:
+      - backend/.env
+    environment:
+      - DATA_DIR=/data
+
+volumes:
+  gamedrop-data:
