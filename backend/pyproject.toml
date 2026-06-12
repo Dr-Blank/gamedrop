@@ -1,6 +1,6 @@
 [project]
 name = "gamedrop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Self-hostable price tracker for board game buyers"
 requires-python = ">=3.12"
 dependencies = [
