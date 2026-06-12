@@ -41,6 +41,10 @@
 	let editingConfig = $state({}); // store_id → { timeout_sec, request_delay_sec, sync_interval_hours }
 	let savingConfig = $state({});
 
+	// basic field editing — keyed by store id
+	let editingBasic = $state({}); // store_id → { name, base_url, collection_path }
+	let savingBasic = $state({});
+
 	// product search
 	let selectedStore = $state('');
 	let productQuery = $state('');
@@ -67,6 +71,34 @@
 	function cancelEditCfg(id) {
 		delete editingConfig[id];
 		editingConfig = { ...editingConfig };
+	}
+
+	function startEditBasic(store) {
+		editingBasic[store.id] = {
+			name: store.name,
+			base_url: store.base_url,
+			collection_path: store.collection_path
+		};
+	}
+
+	function cancelEditBasic(id) {
+		delete editingBasic[id];
+		editingBasic = { ...editingBasic };
+	}
+
+	async function saveBasic(store) {
+		savingBasic[store.id] = true;
+		try {
+			await patchStore(store.id, {
+				name: editingBasic[store.id].name,
+				base_url: editingBasic[store.id].base_url,
+				collection_path: editingBasic[store.id].collection_path
+			});
+			await load();
+			cancelEditBasic(store.id);
+		} finally {
+			savingBasic[store.id] = false;
+		}
 	}
 
 	async function saveCfg(store) {
@@ -214,6 +246,7 @@
 						<Table.Head>Name</Table.Head>
 						<Table.Head>Type</Table.Head>
 						<Table.Head>URL</Table.Head>
+						<Table.Head>Path</Table.Head>
 						<Table.Head>Scrape config</Table.Head>
 						<Table.Head>Last sync</Table.Head>
 						<Table.Head></Table.Head>
@@ -223,20 +256,38 @@
 					{#each stores as store}
 						<Table.Row>
 							<Table.Cell class="font-medium">
-								{store.name}
-								{#if !store.enabled}
-									<Badge variant="secondary" class="ml-1 text-xs">disabled</Badge>
+								{#if editingBasic[store.id]}
+									<Input bind:value={editingBasic[store.id].name} class="h-7 w-40 text-xs" />
+								{:else}
+									{store.name}
+									{#if !store.enabled}
+										<Badge variant="secondary" class="ml-1 text-xs">disabled</Badge>
+									{/if}
 								{/if}
 							</Table.Cell>
 							<Table.Cell><Badge variant="outline">{store.type}</Badge></Table.Cell>
 							<Table.Cell class="text-sm">
-								<a
-									href={store.base_url}
-									target="_blank"
-									class="text-muted-foreground hover:underline"
-								>
-									{store.base_url}
-								</a>
+								{#if editingBasic[store.id]}
+									<Input bind:value={editingBasic[store.id].base_url} class="h-7 w-48 text-xs" />
+								{:else}
+									<a
+										href={store.base_url}
+										target="_blank"
+										class="text-muted-foreground hover:underline"
+									>
+										{store.base_url}
+									</a>
+								{/if}
+							</Table.Cell>
+							<Table.Cell>
+								{#if editingBasic[store.id]}
+									<Input
+										bind:value={editingBasic[store.id].collection_path}
+										class="h-7 w-36 text-xs"
+									/>
+								{:else}
+									<span class="text-xs text-muted-foreground">{store.collection_path}</span>
+								{/if}
 							</Table.Cell>
 							<Table.Cell class="min-w-64 text-sm">
 								{#if editingConfig[store.id]}
@@ -320,6 +371,35 @@
 							</Table.Cell>
 							<Table.Cell>
 								<div class="flex flex-col items-start gap-1">
+									<div class="flex items-center gap-1">
+										{#if editingBasic[store.id]}
+											<Button
+												size="sm"
+												onclick={() => saveBasic(store)}
+												disabled={savingBasic[store.id]}
+												class="h-6 text-xs"
+											>
+												{savingBasic[store.id] ? 'Saving…' : 'Save'}
+											</Button>
+											<Button
+												size="sm"
+												variant="ghost"
+												onclick={() => cancelEditBasic(store.id)}
+												class="h-6 text-xs"
+											>
+												Cancel
+											</Button>
+										{:else}
+											<Button
+												size="sm"
+												variant="ghost"
+												onclick={() => startEditBasic(store)}
+												class="h-6 text-xs"
+											>
+												Edit details
+											</Button>
+										{/if}
+									</div>
 									<div class="flex items-center gap-2">
 										<Button
 											size="sm"

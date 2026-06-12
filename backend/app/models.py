@@ -26,6 +26,7 @@ class Product(SQLModel, table=True):
     title: str
     handle: str | None = None
     url: str | None = None
+    image_url: str | None = None
     bgg_id: int | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -56,6 +57,9 @@ class WatchlistItem(SQLModel, table=True):
     target_price: float | None = None
     last_notified_price: float | None = None
     active: bool = True
+    notify_price_drop: bool = True
+    notify_back_in_stock: bool = True
+    notify_target_reached: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

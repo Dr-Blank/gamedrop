@@ -5,7 +5,8 @@
 		removeWatchlist,
 		updateWatchlist,
 		priceSearch,
-		addWatchlist
+		addWatchlist,
+		priceHistory
 	} from '$lib/api.js';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
@@ -16,6 +17,53 @@
 	let watchlist = $state([]);
 	let loading = $state(true);
 	let error = $state('');
+	let sortBy = $state('name_asc');
+	let priceHistories = $state({});
+
+	function sparkline(history) {
+		if (!history || history.length < 2) return null;
+		const prices = [...history]
+			.reverse()
+			.slice(-30)
+			.map((h) => h.price);
+		const min = Math.min(...prices);
+		const max = Math.max(...prices);
+		const range = max - min || 1;
+		const w = 120,
+			h = 40,
+			pad = 2;
+		const points = prices
+			.map((p, i) => {
+				const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
+				const y = pad + (1 - (p - min) / range) * (h - pad * 2);
+				return `${x.toFixed(1)},${y.toFixed(1)}`;
+			})
+			.join(' ');
+		return points;
+	}
+
+	let sortedWatchlist = $derived(
+		[...watchlist].sort((a, b) => {
+			if (sortBy === 'name_asc') return a.product.title.localeCompare(b.product.title);
+			if (sortBy === 'name_desc') return b.product.title.localeCompare(a.product.title);
+			if (sortBy === 'price_asc') {
+				const pa = a.latest_price?.price ?? Infinity;
+				const pb = b.latest_price?.price ?? Infinity;
+				return pa - pb;
+			}
+			if (sortBy === 'price_desc') {
+				const pa = a.latest_price?.price ?? 0;
+				const pb = b.latest_price?.price ?? 0;
+				return pb - pa;
+			}
+			if (sortBy === 'stock_first') {
+				const sa = a.latest_price?.available ? 0 : 1;
+				const sb = b.latest_price?.available ? 0 : 1;
+				return sa - sb;
+			}
+			return 0;
+		})
+	);
 
 	// search to add
 	let searchQuery = $state('');
@@ -26,6 +74,12 @@
 	async function load() {
 		try {
 			watchlist = await getWatchlist();
+			const histories = await Promise.all(watchlist.map((item) => priceHistory(item.product.id)));
+			const next = {};
+			histories.forEach((h, i) => {
+				next[watchlist[i].product.id] = h.history;
+			});
+			priceHistories = next;
 		} catch (e) {
 			error = e.message;
 		} finally {
@@ -128,6 +182,20 @@
 	{:else if watchlist.length === 0}
 		<p class="text-muted-foreground">No items on watchlist. Search above to add games.</p>
 	{:else}
+		<div class="flex items-center gap-2">
+			<label class="text-sm text-muted-foreground" for="sort-select">Sort:</label>
+			<select
+				id="sort-select"
+				bind:value={sortBy}
+				class="rounded border bg-background px-3 py-2 text-sm"
+			>
+				<option value="name_asc">Name (A→Z)</option>
+				<option value="name_desc">Name (Z→A)</option>
+				<option value="price_asc">Price (low→high)</option>
+				<option value="price_desc">Price (high→low)</option>
+				<option value="stock_first">Stock first</option>
+			</select>
+		</div>
 		<Card.Root>
 			<Table.Root>
 				<Table.Header>
@@ -141,12 +209,17 @@
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
-					{#each watchlist as item}
+					{#each sortedWatchlist as item}
 						<Table.Row>
 							<Table.Cell class="font-medium">
-								<a href={item.product.url} target="_blank" class="hover:underline">
-									{item.product.title}
-								</a>
+								<a href="/prices/{item.product.id}" class="hover:underline">{item.product.title}</a>
+								{#if item.product.url}
+									<a
+										href={item.product.url}
+										target="_blank"
+										class="ml-1 text-xs text-muted-foreground hover:underline">↗</a
+									>
+								{/if}
 								{#if item.product.bgg_id}
 									<a
 										href="https://boardgamegeek.com/boardgame/{item.product.bgg_id}"
@@ -168,6 +241,17 @@
 									{/if}
 								{:else}
 									<span class="text-muted-foreground">—</span>
+								{/if}
+								{@const pts = sparkline(priceHistories[item.product.id])}
+								{#if pts}
+									<svg viewBox="0 0 120 40" width="120" height="40" class="mt-1 block">
+										<polyline
+											points={pts}
+											fill="none"
+											stroke="hsl(var(--primary))"
+											stroke-width="1.5"
+										/>
+									</svg>
 								{/if}
 							</Table.Cell>
 							<Table.Cell>

@@ -8,6 +8,7 @@
 		{ href: '/', label: 'Watchlist' },
 		{ href: '/browse', label: 'Browse' },
 		{ href: '/stores', label: 'Stores' },
+		{ href: '/notifications', label: 'Notifications' },
 		{ href: '/settings', label: 'Settings' },
 		{ href: '/logs', label: 'Logs' }
 	];

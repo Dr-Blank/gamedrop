@@ -35,6 +35,8 @@ class ShopifyAdapter(StoreAdapter):
                 if not products:
                     break
                 for p in products:
+                    images = p.get("images", [])
+                    image_url = images[0]["src"] if images else None
                     results.append(
                         {
                             "external_id": str(p["id"]),
@@ -45,6 +47,7 @@ class ShopifyAdapter(StoreAdapter):
                                 if p.get("handle")
                                 else None
                             ),
+                            "image_url": image_url,
                             "variants": [
                                 {
                                     "variant_id": str(v["id"]),

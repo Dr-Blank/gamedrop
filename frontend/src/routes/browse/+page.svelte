@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -17,6 +18,8 @@
 	let editItem = $state(null);
 	let editForm = $state({});
 	let saving = $state(false);
+
+	let watchedTitle = $state('');
 
 	let filters = $state({
 		q: '',
@@ -68,8 +71,12 @@
 		await search(false);
 	}
 
-	async function watch(product) {
-		await addWatchlist(product.id, null);
+	async function watch(item) {
+		await addWatchlist(item.product.id, null);
+		watchedTitle = effectiveTitle(item);
+		setTimeout(() => {
+			watchedTitle = '';
+		}, 3000);
 	}
 
 	function stars(rating) {
@@ -252,10 +259,19 @@
 	{:else}
 		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
 			{#each items as item}
-				<Card.Root class="flex flex-col">
+				<Card.Root
+					class="flex cursor-pointer flex-col"
+					onclick={() => goto(`/prices/${item.product.id}`)}
+				>
 					{#if item.bgg?.thumbnail}
 						<img
 							src={item.bgg.thumbnail}
+							alt={effectiveTitle(item)}
+							class="h-32 w-full rounded-t-lg bg-muted/30 object-contain p-2"
+						/>
+					{:else if item.product.image_url}
+						<img
+							src={item.product.image_url}
 							alt={effectiveTitle(item)}
 							class="h-32 w-full rounded-t-lg bg-muted/30 object-contain p-2"
 						/>
@@ -273,7 +289,10 @@
 								{effectiveTitle(item)}
 							</div>
 							<button
-								onclick={() => openEdit(item)}
+								onclick={(e) => {
+									e.stopPropagation();
+									openEdit(item);
+								}}
 								class="shrink-0 rounded p-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
 								title="Edit / override fields">✏️</button
 							>
@@ -332,6 +351,7 @@
 									href={item.override?.url || item.product.url}
 									target="_blank"
 									class="flex-1 text-xs"
+									onclick={(e) => e.stopPropagation()}
 								>
 									Store ↗
 								</Button>
@@ -343,6 +363,7 @@
 									href={item.bgg.bgg_url}
 									target="_blank"
 									class="flex-1 text-xs"
+									onclick={(e) => e.stopPropagation()}
 								>
 									BGG ↗
 								</Button>
@@ -350,18 +371,27 @@
 								<Button
 									size="sm"
 									variant="ghost"
-									onclick={() =>
+									onclick={(e) => {
+										e.stopPropagation();
 										window.open(
 											`https://www.google.com/search?q=${encodeURIComponent('BGG ' + effectiveTitle(item))}`,
 											'_blank'
-										)}
+										);
+									}}
 									class="flex-1 text-xs text-muted-foreground"
 									title="Search BGG on Google"
 								>
 									Find BGG ↗
 								</Button>
 							{/if}
-							<Button size="sm" onclick={() => watch(item.product)} class="flex-1 text-xs">
+							<Button
+								size="sm"
+								onclick={(e) => {
+									e.stopPropagation();
+									watch(item);
+								}}
+								class="flex-1 text-xs"
+							>
 								+ Watch
 							</Button>
 						</div>
@@ -379,6 +409,17 @@
 		{/if}
 	{/if}
 </div>
+
+{#if watchedTitle}
+	<div
+		class="fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-lg bg-green-600 px-4 py-3 text-sm text-white shadow-lg"
+	>
+		<span>✓ {watchedTitle} added to watchlist</span>
+		<button onclick={() => (watchedTitle = '')} class="ml-1 text-white/80 hover:text-white"
+			>×</button
+		>
+	</div>
+{/if}
 
 <!-- Override modal -->
 {#if editItem}

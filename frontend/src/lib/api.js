@@ -45,6 +45,8 @@ export const updateWatchlist = (id, productId, targetPrice) =>
 		method: 'PATCH',
 		body: JSON.stringify({ product_id: productId, target_price: targetPrice || null })
 	});
+export const patchWatchlistItem = (id, body) =>
+	req(`/watchlist/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
 // Settings
 export const getSettings = () => req('/settings/');

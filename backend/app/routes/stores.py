@@ -1,7 +1,8 @@
 import asyncio
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlmodel import Session, desc, select
 
 from ..db import get_session
@@ -9,6 +10,8 @@ from ..models import Product, Store, SyncLog
 from ..scraper import sync_store
 
 router = APIRouter(prefix="/stores", tags=["stores"])
+
+_SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 
 
 class StoreCreate(BaseModel):
@@ -19,6 +22,43 @@ class StoreCreate(BaseModel):
     collection_path: str = "/collections/board-games"
     scrape_config: str | None = None
 
+    @field_validator("id", mode="before")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("id must not be blank")
+        if len(v) > 64:
+            raise ValueError("id must be 64 characters or fewer")
+        if not _SLUG_RE.match(v):
+            raise ValueError("id must match [a-z0-9-]+")
+        return v
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be blank")
+        if len(v) > 128:
+            raise ValueError("name must be 128 characters or fewer")
+        return v
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        v = v.strip()
+        if not (v.startswith("https://") or v.startswith("http://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return v
+
+    @field_validator("collection_path", mode="before")
+    @classmethod
+    def validate_collection_path(cls, v: str) -> str:
+        if v and not v.startswith("/"):
+            raise ValueError("collection_path must start with /")
+        return v
+
 
 class StorePatch(BaseModel):
     name: str | None = None
@@ -26,6 +66,28 @@ class StorePatch(BaseModel):
     collection_path: str | None = None
     enabled: bool | None = None
     scrape_config: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be blank")
+        if len(v) > 128:
+            raise ValueError("name must be 128 characters or fewer")
+        return v
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def validate_base_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not (v.startswith("https://") or v.startswith("http://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return v
 
 
 @router.get("/")
@@ -35,6 +97,8 @@ def list_stores(session: Session = Depends(get_session)):
 
 @router.post("/")
 def create_store(body: StoreCreate, session: Session = Depends(get_session)):
+    if session.get(Store, body.id):
+        raise HTTPException(409, "Store ID already exists")
     store = Store(**body.model_dump(exclude_none=True))
     session.add(store)
     session.commit()

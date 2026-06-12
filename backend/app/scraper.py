@@ -33,6 +33,8 @@ def _check_watchlist(
 
     # back in stock
     if old_snap and not old_snap.available and new_snap.available:
+        if not item.notify_back_in_stock:
+            return
         notify_back_in_stock(
             product.title, new_snap.price, product.url, product.store_id
         )
@@ -51,6 +53,8 @@ def _check_watchlist(
             new_snap.price <= item.target_price
             and item.last_notified_price != new_snap.price
         ):
+            if not item.notify_target_reached:
+                return
             notify_target_reached(
                 product.title,
                 item.target_price,
@@ -65,6 +69,8 @@ def _check_watchlist(
         and new_snap.price < old_price
         and item.last_notified_price != new_snap.price
     ):
+        if not item.notify_price_drop:
+            return
         notify_price_drop(
             product.title, old_price, new_snap.price, product.url, product.store_id
         )
@@ -135,6 +141,7 @@ async def sync_store(store: Store) -> dict:
                 if existing:
                     existing.title = p["title"]
                     existing.url = p["url"]
+                    existing.image_url = p.get("image_url") or existing.image_url
                     existing.updated_at = datetime.utcnow()
                     product = existing
                     updated_products += 1
@@ -145,6 +152,7 @@ async def sync_store(store: Store) -> dict:
                         title=p["title"],
                         handle=p.get("handle"),
                         url=p.get("url"),
+                        image_url=p.get("image_url"),
                     )
                     session.add(product)
                     session.flush()

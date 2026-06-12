@@ -1,7 +1,10 @@
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Product, Store
+from app.models import PriceSnapshot, Product, Store, WatchlistItem
+from app.scraper import _check_watchlist
 
 
 def _seed(session: Session) -> int:
@@ -85,3 +88,97 @@ def test_update_watchlist(client: TestClient, session: Session):
     )
     assert r.status_code == 200
     assert r.json()["target_price"] == 10.0
+
+
+def _seed_for_notify(session: Session, target_price: float | None = None):
+    store = Store(id="sn1", name="SN1", type="shopify", base_url="https://sn1.com")
+    session.add(store)
+    session.commit()
+
+    product = Product(
+        store_id="sn1",
+        external_id="ext-n1",
+        title="Catan Notify",
+        url="https://sn1.com/catan",
+    )
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+
+    watchlist_item = WatchlistItem(
+        product_id=product.id, target_price=target_price, active=True
+    )
+    session.add(watchlist_item)
+    session.commit()
+
+    return product
+
+
+def test_price_drop_triggers_notification(session: Session):
+    product = _seed_for_notify(session)
+    old_snap = PriceSnapshot(product_id=product.id, price=100.0, available=True)
+    session.add(old_snap)
+    session.commit()
+    session.refresh(old_snap)
+
+    new_snap = PriceSnapshot(product_id=product.id, price=80.0, available=True)
+    session.add(new_snap)
+    session.flush()
+
+    with patch("app.scraper.notify_price_drop") as mock_notify:
+        _check_watchlist(session, product, old_snap, new_snap)
+        mock_notify.assert_called_once_with(
+            product.title, 100.0, 80.0, product.url, product.store_id
+        )
+
+
+def test_back_in_stock_triggers_notification(session: Session):
+    product = _seed_for_notify(session)
+    old_snap = PriceSnapshot(product_id=product.id, price=100.0, available=False)
+    session.add(old_snap)
+    session.commit()
+    session.refresh(old_snap)
+
+    new_snap = PriceSnapshot(product_id=product.id, price=100.0, available=True)
+    session.add(new_snap)
+    session.flush()
+
+    with patch("app.scraper.notify_back_in_stock") as mock_notify:
+        _check_watchlist(session, product, old_snap, new_snap)
+        mock_notify.assert_called_once_with(
+            product.title, 100.0, product.url, product.store_id
+        )
+
+
+def test_target_price_hit_triggers_notification(session: Session):
+    product = _seed_for_notify(session, target_price=70.0)
+    old_snap = PriceSnapshot(product_id=product.id, price=100.0, available=True)
+    session.add(old_snap)
+    session.commit()
+    session.refresh(old_snap)
+
+    new_snap = PriceSnapshot(product_id=product.id, price=65.0, available=True)
+    session.add(new_snap)
+    session.flush()
+
+    with patch("app.scraper.notify_target_reached") as mock_notify:
+        _check_watchlist(session, product, old_snap, new_snap)
+        mock_notify.assert_called_once_with(
+            product.title, 70.0, 65.0, product.url, product.store_id
+        )
+
+
+def test_no_notification_price_increase(session: Session):
+    product = _seed_for_notify(session)
+    old_snap = PriceSnapshot(product_id=product.id, price=80.0, available=True)
+    session.add(old_snap)
+    session.commit()
+    session.refresh(old_snap)
+
+    new_snap = PriceSnapshot(product_id=product.id, price=100.0, available=True)
+    session.add(new_snap)
+    session.flush()
+
+    with patch("app.scraper.notify_price_drop") as mock_notify:
+        _check_watchlist(session, product, old_snap, new_snap)
+        mock_notify.assert_not_called()
