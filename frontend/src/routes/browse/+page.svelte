@@ -1,11 +1,14 @@
 <script>
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { Badge } from '$lib/components/ui/badge';
+	import { fly } from 'svelte/transition';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Card from '$lib/components/ui/card';
 	import { addWatchlist, browseSorts, setOverride, clearOverride } from '$lib/api.js';
+	import { toast } from '$lib/toast.svelte.js';
+	import ProductCard from '$lib/components/ProductCard.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
+	import { Compass, SlidersHorizontal, Search, X } from '@lucide/svelte';
 
 	let stores = $state([]);
 	let sortOptions = $state([]);
@@ -13,13 +16,12 @@
 	let loading = $state(false);
 	let page = $state(1);
 	let hasMore = $state(true);
+	let showFilters = $state(false);
 
 	// override modal
 	let editItem = $state(null);
 	let editForm = $state({});
 	let saving = $state(false);
-
-	let watchedTitle = $state('');
 
 	let filters = $state({
 		q: '',
@@ -31,6 +33,23 @@
 		min_bgg_rating: '',
 		sort: 'title'
 	});
+
+	const defaults = {
+		q: '',
+		store_id: '',
+		min_price: '',
+		max_price: '',
+		in_stock: false,
+		has_bgg: false,
+		min_bgg_rating: '',
+		sort: 'title'
+	};
+
+	const activeFilterCount = $derived(
+		['store_id', 'min_price', 'max_price', 'min_bgg_rating'].filter((k) => filters[k]).length +
+			(filters.in_stock ? 1 : 0) +
+			(filters.has_bgg ? 1 : 0)
+	);
 
 	async function fetchMeta() {
 		const [storeRes, sortRes] = await Promise.all([
@@ -60,10 +79,15 @@
 			page = 1;
 			items = [];
 		}
-		const res = await fetch(`/api/browse?${buildQuery(page)}`).then((r) => r.json());
-		items = reset ? res.items : [...items, ...res.items];
-		hasMore = res.items.length === 48;
-		loading = false;
+		try {
+			const res = await fetch(`/api/browse?${buildQuery(page)}`).then((r) => r.json());
+			items = reset ? res.items : [...items, ...res.items];
+			hasMore = res.items.length === 48;
+		} catch (e) {
+			toast.error('Failed to load: ' + e.message);
+		} finally {
+			loading = false;
+		}
 	}
 
 	async function loadMore() {
@@ -71,24 +95,21 @@
 		await search(false);
 	}
 
+	function resetFilters() {
+		filters = { ...defaults };
+		search();
+	}
+
 	async function watch(item) {
 		await addWatchlist(item.product.id, null);
-		watchedTitle = effectiveTitle(item);
-		setTimeout(() => {
-			watchedTitle = '';
-		}, 3000);
+		toast.success(`Watching ${item.override?.title || item.product.title}`);
 	}
 
-	function stars(rating) {
-		if (!rating) return '—';
-		return parseFloat(rating).toFixed(1);
-	}
-
+	// ---- override modal ----
 	function parseBggUrl(input) {
 		const m = input.match(/boardgamegeek\.com\/(?:boardgame|rpg|videogame)\/(\d+)/i);
 		return m ? m[1] : null;
 	}
-
 	function onBggUrlPaste(e) {
 		const val = e.clipboardData?.getData('text') ?? e.target.value;
 		const id = parseBggUrl(val);
@@ -97,12 +118,10 @@
 			editForm._bggPasted = true;
 		}
 	}
-
 	function searchBggOnGoogle() {
-		const q = encodeURIComponent(`BGG ${effectiveTitle(editItem)}`);
+		const q = encodeURIComponent(`BGG ${editItem.override?.title || editItem.product.title}`);
 		window.open(`https://www.google.com/search?q=${q}`, '_blank');
 	}
-
 	function openEdit(item) {
 		editItem = item;
 		const ov = item.override ?? {};
@@ -117,12 +136,10 @@
 			_bggUrlRaw: ''
 		};
 	}
-
 	function closeEdit() {
 		editItem = null;
 		editForm = {};
 	}
-
 	async function saveOverride() {
 		saving = true;
 		try {
@@ -137,35 +154,24 @@
 					editForm.override_available === true || editForm.override_available === 'true';
 			if (editForm.note) body.note = editForm.note;
 			await setOverride(editItem.product.id, body);
+			toast.success('Override saved');
 			await search(true);
 			closeEdit();
 		} finally {
 			saving = false;
 		}
 	}
-
 	async function removeOverride() {
 		if (!confirm('Remove all overrides for this item?')) return;
 		saving = true;
 		try {
 			await clearOverride(editItem.product.id);
+			toast.success('Overrides cleared');
 			await search(true);
 			closeEdit();
 		} finally {
 			saving = false;
 		}
-	}
-
-	function effectiveTitle(item) {
-		return item.override?.title || item.product.title;
-	}
-	function effectivePrice(item) {
-		if (item.override?.override_price != null) return item.override.override_price;
-		return item.latest_price?.price ?? null;
-	}
-	function effectiveAvailable(item) {
-		if (item.override?.override_available != null) return item.override.override_available;
-		return item.latest_price?.available ?? false;
 	}
 
 	onMount(async () => {
@@ -174,234 +180,130 @@
 	});
 </script>
 
-<div class="space-y-4">
-	<h1 class="text-2xl font-bold">Browse</h1>
+<div class="space-y-5">
+	<div class="flex items-center justify-between gap-3">
+		<h1 class="flex items-center gap-2 text-2xl font-bold tracking-tight">
+			<Compass class="size-6 text-primary" /> Browse
+		</h1>
+	</div>
 
-	<!-- Filters -->
-	<Card.Root>
-		<Card.Content class="pt-4">
-			<div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-				<Input
-					bind:value={filters.q}
-					placeholder="Search name…"
-					onkeydown={(e) => e.key === 'Enter' && search()}
-				/>
-				<select
-					bind:value={filters.store_id}
-					class="rounded border bg-background px-3 py-2 text-sm"
+	<!-- Search + filter toggle -->
+	<div class="flex flex-col gap-2 sm:flex-row">
+		<div class="relative flex-1">
+			<Search
+				class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+			/>
+			<Input
+				bind:value={filters.q}
+				placeholder="Search games…"
+				class="pl-9"
+				onkeydown={(e) => e.key === 'Enter' && search()}
+			/>
+		</div>
+		<select
+			bind:value={filters.sort}
+			onchange={() => search()}
+			class="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm transition-colors hover:bg-muted/50"
+		>
+			{#each sortOptions as opt}<option value={opt.key}>{opt.label}</option>{/each}
+		</select>
+		<Button
+			variant="outline"
+			onclick={() => (showFilters = !showFilters)}
+			aria-expanded={showFilters}
+		>
+			<SlidersHorizontal class="size-4" /> Filters
+			{#if activeFilterCount}
+				<span
+					class="ml-1 grid size-5 place-items-center rounded-full bg-primary text-xs text-primary-foreground"
 				>
-					<option value="">All stores</option>
-					{#each stores as s}<option value={s.id}>{s.name}</option>{/each}
-				</select>
-				<div class="flex gap-2">
-					<Input bind:value={filters.min_price} placeholder="Min ₹" type="number" />
-					<Input bind:value={filters.max_price} placeholder="Max ₹" type="number" />
-				</div>
-				<select
-					bind:value={filters.sort}
-					onchange={() => search()}
-					class="rounded border bg-background px-3 py-2 text-sm"
-				>
-					{#each sortOptions as opt}
-						<option value={opt.key}>{opt.label}</option>
-					{/each}
-				</select>
-			</div>
-			<div class="mt-3 flex flex-wrap items-center gap-6">
-				<label class="flex cursor-pointer items-center gap-2 text-sm">
-					<input type="checkbox" bind:checked={filters.in_stock} class="rounded" />
-					In stock only
-				</label>
-				<label class="flex cursor-pointer items-center gap-2 text-sm">
-					<input type="checkbox" bind:checked={filters.has_bgg} class="rounded" />
-					Has BGG data
-				</label>
-				<div class="flex items-center gap-2 text-sm">
-					<span>Min BGG rating:</span>
-					<Input
-						bind:value={filters.min_bgg_rating}
-						type="number"
-						step="0.5"
-						min="1"
-						max="10"
-						class="w-20"
-						placeholder="e.g. 7"
-					/>
-				</div>
-				<Button onclick={() => search()}>Apply</Button>
-				<Button
-					variant="ghost"
-					onclick={() => {
-						filters = {
-							q: '',
-							store_id: '',
-							min_price: '',
-							max_price: '',
-							in_stock: false,
-							has_bgg: false,
-							min_bgg_rating: '',
-							sort: 'title'
-						};
-						search();
-					}}
-				>
-					Reset
-				</Button>
-			</div>
-		</Card.Content>
-	</Card.Root>
+					{activeFilterCount}
+				</span>
+			{/if}
+		</Button>
+		<Button onclick={() => search()}>Apply</Button>
+	</div>
 
-	<!-- Results grid -->
-	{#if loading && items.length === 0}
-		<p class="text-muted-foreground">Loading…</p>
-	{:else if items.length === 0}
-		<p class="text-muted-foreground">No results. Try adjusting filters.</p>
-	{:else}
-		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-			{#each items as item}
-				<Card.Root
-					class="flex cursor-pointer flex-col"
-					onclick={() => goto(`/prices/${item.product.id}`)}
-				>
-					{#if item.bgg?.thumbnail}
-						<img
-							src={item.bgg.thumbnail}
-							alt={effectiveTitle(item)}
-							class="h-32 w-full rounded-t-lg bg-muted/30 object-contain p-2"
-						/>
-					{:else if item.product.image_url}
-						<img
-							src={item.product.image_url}
-							alt={effectiveTitle(item)}
-							class="h-32 w-full rounded-t-lg bg-muted/30 object-contain p-2"
-						/>
-					{:else}
-						<div
-							class="flex h-32 w-full items-center justify-center rounded-t-lg bg-muted/30 text-4xl"
+	<!-- Filter panel -->
+	{#if showFilters}
+		<div transition:fly={{ y: -8, duration: 200 }}>
+			<Card.Root>
+				<Card.Content class="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+					<label class="space-y-1 text-sm">
+						<span class="text-muted-foreground">Store</span>
+						<select
+							bind:value={filters.store_id}
+							class="h-9 w-full rounded-lg border bg-background px-3 text-sm"
 						>
-							🎲
+							<option value="">All stores</option>
+							{#each stores as s}<option value={s.id}>{s.name}</option>{/each}
+						</select>
+					</label>
+					<label class="space-y-1 text-sm">
+						<span class="text-muted-foreground">Price range (₹)</span>
+						<div class="flex gap-2">
+							<Input bind:value={filters.min_price} placeholder="Min" type="number" />
+							<Input bind:value={filters.max_price} placeholder="Max" type="number" />
 						</div>
-					{/if}
+					</label>
+					<label class="space-y-1 text-sm">
+						<span class="text-muted-foreground">Min BGG rating</span>
+						<Input
+							bind:value={filters.min_bgg_rating}
+							type="number"
+							step="0.5"
+							min="1"
+							max="10"
+							placeholder="e.g. 7"
+						/>
+					</label>
+					<div class="flex flex-col justify-end gap-2 text-sm">
+						<label class="flex cursor-pointer items-center gap-2">
+							<input type="checkbox" bind:checked={filters.in_stock} class="size-4 rounded" />
+							In stock only
+						</label>
+						<label class="flex cursor-pointer items-center gap-2">
+							<input type="checkbox" bind:checked={filters.has_bgg} class="size-4 rounded" />
+							Has BGG data
+						</label>
+					</div>
+					<div class="flex gap-2 sm:col-span-2 lg:col-span-4">
+						<Button onclick={() => search()}>Apply filters</Button>
+						<Button variant="ghost" onclick={resetFilters}>
+							<X class="size-4" /> Reset
+						</Button>
+					</div>
+				</Card.Content>
+			</Card.Root>
+		</div>
+	{/if}
 
-					<Card.Content class="flex flex-1 flex-col gap-2 pt-3 pb-3">
-						<div class="flex items-start justify-between gap-1">
-							<div class="line-clamp-2 text-sm leading-tight font-medium">
-								{effectiveTitle(item)}
-							</div>
-							<button
-								onclick={(e) => {
-									e.stopPropagation();
-									openEdit(item);
-								}}
-								class="shrink-0 rounded p-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-								title="Edit / override fields">✏️</button
-							>
-						</div>
-
-						{#if item.override}
-							<Badge variant="outline" class="w-fit text-xs text-amber-600">overridden</Badge>
-						{/if}
-
-						{@const price = effectivePrice(item)}
-						{@const cap = item.latest_price?.compare_at_price}
-						<div class="flex flex-wrap items-center gap-2">
-							{#if price != null}
-								<span class="text-base font-bold">₹{price.toFixed(0)}</span>
-								{#if cap && cap > price}
-									<span class="text-xs text-muted-foreground line-through">
-										₹{cap.toFixed(0)}
-									</span>
-									{#if item.discount_pct}
-										<Badge class="bg-green-100 text-xs text-green-800">-{item.discount_pct}%</Badge>
-									{/if}
-								{/if}
-							{/if}
-							{#if effectiveAvailable(item)}
-								<Badge class="bg-green-100 text-xs text-green-800">In stock</Badge>
-							{:else}
-								<Badge variant="destructive" class="text-xs">OOS</Badge>
-							{/if}
-						</div>
-
-						{#if item.bgg}
-							<div class="flex gap-3 text-xs text-muted-foreground">
-								<span>⭐ {stars(item.bgg.avg_rating)}</span>
-								{#if item.bgg.rank}<span>#{item.bgg.rank}</span>{/if}
-								{#if item.bgg.avg_weight}
-									<span>⚖️ {parseFloat(item.bgg.avg_weight).toFixed(1)}</span>
-								{/if}
-							</div>
-							{#if filters.sort === 'value' && item.bgg.bgg_rating && effectivePrice(item)}
-								<div class="text-xs text-muted-foreground">
-									₹{(effectivePrice(item) / parseFloat(item.bgg.bgg_rating)).toFixed(0)} / rating pt
-								</div>
-							{/if}
-							{#if filters.sort === 'value_weight' && item.bgg.avg_weight && effectivePrice(item)}
-								<div class="text-xs text-muted-foreground">
-									₹{(effectivePrice(item) / parseFloat(item.bgg.avg_weight)).toFixed(0)} / weight unit
-								</div>
-							{/if}
-						{/if}
-
-						<div class="mt-auto flex flex-wrap gap-1 pt-1">
-							{#if item.product.url || item.override?.url}
-								<Button
-									size="sm"
-									variant="outline"
-									href={item.override?.url || item.product.url}
-									target="_blank"
-									class="flex-1 text-xs"
-									onclick={(e) => e.stopPropagation()}
-								>
-									Store ↗
-								</Button>
-							{/if}
-							{#if item.bgg?.bgg_url}
-								<Button
-									size="sm"
-									variant="outline"
-									href={item.bgg.bgg_url}
-									target="_blank"
-									class="flex-1 text-xs"
-									onclick={(e) => e.stopPropagation()}
-								>
-									BGG ↗
-								</Button>
-							{:else}
-								<Button
-									size="sm"
-									variant="ghost"
-									onclick={(e) => {
-										e.stopPropagation();
-										window.open(
-											`https://www.google.com/search?q=${encodeURIComponent('BGG ' + effectiveTitle(item))}`,
-											'_blank'
-										);
-									}}
-									class="flex-1 text-xs text-muted-foreground"
-									title="Search BGG on Google"
-								>
-									Find BGG ↗
-								</Button>
-							{/if}
-							<Button
-								size="sm"
-								onclick={(e) => {
-									e.stopPropagation();
-									watch(item);
-								}}
-								class="flex-1 text-xs"
-							>
-								+ Watch
-							</Button>
-						</div>
-					</Card.Content>
-				</Card.Root>
+	<!-- Results -->
+	{#if loading && items.length === 0}
+		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+			{#each Array(12) as _}
+				<div class="space-y-2 rounded-xl border p-3">
+					<Skeleton class="aspect-[4/3] w-full" />
+					<Skeleton class="h-4 w-3/4" />
+					<Skeleton class="h-4 w-1/2" />
+				</div>
+			{/each}
+		</div>
+	{:else if items.length === 0}
+		<div class="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">
+			<Search class="size-10 text-muted-foreground/40" />
+			<p class="font-medium">No results</p>
+			<p class="text-sm text-muted-foreground">Try adjusting your filters.</p>
+		</div>
+	{:else}
+		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+			{#each items as item (item.product.id)}
+				<ProductCard {item} variant="browse" onwatch={watch} onedit={openEdit} />
 			{/each}
 		</div>
 
 		{#if hasMore}
-			<div class="flex justify-center pt-4">
+			<div class="flex justify-center pt-2">
 				<Button variant="outline" onclick={loadMore} disabled={loading}>
 					{loading ? 'Loading…' : 'Load more'}
 				</Button>
@@ -410,21 +312,16 @@
 	{/if}
 </div>
 
-{#if watchedTitle}
-	<div
-		class="fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-lg bg-green-600 px-4 py-3 text-sm text-white shadow-lg"
-	>
-		<span>✓ {watchedTitle} added to watchlist</span>
-		<button onclick={() => (watchedTitle = '')} class="ml-1 text-white/80 hover:text-white"
-			>×</button
-		>
-	</div>
-{/if}
-
 <!-- Override modal -->
 {#if editItem}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+		transition:fly={{ duration: 150 }}
+	>
+		<div
+			class="w-full max-w-md rounded-xl border bg-background p-6 shadow-xl"
+			transition:fly={{ y: 12 }}
+		>
 			<h2 class="mb-1 text-lg font-semibold">Override fields</h2>
 			<p class="mb-4 text-xs text-muted-foreground">
 				Values here take priority over scraped data. Leave blank to keep scraped value.
@@ -448,27 +345,18 @@
 							placeholder={editItem.product.bgg_id ?? 'e.g. 167791'}
 							class="flex-1"
 						/>
-						<Button
-							size="sm"
-							variant="outline"
-							onclick={searchBggOnGoogle}
-							title="Search Google for this game on BGG"
-						>
-							Search BGG ↗
-						</Button>
+						<Button size="sm" variant="outline" onclick={searchBggOnGoogle}>Search BGG ↗</Button>
 					</div>
-					<div class="mt-1 flex gap-2">
-						<Input
-							bind:value={editForm._bggUrlRaw}
-							placeholder="Paste BGG URL to auto-fill ID"
-							class="flex-1 text-xs"
-							onpaste={onBggUrlPaste}
-							oninput={() => {
-								const id = parseBggUrl(editForm._bggUrlRaw);
-								if (id) editForm.bgg_id = id;
-							}}
-						/>
-					</div>
+					<Input
+						bind:value={editForm._bggUrlRaw}
+						placeholder="Paste BGG URL to auto-fill ID"
+						class="mt-2 text-xs"
+						onpaste={onBggUrlPaste}
+						oninput={() => {
+							const id = parseBggUrl(editForm._bggUrlRaw);
+							if (id) editForm.bgg_id = id;
+						}}
+					/>
 					{#if editForm._bggPasted}
 						<p class="mt-0.5 text-xs text-green-600">✓ BGG ID extracted from URL</p>
 					{/if}
@@ -487,7 +375,7 @@
 						<span class="text-muted-foreground">Override stock</span>
 						<select
 							bind:value={editForm.override_available}
-							class="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+							class="mt-1 h-9 w-full rounded-lg border bg-background px-3 text-sm"
 						>
 							<option value="">— keep scraped —</option>
 							<option value="true">In stock</option>
@@ -496,7 +384,7 @@
 					</label>
 				</div>
 				<label class="block text-sm">
-					<span class="text-muted-foreground">Note (why you overrode this)</span>
+					<span class="text-muted-foreground">Note</span>
 					<Input
 						bind:value={editForm.note}
 						placeholder="e.g. price includes shipping"
@@ -512,7 +400,7 @@
 				<Button variant="ghost" onclick={closeEdit}>Cancel</Button>
 				{#if editItem.override}
 					<Button variant="destructive" class="ml-auto" onclick={removeOverride} disabled={saving}>
-						Clear all overrides
+						Clear all
 					</Button>
 				{/if}
 			</div>

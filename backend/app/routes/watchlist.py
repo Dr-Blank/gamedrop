@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, desc, select
+from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import PriceSnapshot, Product, Store, WatchlistItem
+from ..models import Product, WatchlistItem
+from ..repositories import watchlist as wl_repo
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -26,28 +27,7 @@ class WatchlistPatch(BaseModel):
 
 @router.get("/")
 def list_watchlist(session: Session = Depends(get_session)):
-    items = session.exec(select(WatchlistItem).where(WatchlistItem.active)).all()
-    result = []
-    for item in items:
-        product = session.get(Product, item.product_id)
-        if not product:
-            continue
-        store = session.get(Store, product.store_id)
-        latest = session.exec(
-            select(PriceSnapshot)
-            .where(PriceSnapshot.product_id == item.product_id)
-            .order_by(desc(PriceSnapshot.recorded_at))
-            .limit(1)
-        ).first()
-        result.append(
-            {
-                "watchlist": item,
-                "product": product,
-                "store": store,
-                "latest_price": latest,
-            }
-        )
-    return result
+    return wl_repo.cards(session)
 
 
 @router.post("/")

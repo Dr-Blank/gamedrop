@@ -60,6 +60,16 @@ export const browseStores = () => req('/browse/stores');
 export const browse = (params) => req(`/browse?${new URLSearchParams(params)}`);
 export const browseSorts = () => req('/browse/sorts');
 
+// Home dashboard + discovery feeds
+export const getHome = (shelfSize = 12) => req(`/home?shelf_size=${shelfSize}`);
+export const feedDrops = (page = 1, limit = 24, inStock = false) =>
+	req(`/feed/drops?page=${page}&limit=${limit}${inStock ? '&in_stock=true' : ''}`);
+export const feedNew = (page = 1, limit = 24) => req(`/feed/new?page=${page}&limit=${limit}`);
+export const feedDiscounts = (page = 1, limit = 24) =>
+	req(`/feed/discounts?page=${page}&limit=${limit}`);
+export const searchCatalog = (q, limit = 24) =>
+	req(`/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+
 // Product overrides
 export const setOverride = (productId, body) =>
 	req(`/products/${productId}/override`, { method: 'PUT', body: JSON.stringify(body) });

@@ -1,287 +1,178 @@
 <script>
 	import { onMount } from 'svelte';
-	import {
-		getWatchlist,
-		removeWatchlist,
-		updateWatchlist,
-		priceSearch,
-		addWatchlist,
-		priceHistory
-	} from '$lib/api.js';
-	import * as Card from '$lib/components/ui/card';
-	import * as Table from '$lib/components/ui/table';
-	import { Badge } from '$lib/components/ui/badge';
-	import { Button } from '$lib/components/ui/button';
+	import { goto } from '$app/navigation';
+	import { fade } from 'svelte/transition';
+	import { getHome, addWatchlist, removeWatchlist, updateWatchlist } from '$lib/api.js';
+	import { toast } from '$lib/toast.svelte.js';
+	import Shelf from '$lib/components/Shelf.svelte';
+	import ProductCard from '$lib/components/ProductCard.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import { Input } from '$lib/components/ui/input';
+	import { Button } from '$lib/components/ui/button';
+	import { Search, TrendingDown, Sparkles, Tag, Heart, Compass } from '@lucide/svelte';
 
-	let watchlist = $state([]);
+	let data = $state(/** @type {any} */ (null));
 	let loading = $state(true);
-	let error = $state('');
-	let sortBy = $state('name_asc');
-	let priceHistories = $state({});
-
-	function sparkline(history) {
-		if (!history || history.length < 2) return null;
-		const prices = [...history]
-			.reverse()
-			.slice(-30)
-			.map((h) => h.price);
-		const min = Math.min(...prices);
-		const max = Math.max(...prices);
-		const range = max - min || 1;
-		const w = 120,
-			h = 40,
-			pad = 2;
-		const points = prices
-			.map((p, i) => {
-				const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
-				const y = pad + (1 - (p - min) / range) * (h - pad * 2);
-				return `${x.toFixed(1)},${y.toFixed(1)}`;
-			})
-			.join(' ');
-		return points;
-	}
-
-	let sortedWatchlist = $derived(
-		[...watchlist].sort((a, b) => {
-			if (sortBy === 'name_asc') return a.product.title.localeCompare(b.product.title);
-			if (sortBy === 'name_desc') return b.product.title.localeCompare(a.product.title);
-			if (sortBy === 'price_asc') {
-				const pa = a.latest_price?.price ?? Infinity;
-				const pb = b.latest_price?.price ?? Infinity;
-				return pa - pb;
-			}
-			if (sortBy === 'price_desc') {
-				const pa = a.latest_price?.price ?? 0;
-				const pb = b.latest_price?.price ?? 0;
-				return pb - pa;
-			}
-			if (sortBy === 'stock_first') {
-				const sa = a.latest_price?.available ? 0 : 1;
-				const sb = b.latest_price?.available ? 0 : 1;
-				return sa - sb;
-			}
-			return 0;
-		})
-	);
-
-	// search to add
-	let searchQuery = $state('');
-	let searchResults = $state([]);
-	let searching = $state(false);
-	let targetPrice = $state('');
+	let q = $state('');
 
 	async function load() {
+		loading = true;
 		try {
-			watchlist = await getWatchlist();
-			const histories = await Promise.all(watchlist.map((item) => priceHistory(item.product.id)));
-			const next = {};
-			histories.forEach((h, i) => {
-				next[watchlist[i].product.id] = h.history;
-			});
-			priceHistories = next;
+			data = await getHome(12);
 		} catch (e) {
-			error = e.message;
+			toast.error('Failed to load: ' + e.message);
 		} finally {
 			loading = false;
 		}
 	}
 
-	async function remove(id) {
-		await removeWatchlist(id);
+	function submitSearch() {
+		if (q.trim()) goto(`/search?q=${encodeURIComponent(q.trim())}`);
+	}
+
+	async function watch(item) {
+		await addWatchlist(item.product.id, null);
+		toast.success(`Watching ${item.override?.title || item.product.title}`);
+	}
+
+	async function removeWatch(item) {
+		await removeWatchlist(item.watchlist.id);
+		toast.success(`Removed ${item.product.title}`);
 		await load();
 	}
 
 	async function setTarget(item) {
-		const val = prompt(
-			'Set target price (₹), leave blank for any drop:',
-			item.watchlist.target_price ?? ''
-		);
+		const val = prompt('Target price (₹) — blank for any drop:', item.watchlist.target_price ?? '');
 		if (val === null) return;
-		await updateWatchlist(
-			item.watchlist.id,
-			item.watchlist.product_id,
-			val ? parseFloat(val) : null
-		);
+		await updateWatchlist(item.watchlist.id, item.product.id, val ? parseFloat(val) : null);
+		toast.success('Target updated');
 		await load();
 	}
 
-	async function search() {
-		if (!searchQuery.trim()) return;
-		searching = true;
-		try {
-			searchResults = await priceSearch(searchQuery);
-		} finally {
-			searching = false;
-		}
-	}
-
-	async function addToWatchlist(product) {
-		await addWatchlist(product.id, targetPrice ? parseFloat(targetPrice) : null);
-		searchQuery = '';
-		searchResults = [];
-		targetPrice = '';
-		await load();
-	}
+	// drops carry previous_price → synthesize a 2-point history so the card shows a trend.
+	const dropHistory = (item) =>
+		item.previous_price != null && item.latest_price
+			? [{ price: item.latest_price.price }, { price: item.previous_price }]
+			: [];
 
 	onMount(load);
 </script>
 
-<div class="space-y-6">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-bold">Watchlist</h1>
-	</div>
-
-	<!-- Add to watchlist -->
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Add to watchlist</Card.Title>
-		</Card.Header>
-		<Card.Content class="space-y-3">
-			<div class="flex gap-2">
-				<Input
-					bind:value={searchQuery}
-					placeholder="Search game name…"
-					onkeydown={(e) => e.key === 'Enter' && search()}
-				/>
-				<Input bind:value={targetPrice} placeholder="Target ₹ (optional)" class="w-40" />
-				<Button onclick={search} disabled={searching}>
-					{searching ? 'Searching…' : 'Search'}
-				</Button>
-			</div>
-
-			{#if searchResults.length > 0}
-				<div class="max-h-64 divide-y overflow-y-auto rounded-md border">
-					{#each searchResults as r}
-						<div class="flex items-center justify-between px-4 py-2 text-sm hover:bg-muted/50">
-							<div>
-								<div class="font-medium">{r.product.title}</div>
-								<div class="text-xs text-muted-foreground">{r.product.store_id}</div>
-							</div>
-							<div class="flex items-center gap-3">
-								{#if r.latest_price}
-									<span class="font-semibold">₹{r.latest_price.price.toFixed(0)}</span>
-									{#if !r.latest_price.available}
-										<Badge variant="destructive">OOS</Badge>
-									{/if}
-								{/if}
-								<Button size="sm" onclick={() => addToWatchlist(r.product)}>Watch</Button>
-							</div>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</Card.Content>
-	</Card.Root>
-
-	<!-- Watchlist table -->
-	{#if loading}
-		<p class="text-muted-foreground">Loading…</p>
-	{:else if error}
-		<p class="text-destructive">Error: {error}</p>
-	{:else if watchlist.length === 0}
-		<p class="text-muted-foreground">No items on watchlist. Search above to add games.</p>
-	{:else}
-		<div class="flex items-center gap-2">
-			<label class="text-sm text-muted-foreground" for="sort-select">Sort:</label>
-			<select
-				id="sort-select"
-				bind:value={sortBy}
-				class="rounded border bg-background px-3 py-2 text-sm"
+<div class="space-y-8">
+	<!-- Hero -->
+	<section
+		class="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-background p-6 sm:p-10"
+	>
+		<div class="relative z-10 max-w-2xl space-y-3">
+			<h1 class="text-3xl font-bold tracking-tight sm:text-4xl">
+				Never overpay for a board game again
+			</h1>
+			<p class="text-muted-foreground">
+				Track prices across stores, catch every drop, and pounce when it hits your target.
+			</p>
+			<form
+				onsubmit={(e) => {
+					e.preventDefault();
+					submitSearch();
+				}}
+				class="flex max-w-md gap-2 pt-1"
 			>
-				<option value="name_asc">Name (A→Z)</option>
-				<option value="name_desc">Name (Z→A)</option>
-				<option value="price_asc">Price (low→high)</option>
-				<option value="price_desc">Price (high→low)</option>
-				<option value="stock_first">Stock first</option>
-			</select>
+				<div class="relative flex-1">
+					<Search
+						class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+					/>
+					<Input bind:value={q} placeholder="Search any game…" class="h-11 pl-9" />
+				</div>
+				<Button type="submit" size="lg" class="h-11">Search</Button>
+			</form>
 		</div>
-		<Card.Root>
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Game</Table.Head>
-						<Table.Head>Store</Table.Head>
-						<Table.Head>Current price</Table.Head>
-						<Table.Head>Target</Table.Head>
-						<Table.Head>Stock</Table.Head>
-						<Table.Head></Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each sortedWatchlist as item}
-						<Table.Row>
-							<Table.Cell class="font-medium">
-								<a href="/prices/{item.product.id}" class="hover:underline">{item.product.title}</a>
-								{#if item.product.url}
-									<a
-										href={item.product.url}
-										target="_blank"
-										class="ml-1 text-xs text-muted-foreground hover:underline">↗</a
-									>
-								{/if}
-								{#if item.product.bgg_id}
-									<a
-										href="https://boardgamegeek.com/boardgame/{item.product.bgg_id}"
-										target="_blank"
-										class="ml-2 text-xs text-muted-foreground hover:underline">BGG ↗</a
-									>
-								{/if}
-							</Table.Cell>
-							<Table.Cell class="text-sm text-muted-foreground"
-								>{item.store?.name ?? item.product.store_id}</Table.Cell
-							>
-							<Table.Cell>
-								{#if item.latest_price}
-									<span class="font-semibold">₹{item.latest_price.price.toFixed(0)}</span>
-									{#if item.latest_price.compare_at_price && item.latest_price.compare_at_price > item.latest_price.price}
-										<span class="ml-1 text-xs text-muted-foreground line-through">
-											₹{item.latest_price.compare_at_price.toFixed(0)}
-										</span>
-									{/if}
-								{:else}
-									<span class="text-muted-foreground">—</span>
-								{/if}
-								{@const pts = sparkline(priceHistories[item.product.id])}
-								{#if pts}
-									<svg viewBox="0 0 120 40" width="120" height="40" class="mt-1 block">
-										<polyline
-											points={pts}
-											fill="none"
-											stroke="hsl(var(--primary))"
-											stroke-width="1.5"
-										/>
-									</svg>
-								{/if}
-							</Table.Cell>
-							<Table.Cell>
-								<button class="text-sm hover:underline" onclick={() => setTarget(item)}>
-									{item.watchlist.target_price
-										? `₹${item.watchlist.target_price.toFixed(0)}`
-										: 'any drop'}
-								</button>
-							</Table.Cell>
-							<Table.Cell>
-								{#if item.latest_price?.available}
-									<Badge class="bg-green-100 text-green-800">In stock</Badge>
-								{:else}
-									<Badge variant="destructive">OOS</Badge>
-								{/if}
-							</Table.Cell>
-							<Table.Cell>
-								<div class="flex gap-2">
-									<Button size="sm" variant="outline" href="/prices/{item.product.id}">
-										History
-									</Button>
-									<Button size="sm" variant="destructive" onclick={() => remove(item.watchlist.id)}
-										>Remove</Button
-									>
-								</div>
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Root>
+		<Compass
+			class="pointer-events-none absolute -right-8 -bottom-8 size-48 text-primary/5"
+			strokeWidth={1}
+		/>
+	</section>
+
+	{#snippet skeletonCard()}
+		<div class="space-y-2 rounded-xl border p-3">
+			<Skeleton class="aspect-[4/3] w-full" />
+			<Skeleton class="h-4 w-3/4" />
+			<Skeleton class="h-4 w-1/2" />
+		</div>
+	{/snippet}
+
+	{#if loading}
+		<div class="space-y-8" in:fade>
+			<Shelf
+				title="Price drops"
+				icon={TrendingDown}
+				{loading}
+				skeleton={skeletonCard}
+				card={() => {}}
+			/>
+			<Shelf
+				title="New additions"
+				icon={Sparkles}
+				{loading}
+				skeleton={skeletonCard}
+				card={() => {}}
+			/>
+			<Shelf title="Top discounts" icon={Tag} {loading} skeleton={skeletonCard} card={() => {}} />
+		</div>
+	{:else if data}
+		<div class="space-y-8" in:fade={{ duration: 150 }}>
+			<Shelf
+				title="Price drops"
+				icon={TrendingDown}
+				href="/drops"
+				items={data.price_drops}
+				empty="No price drops yet — they'll show up here after the next sync."
+			>
+				{#snippet card(item)}
+					<ProductCard {item} variant="browse" history={dropHistory(item)} onwatch={watch} />
+				{/snippet}
+			</Shelf>
+
+			<Shelf
+				title="New additions"
+				icon={Sparkles}
+				href="/new"
+				items={data.new_additions}
+				empty="No products tracked yet."
+			>
+				{#snippet card(item)}
+					<ProductCard {item} variant="browse" onwatch={watch} />
+				{/snippet}
+			</Shelf>
+
+			<Shelf
+				title="Top discounts"
+				icon={Tag}
+				href="/browse?sort=discount_pct"
+				items={data.top_discounts}
+				empty="No active discounts right now."
+			>
+				{#snippet card(item)}
+					<ProductCard {item} variant="browse" onwatch={watch} />
+				{/snippet}
+			</Shelf>
+
+			<Shelf
+				title="Your watchlist"
+				icon={Heart}
+				href="/watchlist"
+				items={data.watchlist}
+				empty="Your watchlist is empty. Browse games to start tracking."
+			>
+				{#snippet card(item)}
+					<ProductCard
+						{item}
+						variant="watchlist"
+						target={item.watchlist?.target_price}
+						onremove={() => removeWatch(item)}
+						ontarget={() => setTarget(item)}
+					/>
+				{/snippet}
+			</Shelf>
+		</div>
 	{/if}
 </div>

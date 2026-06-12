@@ -1,74 +1,80 @@
 <script>
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { priceHistory, bggSearch, linkBgg } from '$lib/api.js';
+	import { fly, fade } from 'svelte/transition';
+	import { priceHistory, bggSearch, bggGame, linkBgg, addWatchlist } from '$lib/api.js';
+	import { toast } from '$lib/toast.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import ProductImage from '$lib/components/ProductImage.svelte';
+	import PriceTag from '$lib/components/PriceTag.svelte';
+	import StockBadge from '$lib/components/StockBadge.svelte';
+	import RatingStats from '$lib/components/RatingStats.svelte';
+	import PriceChart from '$lib/components/PriceChart.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import {
-		Chart,
-		LineController,
-		LineElement,
-		PointElement,
-		LinearScale,
-		TimeScale,
-		Tooltip,
-		Legend
-	} from 'chart.js';
-	import 'chart.js/auto';
+		ArrowLeft,
+		ExternalLink,
+		Heart,
+		Users,
+		Clock,
+		Baby,
+		ChevronDown,
+		Link2
+	} from '@lucide/svelte';
 
 	let productId = $derived($page.params.id);
 	let data = $state(null);
+	let bgg = $state(null);
 	let loading = $state(true);
-	let chartEl = $state(null);
-	let chart = $state(null);
+	let showAllSnaps = $state(false);
 
 	let bggQuery = $state('');
 	let bggResults = $state([]);
 	let linking = $state(false);
 
 	async function load() {
+		loading = true;
+		bgg = null;
 		data = await priceHistory(productId);
 		loading = false;
+		if (data?.product?.bgg_id) {
+			bggGame(data.product.bgg_id)
+				.then((g) => (bgg = g))
+				.catch(() => {});
+		}
 	}
 
-	function buildChart() {
-		if (!chartEl || !data?.history?.length) return;
-		if (chart) chart.destroy();
+	const current = $derived(data?.history?.[0] ?? null);
+	const imgSrc = $derived(bgg?.image || bgg?.thumbnail || data?.product?.image_url || '');
+	const players = $derived(
+		bgg?.min_players
+			? bgg.min_players === bgg.max_players
+				? `${bgg.min_players}`
+				: `${bgg.min_players}–${bgg.max_players}`
+			: null
+	);
+	const playtime = $derived(
+		bgg?.min_playtime
+			? bgg.min_playtime === bgg.max_playtime
+				? `${bgg.min_playtime} min`
+				: `${bgg.min_playtime}–${bgg.max_playtime} min`
+			: null
+	);
 
-		const history = [...data.history].reverse();
-		const labels = history.map((h) => new Date(h.recorded_at).toLocaleDateString());
-		const prices = history.map((h) => h.price);
-
-		chart = new Chart(chartEl, {
-			type: 'line',
-			data: {
-				labels,
-				datasets: [
-					{
-						label: 'Price (₹)',
-						data: prices,
-						borderColor: 'hsl(var(--primary))',
-						backgroundColor: 'hsl(var(--primary) / 0.1)',
-						fill: true,
-						tension: 0.3,
-						pointRadius: 4
-					}
-				]
-			},
-			options: {
-				responsive: true,
-				plugins: { legend: { display: false } },
-				scales: {
-					y: { ticks: { callback: (v) => `₹${v}` } }
-				}
-			}
-		});
+	async function watch() {
+		await addWatchlist(Number(productId), null);
+		toast.success('Added to watchlist');
 	}
 
 	async function searchBgg() {
 		if (!data?.product?.title) return;
-		bggResults = await bggSearch(bggQuery || data.product.title);
+		try {
+			bggResults = await bggSearch(bggQuery || data.product.title);
+		} catch (e) {
+			toast.error(e.message);
+		}
 	}
 
 	async function linkGame(bggId) {
@@ -76,56 +82,97 @@
 		try {
 			await linkBgg(bggId, productId);
 			bggResults = [];
+			toast.success('Linked to BGG');
 			await load();
 		} finally {
 			linking = false;
 		}
 	}
 
-	onMount(async () => {
-		await load();
-		buildChart();
-	});
-
-	$effect(() => {
-		if (!loading && chartEl) buildChart();
-	});
+	onMount(load);
 </script>
 
 <div class="space-y-6">
+	<a
+		href="/browse"
+		class="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+	>
+		<ArrowLeft class="size-4" /> Back
+	</a>
+
 	{#if loading}
-		<p class="text-muted-foreground">Loading…</p>
+		<div class="grid gap-6 md:grid-cols-[260px_1fr]">
+			<Skeleton class="aspect-square w-full rounded-xl" />
+			<div class="space-y-3">
+				<Skeleton class="h-8 w-2/3" />
+				<Skeleton class="h-5 w-40" />
+				<Skeleton class="h-20 w-full" />
+			</div>
+		</div>
+		<Skeleton class="h-72 w-full rounded-xl" />
 	{:else if !data}
 		<p class="text-destructive">Product not found</p>
 	{:else}
-		<div class="flex items-start justify-between gap-4">
-			<div>
-				<h1 class="text-2xl font-bold">{data.product.title}</h1>
-				<div class="mt-1 flex gap-2">
-					<Badge variant="outline">{data.product.store_id}</Badge>
-					{#if data.history[0]?.available}
-						<Badge class="bg-green-100 text-green-800">In stock</Badge>
-					{:else}
-						<Badge variant="destructive">OOS</Badge>
+		<!-- Hero -->
+		<div class="grid gap-6 md:grid-cols-[260px_1fr]" in:fade={{ duration: 150 }}>
+			<Card.Root class="overflow-hidden p-0">
+				<ProductImage src={imgSrc} alt={data.product.title} class="aspect-square w-full" />
+			</Card.Root>
+
+			<div class="flex flex-col gap-4">
+				<div>
+					<div class="mb-1 flex flex-wrap items-center gap-2">
+						<Badge variant="outline">{data.product.store_id}</Badge>
+						{#if bgg?.year}<Badge variant="outline">{bgg.year}</Badge>{/if}
+						<StockBadge available={!!current?.available} />
+					</div>
+					<h1 class="text-3xl font-bold tracking-tight">{data.product.title}</h1>
+					{#if bgg}<div class="mt-2"><RatingStats {bgg} /></div>{/if}
+				</div>
+
+				{#if current}
+					<div class="flex items-end gap-4">
+						<PriceTag price={current.price} compareAt={current.compare_at_price} size="lg" />
+					</div>
+				{/if}
+
+				<!-- quick facts -->
+				{#if bgg && (players || playtime || bgg.min_age)}
+					<div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+						{#if players}
+							<span class="inline-flex items-center gap-1.5">
+								<Users class="size-4 text-muted-foreground" />
+								{players} players
+							</span>
+						{/if}
+						{#if playtime}
+							<span class="inline-flex items-center gap-1.5">
+								<Clock class="size-4 text-muted-foreground" />
+								{playtime}
+							</span>
+						{/if}
+						{#if bgg.min_age}
+							<span class="inline-flex items-center gap-1.5">
+								<Baby class="size-4 text-muted-foreground" />
+								{bgg.min_age}+
+							</span>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="mt-auto flex flex-wrap gap-2">
+					<Button onclick={watch}>
+						<Heart class="size-4" /> Watch
+					</Button>
+					{#if data.product.url}
+						<Button variant="outline" href={data.product.url} target="_blank">
+							<ExternalLink class="size-4" /> View on store
+						</Button>
 					{/if}
-					{#if data.history[0]}
-						<span class="text-lg font-semibold">₹{data.history[0].price.toFixed(0)}</span>
+					{#if bgg?.bgg_url}
+						<Button variant="outline" href={bgg.bgg_url} target="_blank">BGG ↗</Button>
 					{/if}
 				</div>
-			</div>
-			<div class="flex gap-2">
-				{#if data.product.url}
-					<Button variant="outline" href={data.product.url} target="_blank">View on store ↗</Button>
-				{/if}
-				{#if data.product.bgg_id}
-					<Button
-						variant="outline"
-						href="https://boardgamegeek.com/boardgame/{data.product.bgg_id}"
-						target="_blank"
-					>
-						BGG ↗
-					</Button>
-				{/if}
 			</div>
 		</div>
 
@@ -134,70 +181,112 @@
 			<Card.Root>
 				<Card.Header><Card.Title>Price history</Card.Title></Card.Header>
 				<Card.Content>
-					<canvas bind:this={chartEl} height="120"></canvas>
+					<PriceChart history={data.history} />
 				</Card.Content>
 			</Card.Root>
 		{:else}
-			<p class="text-sm text-muted-foreground">
-				Not enough price history yet (need 2+ data points).
-			</p>
+			<Card.Root>
+				<Card.Content class="p-6 text-sm text-muted-foreground">
+					Not enough price history yet — need at least 2 data points. Check back after the next
+					sync.
+				</Card.Content>
+			</Card.Root>
 		{/if}
 
-		<!-- Price table -->
+		<!-- Description -->
+		{#if bgg?.description}
+			<Card.Root>
+				<Card.Header><Card.Title>About</Card.Title></Card.Header>
+				<Card.Content class="text-sm leading-relaxed text-muted-foreground">
+					{bgg.description}{bgg.description.length >= 500 ? '…' : ''}
+				</Card.Content>
+			</Card.Root>
+		{/if}
+
+		<!-- Snapshots -->
 		<Card.Root>
-			<Card.Header><Card.Title>All snapshots</Card.Title></Card.Header>
-			<Card.Content class="max-h-72 overflow-y-auto">
-				<table class="w-full text-sm">
-					<thead class="sticky top-0 border-b bg-background">
-						<tr>
-							<th class="py-1 text-left font-medium">Date</th>
-							<th class="py-1 text-left font-medium">Price</th>
-							<th class="py-1 text-left font-medium">Stock</th>
-						</tr>
-					</thead>
-					<tbody class="divide-y">
-						{#each data.history as snap}
+			<Card.Header class="flex-row items-center justify-between">
+				<Card.Title>Price snapshots</Card.Title>
+				<span class="text-xs text-muted-foreground">{data.history.length} records</span>
+			</Card.Header>
+			<Card.Content>
+				<div class="overflow-hidden rounded-lg border">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/50 text-muted-foreground">
 							<tr>
-								<td class="py-1 text-muted-foreground"
-									>{new Date(snap.recorded_at).toLocaleString()}</td
-								>
-								<td class="py-1 font-semibold">₹{snap.price.toFixed(0)}</td>
-								<td class="py-1">
-									{#if snap.available}
-										<span class="text-green-600">✓</span>
-									{:else}
-										<span class="text-red-500">✗</span>
-									{/if}
-								</td>
+								<th class="px-3 py-2 text-left font-medium">Date</th>
+								<th class="px-3 py-2 text-right font-medium">Price</th>
+								<th class="px-3 py-2 text-center font-medium">Stock</th>
 							</tr>
-						{/each}
-					</tbody>
-				</table>
+						</thead>
+						<tbody class="divide-y">
+							{#each showAllSnaps ? data.history : data.history.slice(0, 8) as snap}
+								<tr class="transition-colors hover:bg-muted/30">
+									<td class="px-3 py-2 text-muted-foreground">
+										{new Date(snap.recorded_at).toLocaleString('en-IN', {
+											day: 'numeric',
+											month: 'short',
+											year: 'numeric',
+											hour: '2-digit',
+											minute: '2-digit'
+										})}
+									</td>
+									<td class="px-3 py-2 text-right font-semibold tabular-nums">
+										₹{snap.price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+									</td>
+									<td class="px-3 py-2 text-center">
+										{#if snap.available}
+											<span class="text-green-600 dark:text-green-400">●</span>
+										{:else}
+											<span class="text-destructive">●</span>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				{#if data.history.length > 8}
+					<button
+						onclick={() => (showAllSnaps = !showAllSnaps)}
+						class="mt-3 inline-flex items-center gap-1 text-sm text-primary hover:underline"
+					>
+						<ChevronDown class="size-4 transition-transform {showAllSnaps ? 'rotate-180' : ''}" />
+						{showAllSnaps ? 'Show less' : `Show all ${data.history.length}`}
+					</button>
+				{/if}
 			</Card.Content>
 		</Card.Root>
 
 		<!-- Link BGG -->
 		{#if !data.product.bgg_id}
 			<Card.Root>
-				<Card.Header><Card.Title>Link to BGG game</Card.Title></Card.Header>
+				<Card.Header>
+					<Card.Title class="flex items-center gap-2">
+						<Link2 class="size-4" /> Link to BoardGameGeek
+					</Card.Title>
+				</Card.Header>
 				<Card.Content class="space-y-3">
 					<div class="flex gap-2">
 						<input
 							bind:value={bggQuery}
 							placeholder={data.product.title}
-							class="flex-1 rounded border bg-background px-3 py-2 text-sm"
+							class="h-9 flex-1 rounded-lg border bg-background px-3 text-sm"
 							onkeydown={(e) => e.key === 'Enter' && searchBgg()}
 						/>
 						<Button onclick={searchBgg} variant="outline">Search BGG</Button>
 					</div>
 					{#if bggResults.length > 0}
-						<div class="max-h-48 divide-y overflow-y-auto rounded border">
+						<div
+							class="max-h-56 divide-y overflow-y-auto rounded-lg border"
+							transition:fly={{ y: -8 }}
+						>
 							{#each bggResults.slice(0, 10) as r}
-								<div class="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted/50">
+								<div class="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted/40">
 									<span>{r.name} {r.year ? `(${r.year})` : ''}</span>
-									<Button size="sm" onclick={() => linkGame(r.bgg_id)} disabled={linking}
-										>Link</Button
-									>
+									<Button size="sm" onclick={() => linkGame(r.bgg_id)} disabled={linking}>
+										Link
+									</Button>
 								</div>
 							{/each}
 						</div>
