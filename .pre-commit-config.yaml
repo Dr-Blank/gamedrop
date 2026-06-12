@@ -5,3 +5,27 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: Frontend lint (Prettier)
+        language: system
+        entry: bash -c 'cd frontend && bun run lint'
+        pass_filenames: false
+        files: ^frontend/
+
+      - id: backend-test
+        name: Backend tests (pytest)
+        language: system
+        entry: bash -c 'cd backend && uv run pytest'
+        pass_filenames: false
+        files: ^backend/
+
+      - id: frontend-build
+        name: Frontend build
+        language: system
+        entry: bash -c 'cd frontend && bun run build'
+        pass_filenames: false
+        files: ^frontend/
+        stages: [pre-push]

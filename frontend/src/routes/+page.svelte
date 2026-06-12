@@ -1,6 +1,12 @@
 <script>
 	import { onMount } from 'svelte';
-	import { getWatchlist, removeWatchlist, updateWatchlist, priceSearch, addWatchlist } from '$lib/api.js';
+	import {
+		getWatchlist,
+		removeWatchlist,
+		updateWatchlist,
+		priceSearch,
+		addWatchlist
+	} from '$lib/api.js';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
@@ -33,9 +39,16 @@
 	}
 
 	async function setTarget(item) {
-		const val = prompt('Set target price (₹), leave blank for any drop:', item.watchlist.target_price ?? '');
+		const val = prompt(
+			'Set target price (₹), leave blank for any drop:',
+			item.watchlist.target_price ?? ''
+		);
 		if (val === null) return;
-		await updateWatchlist(item.watchlist.id, item.watchlist.product_id, val ? parseFloat(val) : null);
+		await updateWatchlist(
+			item.watchlist.id,
+			item.watchlist.product_id,
+			val ? parseFloat(val) : null
+		);
 		await load();
 	}
 
@@ -84,12 +97,12 @@
 			</div>
 
 			{#if searchResults.length > 0}
-				<div class="border rounded-md divide-y max-h-64 overflow-y-auto">
+				<div class="max-h-64 divide-y overflow-y-auto rounded-md border">
 					{#each searchResults as r}
 						<div class="flex items-center justify-between px-4 py-2 text-sm hover:bg-muted/50">
 							<div>
 								<div class="font-medium">{r.product.title}</div>
-								<div class="text-muted-foreground text-xs">{r.product.store_id}</div>
+								<div class="text-xs text-muted-foreground">{r.product.store_id}</div>
 							</div>
 							<div class="flex items-center gap-3">
 								{#if r.latest_price}
@@ -138,16 +151,18 @@
 									<a
 										href="https://boardgamegeek.com/boardgame/{item.product.bgg_id}"
 										target="_blank"
-										class="ml-2 text-xs text-muted-foreground hover:underline"
-									>BGG ↗</a>
+										class="ml-2 text-xs text-muted-foreground hover:underline">BGG ↗</a
+									>
 								{/if}
 							</Table.Cell>
-							<Table.Cell class="text-sm text-muted-foreground">{item.store?.name ?? item.product.store_id}</Table.Cell>
+							<Table.Cell class="text-sm text-muted-foreground"
+								>{item.store?.name ?? item.product.store_id}</Table.Cell
+							>
 							<Table.Cell>
 								{#if item.latest_price}
 									<span class="font-semibold">₹{item.latest_price.price.toFixed(0)}</span>
 									{#if item.latest_price.compare_at_price && item.latest_price.compare_at_price > item.latest_price.price}
-										<span class="ml-1 text-xs line-through text-muted-foreground">
+										<span class="ml-1 text-xs text-muted-foreground line-through">
 											₹{item.latest_price.compare_at_price.toFixed(0)}
 										</span>
 									{/if}
@@ -156,11 +171,10 @@
 								{/if}
 							</Table.Cell>
 							<Table.Cell>
-								<button
-									class="text-sm hover:underline"
-									onclick={() => setTarget(item)}
-								>
-									{item.watchlist.target_price ? `₹${item.watchlist.target_price.toFixed(0)}` : 'any drop'}
+								<button class="text-sm hover:underline" onclick={() => setTarget(item)}>
+									{item.watchlist.target_price
+										? `₹${item.watchlist.target_price.toFixed(0)}`
+										: 'any drop'}
 								</button>
 							</Table.Cell>
 							<Table.Cell>
@@ -175,11 +189,9 @@
 									<Button size="sm" variant="outline" href="/prices/{item.product.id}">
 										History
 									</Button>
-									<Button
-										size="sm"
-										variant="destructive"
-										onclick={() => remove(item.watchlist.id)}
-									>Remove</Button>
+									<Button size="sm" variant="destructive" onclick={() => remove(item.watchlist.id)}
+										>Remove</Button
+									>
 								</div>
 							</Table.Cell>
 						</Table.Row>

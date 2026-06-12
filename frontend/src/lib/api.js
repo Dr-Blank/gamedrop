@@ -17,6 +17,7 @@ export const patchStore = (id, body) =>
 export const deleteStore = (id) => req(`/stores/${id}`, { method: 'DELETE' });
 export const syncStore = (id) => req(`/stores/${id}/sync`, { method: 'POST' });
 export const syncAllStores = () => req('/stores/sync-all', { method: 'POST' });
+export const getStoreLogs = (id, limit = 20) => req(`/stores/${id}/logs?limit=${limit}`);
 export const searchProducts = (storeId, q) =>
 	req(`/stores/${storeId}/products?q=${encodeURIComponent(q)}`);
 

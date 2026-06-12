@@ -10,7 +10,7 @@
 		bgg_api_token: '',
 		ntfy_server: '',
 		ntfy_topic: '',
-		ntfy_token: '',
+		ntfy_token: ''
 	});
 	let saving = $state(false);
 	let saved = $state(false);
@@ -38,7 +38,7 @@
 		await fetch(API, {
 			method: 'PUT',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(form),
+			body: JSON.stringify(form)
 		});
 		saving = false;
 		saved = true;
@@ -61,7 +61,7 @@
 	onMount(load);
 </script>
 
-<div class="space-y-6 max-w-2xl">
+<div class="max-w-2xl space-y-6">
 	<h1 class="text-2xl font-bold">Settings</h1>
 
 	<!-- BGG API -->
@@ -70,11 +70,9 @@
 			<Card.Title>BoardGameGeek API</Card.Title>
 			<Card.Description>
 				Required for ratings, rankings, and game data. Register at
-				<a
-					href="https://boardgamegeek.com/using_the_xml_api"
-					target="_blank"
-					class="underline"
-				>boardgamegeek.com/using_the_xml_api</a> (must be logged in).
+				<a href="https://boardgamegeek.com/using_the_xml_api" target="_blank" class="underline"
+					>boardgamegeek.com/using_the_xml_api</a
+				> (must be logged in).
 			</Card.Description>
 		</Card.Header>
 		<Card.Content class="space-y-3">
@@ -84,7 +82,9 @@
 					id="bgg-token"
 					type="password"
 					bind:value={form.bgg_api_token}
-					placeholder={bggTokenSet ? '••••••••  (already set — paste new to replace)' : 'Paste your BGG bearer token'}
+					placeholder={bggTokenSet
+						? '••••••••  (already set — paste new to replace)'
+						: 'Paste your BGG bearer token'}
 				/>
 			</div>
 			<div class="flex items-center gap-3">
@@ -93,7 +93,8 @@
 				</Button>
 				{#if testBgg.message}
 					<span class="text-sm {testBgg.ok ? 'text-green-600' : 'text-destructive'}">
-						{testBgg.ok ? '✓' : '✗'} {testBgg.message}
+						{testBgg.ok ? '✓' : '✗'}
+						{testBgg.message}
 					</span>
 				{/if}
 			</div>
@@ -120,7 +121,11 @@
 				</div>
 			</div>
 			<div class="space-y-1">
-				<label for="ntfy-token" class="text-sm font-medium">Access token <span class="text-muted-foreground font-normal">(optional — only if your server requires auth)</span></label>
+				<label for="ntfy-token" class="text-sm font-medium"
+					>Access token <span class="font-normal text-muted-foreground"
+						>(optional — only if your server requires auth)</span
+					></label
+				>
 				<Input
 					id="ntfy-token"
 					type="password"
@@ -134,7 +139,8 @@
 				</Button>
 				{#if testNtfy.message}
 					<span class="text-sm {testNtfy.ok ? 'text-green-600' : 'text-destructive'}">
-						{testNtfy.ok ? '✓' : '✗'} {testNtfy.message}
+						{testNtfy.ok ? '✓' : '✗'}
+						{testNtfy.message}
 					</span>
 				{/if}
 			</div>
@@ -155,11 +161,11 @@
 	<Card.Root class="border-dashed">
 		<Card.Content class="pt-4">
 			<p class="text-sm text-muted-foreground">
-				<strong>Headless / Docker deployment?</strong> All settings can also be set via environment variables
-				in <code class="font-mono bg-muted px-1 rounded">backend/.env</code> —
-				the UI takes priority if both are set.
+				<strong>Headless / Docker deployment?</strong> All settings can also be set via environment
+				variables in <code class="rounded bg-muted px-1 font-mono">backend/.env</code> — the UI takes
+				priority if both are set.
 			</p>
-			<pre class="mt-2 text-xs bg-muted rounded p-3 font-mono">BGG_API_TOKEN=your_token
+			<pre class="mt-2 rounded bg-muted p-3 font-mono text-xs">BGG_API_TOKEN=your_token
 NTFY_SERVER=https://ntfy.example.com
 NTFY_TOPIC=board-game-tracker
 NTFY_TOKEN=optional_access_token</pre>

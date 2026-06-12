@@ -5,7 +5,16 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { Chart, LineController, LineElement, PointElement, LinearScale, TimeScale, Tooltip, Legend } from 'chart.js';
+	import {
+		Chart,
+		LineController,
+		LineElement,
+		PointElement,
+		LinearScale,
+		TimeScale,
+		Tooltip,
+		Legend
+	} from 'chart.js';
 	import 'chart.js/auto';
 
 	let productId = $derived($page.params.id);
@@ -35,15 +44,17 @@
 			type: 'line',
 			data: {
 				labels,
-				datasets: [{
-					label: 'Price (₹)',
-					data: prices,
-					borderColor: 'hsl(var(--primary))',
-					backgroundColor: 'hsl(var(--primary) / 0.1)',
-					fill: true,
-					tension: 0.3,
-					pointRadius: 4,
-				}]
+				datasets: [
+					{
+						label: 'Price (₹)',
+						data: prices,
+						borderColor: 'hsl(var(--primary))',
+						backgroundColor: 'hsl(var(--primary) / 0.1)',
+						fill: true,
+						tension: 0.3,
+						pointRadius: 4
+					}
+				]
 			},
 			options: {
 				responsive: true,
@@ -90,7 +101,7 @@
 		<div class="flex items-start justify-between gap-4">
 			<div>
 				<h1 class="text-2xl font-bold">{data.product.title}</h1>
-				<div class="flex gap-2 mt-1">
+				<div class="mt-1 flex gap-2">
 					<Badge variant="outline">{data.product.store_id}</Badge>
 					{#if data.history[0]?.available}
 						<Badge class="bg-green-100 text-green-800">In stock</Badge>
@@ -98,7 +109,7 @@
 						<Badge variant="destructive">OOS</Badge>
 					{/if}
 					{#if data.history[0]}
-						<span class="font-semibold text-lg">₹{data.history[0].price.toFixed(0)}</span>
+						<span class="text-lg font-semibold">₹{data.history[0].price.toFixed(0)}</span>
 					{/if}
 				</div>
 			</div>
@@ -107,7 +118,11 @@
 					<Button variant="outline" href={data.product.url} target="_blank">View on store ↗</Button>
 				{/if}
 				{#if data.product.bgg_id}
-					<Button variant="outline" href="https://boardgamegeek.com/boardgame/{data.product.bgg_id}" target="_blank">
+					<Button
+						variant="outline"
+						href="https://boardgamegeek.com/boardgame/{data.product.bgg_id}"
+						target="_blank"
+					>
 						BGG ↗
 					</Button>
 				{/if}
@@ -123,7 +138,9 @@
 				</Card.Content>
 			</Card.Root>
 		{:else}
-			<p class="text-muted-foreground text-sm">Not enough price history yet (need 2+ data points).</p>
+			<p class="text-sm text-muted-foreground">
+				Not enough price history yet (need 2+ data points).
+			</p>
 		{/if}
 
 		<!-- Price table -->
@@ -131,17 +148,19 @@
 			<Card.Header><Card.Title>All snapshots</Card.Title></Card.Header>
 			<Card.Content class="max-h-72 overflow-y-auto">
 				<table class="w-full text-sm">
-					<thead class="sticky top-0 bg-background border-b">
+					<thead class="sticky top-0 border-b bg-background">
 						<tr>
-							<th class="text-left py-1 font-medium">Date</th>
-							<th class="text-left py-1 font-medium">Price</th>
-							<th class="text-left py-1 font-medium">Stock</th>
+							<th class="py-1 text-left font-medium">Date</th>
+							<th class="py-1 text-left font-medium">Price</th>
+							<th class="py-1 text-left font-medium">Stock</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
 						{#each data.history as snap}
 							<tr>
-								<td class="py-1 text-muted-foreground">{new Date(snap.recorded_at).toLocaleString()}</td>
+								<td class="py-1 text-muted-foreground"
+									>{new Date(snap.recorded_at).toLocaleString()}</td
+								>
 								<td class="py-1 font-semibold">₹{snap.price.toFixed(0)}</td>
 								<td class="py-1">
 									{#if snap.available}
@@ -166,17 +185,19 @@
 						<input
 							bind:value={bggQuery}
 							placeholder={data.product.title}
-							class="border rounded px-3 py-2 text-sm flex-1 bg-background"
+							class="flex-1 rounded border bg-background px-3 py-2 text-sm"
 							onkeydown={(e) => e.key === 'Enter' && searchBgg()}
 						/>
 						<Button onclick={searchBgg} variant="outline">Search BGG</Button>
 					</div>
 					{#if bggResults.length > 0}
-						<div class="border rounded divide-y max-h-48 overflow-y-auto">
+						<div class="max-h-48 divide-y overflow-y-auto rounded border">
 							{#each bggResults.slice(0, 10) as r}
 								<div class="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted/50">
 									<span>{r.name} {r.year ? `(${r.year})` : ''}</span>
-									<Button size="sm" onclick={() => linkGame(r.bgg_id)} disabled={linking}>Link</Button>
+									<Button size="sm" onclick={() => linkGame(r.bgg_id)} disabled={linking}
+										>Link</Button
+									>
 								</div>
 							{/each}
 						</div>
