@@ -56,3 +56,15 @@ export const testNtfyConnection = () => req('/settings/test/ntfy', { method: 'PO
 // Browse
 export const browseStores = () => req('/browse/stores');
 export const browse = (params) => req(`/browse?${new URLSearchParams(params)}`);
+export const browseSorts = () => req('/browse/sorts');
+
+// Product overrides
+export const setOverride = (productId, body) =>
+	req(`/products/${productId}/override`, { method: 'PUT', body: JSON.stringify(body) });
+export const clearOverride = (productId) =>
+	req(`/products/${productId}/override`, { method: 'DELETE' });
+
+// App logs
+export const getAppLogs = (level, limit = 200) => req(`/logs/?level=${level ?? ''}&limit=${limit}`);
+export const getGithubIssueExport = (level = 'ERROR') =>
+	fetch(`/api/logs/github-issue?level=${level}`).then((r) => r.text());

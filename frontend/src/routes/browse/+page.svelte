@@ -4,13 +4,19 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Card from '$lib/components/ui/card';
-	import { addWatchlist } from '$lib/api.js';
+	import { addWatchlist, browseSorts, setOverride, clearOverride } from '$lib/api.js';
 
 	let stores = $state([]);
+	let sortOptions = $state([]);
 	let items = $state([]);
 	let loading = $state(false);
 	let page = $state(1);
 	let hasMore = $state(true);
+
+	// override modal
+	let editItem = $state(null);
+	let editForm = $state({});
+	let saving = $state(false);
 
 	let filters = $state({
 		q: '',
@@ -23,9 +29,13 @@
 		sort: 'title'
 	});
 
-	async function fetchStores() {
-		const res = await fetch('/api/browse/stores').then((r) => r.json());
-		stores = res;
+	async function fetchMeta() {
+		const [storeRes, sortRes] = await Promise.all([
+			fetch('/api/browse/stores').then((r) => r.json()),
+			browseSorts()
+		]);
+		stores = storeRes;
+		sortOptions = sortRes;
 	}
 
 	function buildQuery(p = 1) {
@@ -67,8 +77,92 @@
 		return parseFloat(rating).toFixed(1);
 	}
 
+	function parseBggUrl(input) {
+		const m = input.match(/boardgamegeek\.com\/(?:boardgame|rpg|videogame)\/(\d+)/i);
+		return m ? m[1] : null;
+	}
+
+	function onBggUrlPaste(e) {
+		const val = e.clipboardData?.getData('text') ?? e.target.value;
+		const id = parseBggUrl(val);
+		if (id) {
+			editForm.bgg_id = id;
+			editForm._bggPasted = true;
+		}
+	}
+
+	function searchBggOnGoogle() {
+		const q = encodeURIComponent(`BGG ${effectiveTitle(editItem)}`);
+		window.open(`https://www.google.com/search?q=${q}`, '_blank');
+	}
+
+	function openEdit(item) {
+		editItem = item;
+		const ov = item.override ?? {};
+		editForm = {
+			title: ov.title ?? '',
+			url: ov.url ?? '',
+			bgg_id: ov.bgg_id ?? item.product.bgg_id ?? '',
+			override_price: ov.override_price ?? '',
+			override_available: ov.override_available ?? '',
+			note: ov.note ?? '',
+			_bggPasted: false,
+			_bggUrlRaw: ''
+		};
+	}
+
+	function closeEdit() {
+		editItem = null;
+		editForm = {};
+	}
+
+	async function saveOverride() {
+		saving = true;
+		try {
+			const body = {};
+			if (editForm.title) body.title = editForm.title;
+			if (editForm.url) body.url = editForm.url;
+			if (editForm.bgg_id !== '') body.bgg_id = Number(editForm.bgg_id) || null;
+			if (editForm.override_price !== '')
+				body.override_price = Number(editForm.override_price) || null;
+			if (editForm.override_available !== '')
+				body.override_available =
+					editForm.override_available === true || editForm.override_available === 'true';
+			if (editForm.note) body.note = editForm.note;
+			await setOverride(editItem.product.id, body);
+			await search(true);
+			closeEdit();
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function removeOverride() {
+		if (!confirm('Remove all overrides for this item?')) return;
+		saving = true;
+		try {
+			await clearOverride(editItem.product.id);
+			await search(true);
+			closeEdit();
+		} finally {
+			saving = false;
+		}
+	}
+
+	function effectiveTitle(item) {
+		return item.override?.title || item.product.title;
+	}
+	function effectivePrice(item) {
+		if (item.override?.override_price != null) return item.override.override_price;
+		return item.latest_price?.price ?? null;
+	}
+	function effectiveAvailable(item) {
+		if (item.override?.override_available != null) return item.override.override_available;
+		return item.latest_price?.available ?? false;
+	}
+
 	onMount(async () => {
-		await fetchStores();
+		await fetchMeta();
 		await search();
 	});
 </script>
@@ -96,13 +190,17 @@
 					<Input bind:value={filters.min_price} placeholder="Min ₹" type="number" />
 					<Input bind:value={filters.max_price} placeholder="Max ₹" type="number" />
 				</div>
-				<select bind:value={filters.sort} class="rounded border bg-background px-3 py-2 text-sm">
-					<option value="title">Sort: Name</option>
-					<option value="price_asc">Sort: Price ↑</option>
-					<option value="price_desc">Sort: Price ↓</option>
+				<select
+					bind:value={filters.sort}
+					onchange={() => search()}
+					class="rounded border bg-background px-3 py-2 text-sm"
+				>
+					{#each sortOptions as opt}
+						<option value={opt.key}>{opt.label}</option>
+					{/each}
 				</select>
 			</div>
-			<div class="mt-3 flex items-center gap-6">
+			<div class="mt-3 flex flex-wrap items-center gap-6">
 				<label class="flex cursor-pointer items-center gap-2 text-sm">
 					<input type="checkbox" bind:checked={filters.in_stock} class="rounded" />
 					In stock only
@@ -158,7 +256,7 @@
 					{#if item.bgg?.thumbnail}
 						<img
 							src={item.bgg.thumbnail}
-							alt={item.product.title}
+							alt={effectiveTitle(item)}
 							class="h-32 w-full rounded-t-lg bg-muted/30 object-contain p-2"
 						/>
 					{:else}
@@ -170,20 +268,36 @@
 					{/if}
 
 					<Card.Content class="flex flex-1 flex-col gap-2 pt-3 pb-3">
-						<div class="line-clamp-2 text-sm leading-tight font-medium">
-							{item.product.title}
+						<div class="flex items-start justify-between gap-1">
+							<div class="line-clamp-2 text-sm leading-tight font-medium">
+								{effectiveTitle(item)}
+							</div>
+							<button
+								onclick={() => openEdit(item)}
+								class="shrink-0 rounded p-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+								title="Edit / override fields">✏️</button
+							>
 						</div>
 
+						{#if item.override}
+							<Badge variant="outline" class="w-fit text-xs text-amber-600">overridden</Badge>
+						{/if}
+
+						{@const price = effectivePrice(item)}
+						{@const cap = item.latest_price?.compare_at_price}
 						<div class="flex flex-wrap items-center gap-2">
-							{#if item.latest_price}
-								<span class="text-base font-bold">₹{item.latest_price.price.toFixed(0)}</span>
-								{#if item.latest_price.compare_at_price > item.latest_price.price}
+							{#if price != null}
+								<span class="text-base font-bold">₹{price.toFixed(0)}</span>
+								{#if cap && cap > price}
 									<span class="text-xs text-muted-foreground line-through">
-										₹{item.latest_price.compare_at_price.toFixed(0)}
+										₹{cap.toFixed(0)}
 									</span>
+									{#if item.discount_pct}
+										<Badge class="bg-green-100 text-xs text-green-800">-{item.discount_pct}%</Badge>
+									{/if}
 								{/if}
 							{/if}
-							{#if item.latest_price?.available}
+							{#if effectiveAvailable(item)}
 								<Badge class="bg-green-100 text-xs text-green-800">In stock</Badge>
 							{:else}
 								<Badge variant="destructive" class="text-xs">OOS</Badge>
@@ -194,17 +308,28 @@
 							<div class="flex gap-3 text-xs text-muted-foreground">
 								<span>⭐ {stars(item.bgg.avg_rating)}</span>
 								{#if item.bgg.rank}<span>#{item.bgg.rank}</span>{/if}
-								{#if item.bgg.avg_weight}<span>⚖️ {parseFloat(item.bgg.avg_weight).toFixed(1)}</span
-									>{/if}
+								{#if item.bgg.avg_weight}
+									<span>⚖️ {parseFloat(item.bgg.avg_weight).toFixed(1)}</span>
+								{/if}
 							</div>
+							{#if filters.sort === 'value' && item.bgg.bgg_rating && effectivePrice(item)}
+								<div class="text-xs text-muted-foreground">
+									₹{(effectivePrice(item) / parseFloat(item.bgg.bgg_rating)).toFixed(0)} / rating pt
+								</div>
+							{/if}
+							{#if filters.sort === 'value_weight' && item.bgg.avg_weight && effectivePrice(item)}
+								<div class="text-xs text-muted-foreground">
+									₹{(effectivePrice(item) / parseFloat(item.bgg.avg_weight)).toFixed(0)} / weight unit
+								</div>
+							{/if}
 						{/if}
 
 						<div class="mt-auto flex flex-wrap gap-1 pt-1">
-							{#if item.product.url}
+							{#if item.product.url || item.override?.url}
 								<Button
 									size="sm"
 									variant="outline"
-									href={item.product.url}
+									href={item.override?.url || item.product.url}
 									target="_blank"
 									class="flex-1 text-xs"
 								>
@@ -220,6 +345,20 @@
 									class="flex-1 text-xs"
 								>
 									BGG ↗
+								</Button>
+							{:else}
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={() =>
+										window.open(
+											`https://www.google.com/search?q=${encodeURIComponent('BGG ' + effectiveTitle(item))}`,
+											'_blank'
+										)}
+									class="flex-1 text-xs text-muted-foreground"
+									title="Search BGG on Google"
+								>
+									Find BGG ↗
 								</Button>
 							{/if}
 							<Button size="sm" onclick={() => watch(item.product)} class="flex-1 text-xs">
@@ -240,3 +379,102 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Override modal -->
+{#if editItem}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="mb-1 text-lg font-semibold">Override fields</h2>
+			<p class="mb-4 text-xs text-muted-foreground">
+				Values here take priority over scraped data. Leave blank to keep scraped value.
+			</p>
+
+			<div class="space-y-3">
+				<label class="block text-sm">
+					<span class="text-muted-foreground">Title</span>
+					<Input bind:value={editForm.title} placeholder={editItem.product.title} class="mt-1" />
+				</label>
+				<label class="block text-sm">
+					<span class="text-muted-foreground">URL</span>
+					<Input bind:value={editForm.url} placeholder={editItem.product.url ?? ''} class="mt-1" />
+				</label>
+				<div class="block text-sm">
+					<span class="text-muted-foreground">BGG ID</span>
+					<div class="mt-1 flex gap-2">
+						<Input
+							bind:value={editForm.bgg_id}
+							type="number"
+							placeholder={editItem.product.bgg_id ?? 'e.g. 167791'}
+							class="flex-1"
+						/>
+						<Button
+							size="sm"
+							variant="outline"
+							onclick={searchBggOnGoogle}
+							title="Search Google for this game on BGG"
+						>
+							Search BGG ↗
+						</Button>
+					</div>
+					<div class="mt-1 flex gap-2">
+						<Input
+							bind:value={editForm._bggUrlRaw}
+							placeholder="Paste BGG URL to auto-fill ID"
+							class="flex-1 text-xs"
+							onpaste={onBggUrlPaste}
+							oninput={() => {
+								const id = parseBggUrl(editForm._bggUrlRaw);
+								if (id) editForm.bgg_id = id;
+							}}
+						/>
+					</div>
+					{#if editForm._bggPasted}
+						<p class="mt-0.5 text-xs text-green-600">✓ BGG ID extracted from URL</p>
+					{/if}
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<label class="block text-sm">
+						<span class="text-muted-foreground">Override price (₹)</span>
+						<Input
+							bind:value={editForm.override_price}
+							type="number"
+							placeholder={editItem.latest_price?.price ?? ''}
+							class="mt-1"
+						/>
+					</label>
+					<label class="block text-sm">
+						<span class="text-muted-foreground">Override stock</span>
+						<select
+							bind:value={editForm.override_available}
+							class="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+						>
+							<option value="">— keep scraped —</option>
+							<option value="true">In stock</option>
+							<option value="false">Out of stock</option>
+						</select>
+					</label>
+				</div>
+				<label class="block text-sm">
+					<span class="text-muted-foreground">Note (why you overrode this)</span>
+					<Input
+						bind:value={editForm.note}
+						placeholder="e.g. price includes shipping"
+						class="mt-1"
+					/>
+				</label>
+			</div>
+
+			<div class="mt-5 flex items-center gap-2">
+				<Button onclick={saveOverride} disabled={saving}>
+					{saving ? 'Saving…' : 'Save overrides'}
+				</Button>
+				<Button variant="ghost" onclick={closeEdit}>Cancel</Button>
+				{#if editItem.override}
+					<Button variant="destructive" class="ml-auto" onclick={removeOverride} disabled={saving}>
+						Clear all overrides
+					</Button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

@@ -2,10 +2,10 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, desc, select
 
 from ..db import get_session
-from ..models import Product, Store
+from ..models import Product, Store, SyncLog
 from ..scraper import sync_store
 
 router = APIRouter(prefix="/stores", tags=["stores"])
@@ -89,6 +89,22 @@ async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
         raise HTTPException(404, "Store not found")
     result = await sync_store(store)
     return result
+
+
+@router.get("/{store_id}/logs")
+def get_sync_logs(
+    store_id: str, limit: int = 20, session: Session = Depends(get_session)
+):
+    store = session.get(Store, store_id)
+    if not store:
+        raise HTTPException(404, "Store not found")
+    logs = session.exec(
+        select(SyncLog)
+        .where(SyncLog.store_id == store_id)
+        .order_by(desc(SyncLog.started_at))
+        .limit(limit)
+    ).all()
+    return logs
 
 
 @router.get("/{store_id}/products")

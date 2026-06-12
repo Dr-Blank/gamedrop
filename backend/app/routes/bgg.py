@@ -20,6 +20,11 @@ async def bgg_game(bgg_id: int):
     return await get_game(bgg_id)
 
 
+@router.post("/game/{bgg_id}/refresh")
+async def refresh_bgg_cache(bgg_id: int):
+    return await get_game(bgg_id, force=True)
+
+
 @router.post("/game/{bgg_id}/link/{product_id}")
 def link_game_to_product(
     bgg_id: int,

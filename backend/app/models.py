@@ -15,6 +15,8 @@ class Store(SQLModel, table=True):
         '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":6}'
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_synced_at: datetime | None = None
+    last_sync_error: str | None = None
 
 
 class Product(SQLModel, table=True):
@@ -55,6 +57,30 @@ class WatchlistItem(SQLModel, table=True):
     last_notified_price: float | None = None
     active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SyncLog(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    store_id: str = Field(foreign_key="store.id")
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    finished_at: datetime | None = None
+    new_products: int = 0
+    updated_products: int = 0
+    price_changes: int = 0
+    error: str | None = None
+
+
+class ProductOverride(SQLModel, table=True):
+    """User-supplied corrections for any product field. Wins over scraped data."""
+
+    product_id: int = Field(primary_key=True, foreign_key="product.id")
+    title: str | None = None
+    url: str | None = None
+    bgg_id: int | None = None
+    override_price: float | None = None
+    override_available: bool | None = None
+    note: str | None = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class AppSetting(SQLModel, table=True):
