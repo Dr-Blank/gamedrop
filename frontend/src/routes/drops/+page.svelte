@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { feedDrops, addWatchlist } from '$lib/api.js';
+	import { feedDrops } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
@@ -35,11 +35,6 @@
 	async function more() {
 		page += 1;
 		await load(false);
-	}
-
-	async function watch(item) {
-		await addWatchlist(item.product.id, null);
-		toast.success(`Watching ${item.override?.title || item.product.title}`);
 	}
 
 	const history = (item) =>
@@ -88,7 +83,7 @@
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
 			{#each items as item (item.product.id)}
-				<ProductCard {item} variant="browse" history={history(item)} onwatch={watch} />
+				<ProductCard {item} variant="browse" history={history(item)} />
 			{/each}
 		</div>
 		{#if hasMore}

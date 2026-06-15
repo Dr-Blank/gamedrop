@@ -3,10 +3,12 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..logger import get_logger
 from ..models import Product, WatchlistItem
 from ..repositories import watchlist as wl_repo
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
+log = get_logger(__name__)
 
 
 class WatchlistAdd(BaseModel):
@@ -48,6 +50,11 @@ def add_to_watchlist(body: WatchlistAdd, session: Session = Depends(get_session)
         session.add(existing)
         session.commit()
         session.refresh(existing)
+        log.info(
+            "watchlist reactivated: product %s",
+            body.product_id,
+            extra={"product_id": body.product_id},
+        )
         return existing
 
     item = WatchlistItem(
@@ -60,6 +67,11 @@ def add_to_watchlist(body: WatchlistAdd, session: Session = Depends(get_session)
     session.add(item)
     session.commit()
     session.refresh(item)
+    log.info(
+        "watchlist added: product %s",
+        body.product_id,
+        extra={"product_id": body.product_id},
+    )
     return item
 
 
@@ -94,4 +106,10 @@ def remove_from_watchlist(item_id: int, session: Session = Depends(get_session))
     item.active = False
     session.add(item)
     session.commit()
+    log.info(
+        "watchlist removed: item %s (product %s)",
+        item_id,
+        item.product_id,
+        extra={"product_id": item.product_id},
+    )
     return {"ok": True}

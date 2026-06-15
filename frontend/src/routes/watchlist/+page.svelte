@@ -11,6 +11,7 @@
 		priceHistory
 	} from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
+	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -73,7 +74,7 @@
 	async function remove(item) {
 		await removeWatchlist(item.watchlist.id);
 		toast.success(`Removed ${item.product.title}`);
-		await load();
+		await Promise.all([load(), watchStore.load()]);
 	}
 
 	async function setTarget(item) {
@@ -106,8 +107,10 @@
 		searchQuery = '';
 		searchResults = [];
 		targetPrice = '';
-		await load();
+		await Promise.all([load(), watchStore.load()]);
 	}
+
+	onMount(load);
 </script>
 
 <div class="space-y-6">

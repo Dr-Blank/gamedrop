@@ -8,9 +8,9 @@
 		syncStore,
 		syncAllStores,
 		getStoreLogs,
-		searchProducts,
-		addWatchlist
+		searchProducts
 	} from '$lib/api.js';
+	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
@@ -187,9 +187,9 @@
 		}
 	}
 
-	async function watch(product) {
-		await addWatchlist(product.id, null);
-		alert(`"${product.title}" added to watchlist`);
+	function watch(product) {
+		// Shared store handles add/remove + toast and keeps the button in sync.
+		return watchStore.toggle({ product });
 	}
 
 	function fmtDate(iso) {
@@ -522,7 +522,13 @@
 							</div>
 							<div class="flex items-center gap-3">
 								<Button size="sm" variant="outline" href="/prices/{p.id}">History</Button>
-								<Button size="sm" onclick={() => watch(p)}>+ Watch</Button>
+								<Button
+									size="sm"
+									variant={watchStore.has(p.id) ? 'secondary' : 'default'}
+									onclick={() => watch(p)}
+								>
+									{watchStore.has(p.id) ? 'Watching' : '+ Watch'}
+								</Button>
 							</div>
 						</div>
 					{/each}

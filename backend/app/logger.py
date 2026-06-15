@@ -102,7 +102,7 @@ class RingBufferHandler(logging.Handler):
                     ts=datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
                     level=record.levelname,
                     logger=record.name,
-                    msg=self.format(record).split("\n")[0],
+                    msg=record.getMessage(),
                     extra=extra,
                     exc=exc_text,
                 )

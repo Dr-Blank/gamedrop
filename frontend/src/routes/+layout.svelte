@@ -21,6 +21,7 @@
 	} from '@lucide/svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import Toaster from '$lib/components/Toaster.svelte';
+	import { watchlist } from '$lib/watchlist.svelte.js';
 
 	let { children } = $props();
 
@@ -56,6 +57,7 @@
 
 	onMount(() => {
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+		watchlist.load();
 	});
 </script>
 

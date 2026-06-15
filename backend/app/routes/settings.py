@@ -3,8 +3,10 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..config import get_all_settings, get_setting, set_setting
+from ..logger import get_logger
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+log = get_logger(__name__)
 
 KEYS = ["bgg_api_token", "ntfy_server", "ntfy_topic", "ntfy_token"]
 
@@ -27,11 +29,15 @@ def read_settings():
 
 @router.put("/")
 def update_settings(body: SettingsUpdate):
+    changed = []
     for key in KEYS:
         val = getattr(body, key, "")
         # Ignore placeholder sent back from UI
         if val and val != "****":
             set_setting(key, val)
+            changed.append(key)
+    # Log which keys changed — never the values (tokens are secret).
+    log.info("settings updated: %s", ", ".join(changed) or "none")
     return {"ok": True}
 
 
@@ -55,6 +61,7 @@ async def test_bgg():
             }
         return {"ok": False, "message": f"Unexpected status {r.status_code}"}
     except Exception as e:
+        log.warning("bgg test failed: %s", e)
         return {"ok": False, "message": str(e)}
 
 
@@ -68,6 +75,8 @@ async def test_ntfy():
             title="Connection test",
             tags=["white_check_mark"],
         )
+        log.info("ntfy test notification sent")
         return {"ok": True, "message": "Notification sent — check your ntfy app"}
     except Exception as e:
+        log.warning("ntfy test failed: %s", e)
         return {"ok": False, "message": str(e)}

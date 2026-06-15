@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { fade } from 'svelte/transition';
-	import { getHome, addWatchlist, removeWatchlist, updateWatchlist } from '$lib/api.js';
+	import { getHome, updateWatchlist } from '$lib/api.js';
+	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import Shelf from '$lib/components/Shelf.svelte';
 	import ProductCard from '$lib/components/ProductCard.svelte';
@@ -30,14 +31,8 @@
 		if (q.trim()) goto(`/search?q=${encodeURIComponent(q.trim())}`);
 	}
 
-	async function watch(item) {
-		await addWatchlist(item.product.id, null);
-		toast.success(`Watching ${item.override?.title || item.product.title}`);
-	}
-
 	async function removeWatch(item) {
-		await removeWatchlist(item.watchlist.id);
-		toast.success(`Removed ${item.product.title}`);
+		await watchlist.toggle(item); // syncs shared state + toasts
 		await load();
 	}
 
@@ -128,7 +123,7 @@
 				empty="No price drops yet — they'll show up here after the next sync."
 			>
 				{#snippet card(item)}
-					<ProductCard {item} variant="browse" history={dropHistory(item)} onwatch={watch} />
+					<ProductCard {item} variant="browse" history={dropHistory(item)} />
 				{/snippet}
 			</Shelf>
 
@@ -140,7 +135,7 @@
 				empty="No products tracked yet."
 			>
 				{#snippet card(item)}
-					<ProductCard {item} variant="browse" onwatch={watch} />
+					<ProductCard {item} variant="browse" />
 				{/snippet}
 			</Shelf>
 
@@ -152,7 +147,7 @@
 				empty="No active discounts right now."
 			>
 				{#snippet card(item)}
-					<ProductCard {item} variant="browse" onwatch={watch} />
+					<ProductCard {item} variant="browse" />
 				{/snippet}
 			</Shelf>
 

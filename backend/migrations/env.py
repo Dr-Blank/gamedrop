@@ -9,8 +9,16 @@ import app.models  # noqa: F401
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# When alembic runs in-process (app startup calls run_migrations), the app has
+# already configured logging. Re-running fileConfig here would clobber the root
+# handlers (ring buffer + stdout) and disable existing app loggers — leaving the
+# UI log view showing only alembic. db.run_migrations sets configure_logger=False
+# to skip it; the standalone alembic CLI still gets full logging config.
+if (
+    config.attributes.get("configure_logger", True)
+    and config.config_file_name is not None
+):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = SQLModel.metadata
 

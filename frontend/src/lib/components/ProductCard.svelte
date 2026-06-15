@@ -8,6 +8,7 @@
 	import StockBadge from './StockBadge.svelte';
 	import RatingStats from './RatingStats.svelte';
 	import Sparkline from './Sparkline.svelte';
+	import { watchlist } from '$lib/watchlist.svelte.js';
 	import {
 		Heart,
 		Pencil,
@@ -23,11 +24,12 @@
 		history = /** @type {Array<{price:number}>} */ ([]),
 		variant = 'browse', // 'browse' | 'watchlist'
 		target = /** @type {number|null} */ (null),
-		onwatch = /** @type {((item:any)=>void)|null} */ (null),
 		onremove = /** @type {(()=>void)|null} */ (null),
 		onedit = /** @type {((item:any)=>void)|null} */ (null),
 		ontarget = /** @type {(()=>void)|null} */ (null)
 	} = $props();
+
+	const watched = $derived(watchlist.has(item.product.id));
 
 	const title = $derived(item.override?.title || item.product.title);
 	const price = $derived(
@@ -101,15 +103,18 @@
 			{/if}
 		</div>
 
-		<!-- watch button -->
-		{#if variant === 'browse' && onwatch}
+		<!-- watch toggle — filled heart when already watching -->
+		{#if variant === 'browse'}
 			<button
-				onclick={(e) => act(e, () => onwatch(item))}
-				class="absolute top-2 right-2 grid size-8 place-items-center rounded-full bg-background/80 text-muted-foreground shadow-sm backdrop-blur transition-all hover:scale-110 hover:bg-background hover:text-rose-500 active:scale-95"
-				title="Add to watchlist"
-				aria-label="Add to watchlist"
+				onclick={(e) => act(e, () => watchlist.toggle(item))}
+				class="absolute top-2 right-2 grid size-8 place-items-center rounded-full bg-background/80 shadow-sm backdrop-blur transition-all hover:scale-110 hover:bg-background active:scale-95 {watched
+					? 'text-rose-500'
+					: 'text-muted-foreground hover:text-rose-500'}"
+				title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+				aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+				aria-pressed={watched}
 			>
-				<Heart class="size-4" />
+				<Heart class="size-4" fill={watched ? 'currentColor' : 'none'} />
 			</button>
 		{/if}
 
@@ -190,11 +195,6 @@
 						onclick={(e) => e.stopPropagation()}
 					>
 						<ExternalLink class="size-3.5" /> Store
-					</Button>
-				{/if}
-				{#if onwatch}
-					<Button size="sm" class="flex-1" onclick={(e) => act(e, () => onwatch(item))}>
-						<Heart class="size-3.5" /> Watch
 					</Button>
 				{/if}
 			{:else}

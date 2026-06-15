@@ -60,6 +60,18 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
 
+  test-frontend:
+    name: Test (frontend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
   build-frontend:
     name: Build (frontend)
     runs-on: ubuntu-latest

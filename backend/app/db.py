@@ -16,6 +16,9 @@ def run_migrations():
     from alembic.config import Config
 
     cfg = Config(os.path.join(os.path.dirname(__file__), "../alembic.ini"))
+    # App already configured logging (ring buffer + stdout). Tell env.py to skip
+    # fileConfig so it doesn't tear down our handlers / disable app loggers.
+    cfg.attributes["configure_logger"] = False
     command.upgrade(cfg, "head")
 
 

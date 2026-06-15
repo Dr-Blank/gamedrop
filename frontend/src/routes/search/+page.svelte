@@ -1,7 +1,7 @@
 <script>
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { searchCatalog, addWatchlist } from '$lib/api.js';
+	import { searchCatalog } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
@@ -39,11 +39,6 @@
 	function submit() {
 		const t = input.trim();
 		if (t) goto(`/search?q=${encodeURIComponent(t)}`, { keepFocus: true });
-	}
-
-	async function watch(item) {
-		await addWatchlist(item.product.id, null);
-		toast.success(`Watching ${item.override?.title || item.product.title}`);
 	}
 </script>
 
@@ -85,7 +80,7 @@
 		</p>
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
 			{#each items as item (item.product.id)}
-				<ProductCard {item} variant="browse" onwatch={watch} />
+				<ProductCard {item} variant="browse" />
 			{/each}
 		</div>
 	{:else}

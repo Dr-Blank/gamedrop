@@ -1,8 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlmodel import Session
 
+from app import notifier
 from app.models import PriceSnapshot, Product, Store, WatchlistItem
 from app.scraper import _check_watchlist
 
@@ -187,3 +188,36 @@ def test_no_notification_when_watchlist_inactive(session: Session, product: Prod
     with patch(PATCH_DROP) as mock_drop:
         _check_watchlist(session, product, old, new)
         mock_drop.assert_not_called()
+
+
+# --- ntfy header (latin-1) safety ---
+
+
+@pytest.mark.parametrize(
+    "fn,args",
+    [
+        (notifier.notify_price_drop, ("Game ✅📉", 40.0, 30.0, "https://x", "S1")),
+        (notifier.notify_back_in_stock, ("Game ✅", 30.0, "https://x", "S1")),
+        (notifier.notify_target_reached, ("Game 🎯", 20.0, 19.0, "https://x", "S1")),
+    ],
+)
+def test_notification_title_is_latin1_safe(fn, args):
+    """Regression: emoji in the ntfy title header raised
+    'latin-1 codec can't encode' and got logged as a store sync error."""
+    mock_client = MagicMock()
+    with patch.object(notifier, "_client", return_value=mock_client):
+        fn(*args)
+
+    mock_client.send.assert_called_once()
+    title = mock_client.send.call_args.kwargs["title"]
+    # Must not raise — this is exactly what python_ntfy does for the header.
+    title.encode("latin-1")
+
+
+def test_notification_failure_is_swallowed_and_logged():
+    """A failing send must not bubble up and abort a sync."""
+    mock_client = MagicMock()
+    mock_client.send.side_effect = RuntimeError("ntfy down")
+    with patch.object(notifier, "_client", return_value=mock_client):
+        # Should not raise.
+        notifier.notify_back_in_stock("Game", 30.0, "https://x", "S1")

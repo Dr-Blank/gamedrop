@@ -52,6 +52,31 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    import time
+
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+    # Skip static asset noise; keep API + page navigations.
+    if request.url.path.startswith("/api"):
+        log.info(
+            "%s %s -> %s (%sms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "ms": elapsed_ms,
+            },
+        )
+    return response
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     log.exception("Unhandled error on %s %s", request.method, request.url.path)

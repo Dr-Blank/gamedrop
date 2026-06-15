@@ -5,9 +5,11 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..db import get_session
+from ..logger import get_logger
 from ..models import Product, ProductOverride
 
 router = APIRouter(prefix="/products", tags=["products"])
+log = get_logger(__name__)
 
 
 class OverrideBody(BaseModel):
@@ -40,6 +42,12 @@ def set_override(
     session.add(ov)
     session.commit()
     session.refresh(ov)
+    log.info(
+        "override set: product %s (%s)",
+        product_id,
+        ", ".join(body.model_dump(exclude_unset=True)) or "cleared fields",
+        extra={"product_id": product_id},
+    )
     return ov
 
 
@@ -53,4 +61,9 @@ def clear_override(
         raise HTTPException(404, "No override found")
     session.delete(ov)
     session.commit()
+    log.info(
+        "override cleared: product %s",
+        product_id,
+        extra={"product_id": product_id},
+    )
     return {"ok": True}

@@ -110,6 +110,31 @@ def test_github_issue_export_contains_error_records(client: TestClient):
     assert "xyzzy" in r.text
 
 
+def test_github_issue_export_default_includes_non_error_logs(client: TestClient):
+    """Regression: export used to default to ERROR, so with no errors it was a
+    bare template with an empty ``` ``` block. Default must include all logs."""
+    _ensure_logging()
+    log = get_logger("test.github.default")
+    log.info("info marker plugh")
+
+    r = client.get("/api/logs/github-issue")
+    assert r.status_code == 200
+    assert "plugh" in r.text
+    # The code block must not be empty.
+    body = r.text
+    block = body.split("```")[1]
+    assert block.strip(), "github issue export had an empty log block"
+
+
+def test_github_issue_export_empty_level_means_all(client: TestClient):
+    _ensure_logging()
+    log = get_logger("test.github.empty")
+    log.info("info marker waldo")
+
+    r = client.get("/api/logs/github-issue?level=")
+    assert "waldo" in r.text
+
+
 def test_get_records_helper_respects_level():
     _ensure_logging()
     log = get_logger("test.helper")

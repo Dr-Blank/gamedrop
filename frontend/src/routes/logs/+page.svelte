@@ -10,6 +10,7 @@
 	let levelFilter = $state('');
 	let issueText = $state('');
 	let copied = $state(false);
+	let logsCopied = $state(false);
 
 	const LEVELS = ['', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 	const LEVEL_CLASS = {
@@ -27,7 +28,37 @@
 	}
 
 	async function exportIssue() {
-		issueText = await getGithubIssueExport(levelFilter || 'ERROR');
+		// Export whatever the user is currently viewing — '' means all levels.
+		// (Previously forced ERROR, so with no errors the export was a bare template.)
+		issueText = await getGithubIssueExport(levelFilter);
+	}
+
+	/** Plain-text rendering of the currently loaded records (respects level filter). */
+	function recordsToText() {
+		return records
+			.map((r) => {
+				const head = `[${r.ts}] ${r.level.padEnd(8)} ${r.logger}: ${r.msg}`;
+				return r.exc ? `${head}\n${r.exc}` : head;
+			})
+			.join('\n');
+	}
+
+	async function copyLogs() {
+		await navigator.clipboard.writeText(recordsToText());
+		logsCopied = true;
+		setTimeout(() => (logsCopied = false), 2000);
+	}
+
+	function downloadLogs() {
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+		const name = `gamedrop-logs-${levelFilter || 'all'}-${stamp}.txt`;
+		const blob = new Blob([recordsToText()], { type: 'text/plain' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = name;
+		a.click();
+		URL.revokeObjectURL(url);
 	}
 
 	async function copyIssue() {
@@ -59,6 +90,12 @@
 				{/each}
 			</select>
 			<Button variant="outline" onclick={load}>Refresh</Button>
+			<Button variant="outline" onclick={copyLogs} disabled={records.length === 0}>
+				{logsCopied ? '✓ Copied' : 'Copy logs'}
+			</Button>
+			<Button variant="outline" onclick={downloadLogs} disabled={records.length === 0}>
+				Download
+			</Button>
 			<Button variant="outline" onclick={exportIssue}>Export for GitHub</Button>
 		</div>
 	</div>

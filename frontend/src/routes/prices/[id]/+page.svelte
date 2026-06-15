@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { fly, fade } from 'svelte/transition';
-	import { priceHistory, bggSearch, bggGame, linkBgg, addWatchlist } from '$lib/api.js';
+	import { priceHistory, bggSearch, bggGame, linkBgg } from '$lib/api.js';
+	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
@@ -63,9 +64,10 @@
 			: null
 	);
 
-	async function watch() {
-		await addWatchlist(Number(productId), null);
-		toast.success('Added to watchlist');
+	const watched = $derived(watchStore.has(Number(productId)));
+
+	function watch() {
+		return watchStore.toggle({ product: { id: Number(productId), title: data?.product?.title } });
 	}
 
 	async function searchBgg() {
@@ -161,8 +163,9 @@
 				{/if}
 
 				<div class="mt-auto flex flex-wrap gap-2">
-					<Button onclick={watch}>
-						<Heart class="size-4" /> Watch
+					<Button onclick={watch} variant={watched ? 'secondary' : 'default'}>
+						<Heart class="size-4" fill={watched ? 'currentColor' : 'none'} />
+						{watched ? 'Watching' : 'Watch'}
 					</Button>
 					{#if data.product.url}
 						<Button variant="outline" href={data.product.url} target="_blank">

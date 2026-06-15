@@ -6,10 +6,12 @@ from pydantic import BaseModel, field_validator
 from sqlmodel import Session, desc, select
 
 from ..db import get_session
+from ..logger import get_logger
 from ..models import Product, Store, SyncLog
 from ..scraper import sync_store
 
 router = APIRouter(prefix="/stores", tags=["stores"])
+log = get_logger(__name__)
 
 _SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 
@@ -103,6 +105,7 @@ def create_store(body: StoreCreate, session: Session = Depends(get_session)):
     session.add(store)
     session.commit()
     session.refresh(store)
+    log.info("store created: %s", store.id, extra={"store_id": store.id})
     return store
 
 
@@ -128,12 +131,14 @@ def delete_store(store_id: str, session: Session = Depends(get_session)):
         raise HTTPException(404, "Store not found")
     session.delete(store)
     session.commit()
+    log.info("store deleted: %s", store_id, extra={"store_id": store_id})
     return {"ok": True}
 
 
 @router.post("/sync-all")
 async def sync_all_stores(session: Session = Depends(get_session)):
     stores = session.exec(select(Store).where(Store.enabled == True)).all()  # noqa: E712
+    log.info("manual sync-all triggered: %d stores", len(stores))
     results = await asyncio.gather(
         *[sync_store(s) for s in stores], return_exceptions=True
     )
@@ -151,6 +156,7 @@ async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
     store = session.get(Store, store_id)
     if not store:
         raise HTTPException(404, "Store not found")
+    log.info("manual sync triggered: %s", store_id, extra={"store_id": store_id})
     result = await sync_store(store)
     return result
 
