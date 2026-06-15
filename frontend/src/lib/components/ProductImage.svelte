@@ -1,10 +1,13 @@
 <script>
 	import { cn } from '$lib/utils.js';
+	import { fetchProductImage } from '$lib/api.js';
 
 	let {
 		src = '',
 		alt = '',
 		class: className = '',
+		/** When set and `src` is empty, lazily fetch + store this product's image. */
+		productId = /** @type {number|null} */ (null),
 		/** Tailwind sizing for the fallback emoji */
 		fallbackText = '🎲'
 	} = $props();
@@ -13,6 +16,11 @@
 	let errored = $state(false);
 	let el = $state(/** @type {HTMLDivElement | null} */ (null));
 	let near = $state(false);
+	let fetched = $state(''); // image url resolved on demand from the backend
+	let tried = false;
+
+	// Effective source: provided src wins, else whatever we fetched on demand.
+	const effSrc = $derived(src || fetched);
 
 	// On-demand: only attach the real src once the image scrolls near the viewport.
 	$effect(() => {
@@ -30,9 +38,22 @@
 		return () => io.disconnect();
 	});
 
-	// Reset state when src changes.
+	// No stored image + near the viewport → fetch just this one (async, once).
 	$effect(() => {
-		src;
+		if (!near || src || fetched || tried || productId == null) return;
+		tried = true;
+		fetchProductImage(productId)
+			.then((res) => {
+				if (res?.image_url) fetched = res.image_url;
+			})
+			.catch(() => {
+				// Leave the emoji fallback in place; nothing else to do.
+			});
+	});
+
+	// Reset state when the effective source changes.
+	$effect(() => {
+		effSrc;
 		loaded = false;
 		errored = false;
 	});
@@ -43,9 +64,9 @@
 		<div class="absolute inset-0 animate-pulse bg-muted/60"></div>
 	{/if}
 
-	{#if src && near && !errored}
+	{#if effSrc && near && !errored}
 		<img
-			{src}
+			src={effSrc}
 			{alt}
 			loading="lazy"
 			decoding="async"
@@ -55,7 +76,7 @@
 				? 'opacity-100'
 				: 'opacity-0'}"
 		/>
-	{:else if errored || !src}
+	{:else if errored || !effSrc}
 		<div class="flex h-full w-full items-center justify-center text-4xl opacity-40">
 			{fallbackText}
 		</div>

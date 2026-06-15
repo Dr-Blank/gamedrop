@@ -205,6 +205,7 @@ def query_products(
             isouter=True,
         )
         .join(bgg, Product.bgg_id == bgg.c.bgg_id, isouter=True)
+        .where(Product.hidden == False)  # noqa: E712 — hidden games never surface in feeds
     )
 
     if filters.q:
@@ -316,6 +317,7 @@ def price_drops(
             & (PriceSnapshot.recorded_at == latest.c.recorded_at),
         )
         .where(latest.c.price < prev.c.price)
+        .where(Product.hidden == False)  # noqa: E712
     )
     if in_stock_only:
         stmt = stmt.where(latest.c.available == True)  # noqa: E712
@@ -342,6 +344,7 @@ def new_additions(session: Session, *, page: int = 1, limit: int = 12) -> list[d
             & (PriceSnapshot.recorded_at == latest.c.max_date),
             isouter=True,
         )
+        .where(Product.hidden == False)  # noqa: E712
         .order_by(first_seen.c.first_date.desc())
     )
     offset = (page - 1) * limit
@@ -371,6 +374,26 @@ def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
         session, filters=CatalogFilters(q=q.strip()), sort="title", limit=limit
     )
     return make_cards(session, rows)
+
+
+def hidden_products(session: Session, *, page: int = 1, limit: int = 48) -> list[dict]:
+    """Enriched cards for products the user has hidden — for the Hidden page."""
+    latest = _latest_snapshot_subq()
+    stmt = (
+        select(Product, PriceSnapshot)
+        .join(latest, Product.id == latest.c.product_id, isouter=True)
+        .join(
+            PriceSnapshot,
+            (PriceSnapshot.product_id == latest.c.product_id)
+            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            isouter=True,
+        )
+        .where(Product.hidden == True)  # noqa: E712
+        .order_by(Product.updated_at.desc())
+    )
+    offset = (page - 1) * limit
+    rows = session.exec(stmt.offset(offset).limit(limit)).all()
+    return make_cards(session, [(r[0], r[1]) for r in rows])
 
 
 def enabled_stores(session: Session) -> list[Store]:

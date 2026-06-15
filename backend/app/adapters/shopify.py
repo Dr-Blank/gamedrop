@@ -69,3 +69,18 @@ class ShopifyAdapter(StoreAdapter):
                     await asyncio.sleep(delay)
 
         return results
+
+    async def fetch_product_image(self, product) -> str | None:
+        """Fetch a single product's first image via Shopify's per-product JSON."""
+        if not product.handle:
+            return None
+        base = self.store.base_url.rstrip("/")
+        timeout = _cfg(self.store, "timeout_sec")
+        url = f"{base}/products/{product.handle}.json"
+        headers = {"User-Agent": "board-game-tracker/1.0"}
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(url, headers=headers)
+            r.raise_for_status()
+            data = r.json().get("product", {})
+        images = data.get("images", [])
+        return images[0]["src"] if images else None

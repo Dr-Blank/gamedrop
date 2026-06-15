@@ -14,6 +14,7 @@
 		Bell,
 		Settings,
 		ScrollText,
+		EyeOff,
 		Menu,
 		X,
 		Search,
@@ -22,6 +23,7 @@
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import Toaster from '$lib/components/Toaster.svelte';
 	import { watchlist } from '$lib/watchlist.svelte.js';
+	import { hidden } from '$lib/hidden.svelte.js';
 
 	let { children } = $props();
 
@@ -35,6 +37,7 @@
 	const more = [
 		{ href: '/stores', label: 'Stores', icon: Store },
 		{ href: '/notifications', label: 'Notifications', icon: Bell },
+		{ href: '/hidden', label: 'Hidden', icon: EyeOff },
 		{ href: '/settings', label: 'Settings', icon: Settings },
 		{ href: '/logs', label: 'Logs', icon: ScrollText }
 	];
@@ -58,6 +61,7 @@
 	onMount(() => {
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 		watchlist.load();
+		hidden.load();
 	});
 </script>
 

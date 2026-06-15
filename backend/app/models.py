@@ -28,6 +28,7 @@ class Product(SQLModel, table=True):
     url: str | None = None
     image_url: str | None = None
     bgg_id: int | None = None
+    hidden: bool = Field(default=False)  # user permanently hid this from views
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:

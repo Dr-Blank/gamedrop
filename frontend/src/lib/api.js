@@ -76,6 +76,17 @@ export const setOverride = (productId, body) =>
 export const clearOverride = (productId) =>
 	req(`/products/${productId}/override`, { method: 'DELETE' });
 
+// Hide / unhide
+export const getHidden = (page = 1, limit = 48) =>
+	req(`/products/hidden?page=${page}&limit=${limit}`);
+export const hideProduct = (productId) => req(`/products/${productId}/hide`, { method: 'PUT' });
+export const unhideProduct = (productId) =>
+	req(`/products/${productId}/hide`, { method: 'DELETE' });
+
+// On-demand image fetch (when a product has no stored image yet)
+export const fetchProductImage = (productId) =>
+	req(`/products/${productId}/image`, { method: 'POST' });
+
 // App logs
 export const getAppLogs = (level, limit = 200) => req(`/logs/?level=${level ?? ''}&limit=${limit}`);
 export const getGithubIssueExport = (level = 'ERROR') =>
