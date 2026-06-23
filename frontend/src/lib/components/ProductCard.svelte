@@ -91,6 +91,11 @@
 		<div class="relative aspect-[4/3] w-full">
 			<ProductImage src={imgSrc} productId={item.product.id} alt={title} class="h-full w-full" />
 
+			<!-- permanent bottom fade: masks hard image edge, reveals more on hover -->
+			<div
+				class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background/60 to-transparent transition-all duration-200 group-hover:h-0"
+			></div>
+
 			<!-- top-left flags -->
 			<div class="absolute top-2 left-2 flex flex-col gap-1">
 				{#if range?.atLow}

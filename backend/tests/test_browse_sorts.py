@@ -1,4 +1,4 @@
-"""Tests for new sort options and discount_pct in browse response."""
+"""Tests for sort options via the new POST /api/browse/query endpoint."""
 
 import json
 from datetime import datetime, timedelta
@@ -61,24 +61,26 @@ def _bgg_cache(session: Session, bgg_id: int, rating: float, weight: float, rank
     session.commit()
 
 
-def test_sorts_endpoint_returns_all_options(client: TestClient):
-    r = client.get("/api/browse/sorts")
+def _q(filters=None, sorts=None, page=1, limit=48):
+    body = {"page": page, "limit": limit}
+    if filters:
+        body["filters"] = filters
+    if sorts:
+        body["sorts"] = sorts
+    return body
+
+
+def test_fields_endpoint_returns_sortable_fields(client: TestClient):
+    r = client.get("/api/browse/fields")
     assert r.status_code == 200
-    keys = {s["key"] for s in r.json()}
-    expected = {
-        "title",
-        "price_asc",
-        "price_desc",
-        "newest",
-        "price_changed",
+    sortable = {f["name"] for f in r.json() if f["sortable"]}
+    assert {
+        "price",
         "discount_pct",
         "discount_abs",
         "bgg_rating",
-        "value",
-        "value_weight",
-        "price_rating_rank",
-    }
-    assert expected.issubset(keys)
+        "updated_at",
+    }.issubset(sortable)
 
 
 def test_sort_newest(client: TestClient, session: Session):
@@ -87,7 +89,9 @@ def test_sort_newest(client: TestClient, session: Session):
     _product(session, "Old Game", 10.0, updated_at=now - timedelta(days=10))
     _product(session, "New Game", 20.0, updated_at=now)
 
-    r = client.get("/api/browse/?sort=newest")
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=[{"field": "updated_at", "dir": "desc"}])
+    )
     assert r.status_code == 200
     titles = [i["product"]["title"] for i in r.json()["items"]]
     assert titles[0] == "New Game"
@@ -100,7 +104,9 @@ def test_sort_discount_pct(client: TestClient, session: Session):
     _product(session, "Big Discount", 20.0, compare_at=100.0)  # 80%
     _product(session, "No Discount", 50.0)
 
-    r = client.get("/api/browse/?sort=discount_pct")
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=[{"field": "discount_pct", "dir": "desc"}])
+    )
     assert r.status_code == 200
     titles = [i["product"]["title"] for i in r.json()["items"]]
     assert titles[0] == "Big Discount"
@@ -112,7 +118,9 @@ def test_sort_discount_abs(client: TestClient, session: Session):
     _product(session, "Small Abs", 80.0, compare_at=100.0)  # saves 20
     _product(session, "Big Abs", 10.0, compare_at=200.0)  # saves 190
 
-    r = client.get("/api/browse/?sort=discount_abs")
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=[{"field": "discount_abs", "dir": "desc"}])
+    )
     assert r.status_code == 200
     titles = [i["product"]["title"] for i in r.json()["items"]]
     assert titles[0] == "Big Abs"
@@ -123,7 +131,7 @@ def test_discount_pct_in_response(client: TestClient, session: Session):
     _product(session, "Half Off", 50.0, compare_at=100.0)
     _product(session, "No Tag", 50.0)
 
-    r = client.get("/api/browse/")
+    r = client.post("/api/browse/query", json=_q())
     assert r.status_code == 200
     by_title = {i["product"]["title"]: i for i in r.json()["items"]}
     assert by_title["Half Off"]["discount_pct"] == pytest.approx(50.0)
@@ -137,62 +145,45 @@ def test_sort_bgg_rating(client: TestClient, session: Session):
     _product(session, "Top Rated", 50.0, bgg_id=1)
     _product(session, "Low Rated", 50.0, bgg_id=2)
 
-    r = client.get("/api/browse/?sort=bgg_rating")
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=[{"field": "bgg_rating", "dir": "desc"}])
+    )
     assert r.status_code == 200
     titles = [i["product"]["title"] for i in r.json()["items"]]
     assert titles[0] == "Top Rated"
 
 
-def test_sort_value(client: TestClient, session: Session):
-    """Lower price/rating ratio = better value = ranked first."""
+def test_sort_price_asc(client: TestClient, session: Session):
+    """Cheap games first when sorting price ascending."""
     _store(session)
-    _bgg_cache(session, 10, rating=8.0, weight=2.0, rank=10)
-    _bgg_cache(session, 11, rating=8.0, weight=2.0, rank=11)
-    _product(session, "Cheap High Rating", 40.0, bgg_id=10)  # 40/8 = 5 ₹/pt
-    _product(session, "Pricey High Rating", 160.0, bgg_id=11)  # 160/8 = 20 ₹/pt
+    _product(session, "Cheap", 10.0)
+    _product(session, "Pricey", 200.0)
 
-    r = client.get("/api/browse/?sort=value")
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=[{"field": "price", "dir": "asc"}])
+    )
     assert r.status_code == 200
     titles = [i["product"]["title"] for i in r.json()["items"]]
-    assert titles[0] == "Cheap High Rating"
+    assert titles[0] == "Cheap"
 
 
-def test_sort_value_weight(client: TestClient, session: Session):
-    """Lower price/weight ratio = more game per rupee = ranked first."""
+def test_sort_price_desc(client: TestClient, session: Session):
+    """Expensive games first when sorting price descending."""
     _store(session)
-    _bgg_cache(session, 20, rating=7.0, weight=4.0, rank=20)
-    _bgg_cache(session, 21, rating=7.0, weight=4.0, rank=21)
-    _product(session, "Heavy Cheap", 80.0, bgg_id=20)  # 80/4 = 20
-    _product(session, "Heavy Pricey", 400.0, bgg_id=21)  # 400/4 = 100
+    _product(session, "Cheap", 10.0)
+    _product(session, "Pricey", 200.0)
 
-    r = client.get("/api/browse/?sort=value_weight")
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=[{"field": "price", "dir": "desc"}])
+    )
     assert r.status_code == 200
     titles = [i["product"]["title"] for i in r.json()["items"]]
-    assert titles[0] == "Heavy Cheap"
+    assert titles[0] == "Pricey"
 
 
-def test_sort_price_rating_rank(client: TestClient, session: Session):
-    """bgg_rating / (rank * price) — higher score = better composite deal."""
-    _store(session)
-    # Game A: rating=9, rank=1, price=100  → score = 9/(1*100) = 0.09
-    # Game B: rating=5, rank=500, price=50 → score = 5/(500*50) = 0.0002
-    _bgg_cache(session, 30, rating=9.0, weight=3.0, rank=1)
-    _bgg_cache(session, 31, rating=5.0, weight=2.0, rank=500)
-    _product(session, "Great Deal", 100.0, bgg_id=30)
-    _product(session, "Poor Deal", 50.0, bgg_id=31)
-
-    r = client.get("/api/browse/?sort=price_rating_rank")
-    assert r.status_code == 200
-    titles = [i["product"]["title"] for i in r.json()["items"]]
-    assert titles[0] == "Great Deal"
-
-
-def test_sort_unknown_falls_back_to_title(client: TestClient, session: Session):
-    _store(session)
-    _product(session, "Zzz Game", 10.0)
-    _product(session, "Aaa Game", 20.0)
-
-    r = client.get("/api/browse/?sort=nonexistent_sort")
-    assert r.status_code == 200
-    titles = [i["product"]["title"] for i in r.json()["items"]]
-    assert titles[0] == "Aaa Game"
+def test_sort_unknown_returns_422(client: TestClient):
+    r = client.post(
+        "/api/browse/query",
+        json={"sorts": [{"field": "nonexistent_field", "dir": "asc"}]},
+    )
+    assert r.status_code == 422

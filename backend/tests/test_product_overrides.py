@@ -72,7 +72,7 @@ def test_clear_override_not_found(client: TestClient, session: Session):
 def test_override_appears_in_browse(client: TestClient, session: Session):
     p = _seed(session)
     client.put(f"/api/products/{p.id}/override", json={"title": "Catan Deluxe"})
-    r = client.get("/api/browse/")
+    r = client.post("/api/browse/query", json={})
     assert r.status_code == 200
     items = r.json()["items"]
     assert len(items) == 1
@@ -83,7 +83,7 @@ def test_override_appears_in_browse(client: TestClient, session: Session):
 
 def test_no_override_in_browse_by_default(client: TestClient, session: Session):
     _seed(session)
-    r = client.get("/api/browse/")
+    r = client.post("/api/browse/query", json={})
     items = r.json()["items"]
     assert items[0]["override"] is None
 
@@ -92,5 +92,5 @@ def test_override_cleared_not_in_browse(client: TestClient, session: Session):
     p = _seed(session)
     client.put(f"/api/products/{p.id}/override", json={"title": "X"})
     client.delete(f"/api/products/{p.id}/override")
-    r = client.get("/api/browse/")
+    r = client.post("/api/browse/query", json={})
     assert r.json()["items"][0]["override"] is None

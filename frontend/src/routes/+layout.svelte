@@ -21,17 +21,29 @@
 		MoreHorizontal
 	} from '@lucide/svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import { browseUrl } from '$lib/browse.js';
 	import Toaster from '$lib/components/Toaster.svelte';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 
 	let { children } = $props();
 
+	const DROPS_URL = browseUrl({
+		filters: { type: 'condition', field: 'price_change', op: 'lt', value: 0 },
+		sorts: [
+			{ field: 'price_change', dir: 'asc' },
+			{ field: 'recorded_at', dir: 'desc' }
+		]
+	});
+	const NEW_URL = browseUrl({
+		sorts: [{ field: 'first_seen', dir: 'desc' }]
+	});
+
 	const primary = [
 		{ href: '/', label: 'Home', icon: Home },
 		{ href: '/browse', label: 'Browse', icon: Compass },
-		{ href: '/drops', label: 'Drops', icon: TrendingDown },
-		{ href: '/new', label: 'New', icon: Sparkles },
+		{ href: DROPS_URL, label: 'Drops', icon: TrendingDown },
+		{ href: NEW_URL, label: 'New', icon: Sparkles },
 		{ href: '/watchlist', label: 'Watchlist', icon: Heart }
 	];
 	const more = [
@@ -47,8 +59,25 @@
 	let q = $state('');
 
 	const path = $derived($page.url.pathname);
-	const isActive = (/** @type {string} */ href) =>
-		href === '/' ? path === '/' : path.startsWith(href);
+
+	function isActive(/** @type {string} */ href) {
+		const [hrefPath, hrefQuery] = href.split('?');
+		if (hrefPath === '/') return path === '/';
+		if (!path.startsWith(hrefPath)) return false;
+		if (!hrefQuery) {
+			// Plain /browse: only active when no f/s params (i.e. not a named preset)
+			if (hrefPath === '/browse') {
+				return !$page.url.searchParams.get('f') && !$page.url.searchParams.get('s');
+			}
+			return true;
+		}
+		// Parameterised link: all params must match current URL
+		const want = new URLSearchParams(hrefQuery);
+		for (const [k, v] of want) {
+			if ($page.url.searchParams.get(k) !== v) return false;
+		}
+		return true;
+	}
 
 	function submitSearch() {
 		if (q.trim()) {

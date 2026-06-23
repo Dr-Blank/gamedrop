@@ -18,13 +18,17 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "bggcache",
-        sa.Column("bgg_id", sa.Integer(), nullable=False),
-        sa.Column("data", sa.String(), nullable=False),
-        sa.Column("cached_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("bgg_id"),
-    )
+    from sqlalchemy import inspect
+
+    bind = op.get_bind()
+    if "bggcache" not in inspect(bind).get_table_names():
+        op.create_table(
+            "bggcache",
+            sa.Column("bgg_id", sa.Integer(), nullable=False),
+            sa.Column("data", sa.String(), nullable=False),
+            sa.Column("cached_at", sa.DateTime(), nullable=False),
+            sa.PrimaryKeyConstraint("bgg_id"),
+        )
 
 
 def downgrade() -> None:

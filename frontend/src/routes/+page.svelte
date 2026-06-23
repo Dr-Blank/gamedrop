@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { fade } from 'svelte/transition';
-	import { getHome, updateWatchlist } from '$lib/api.js';
+	import { shelvesPreview, getWatchlist } from '$lib/api.js';
+	import { browseUrl } from '$lib/browse.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import Shelf from '$lib/components/Shelf.svelte';
@@ -10,16 +11,52 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
-	import { Search, TrendingDown, Sparkles, Tag, Heart, Compass } from '@lucide/svelte';
+	import {
+		Search,
+		Compass,
+		TrendingDown,
+		TrendingUp,
+		Sparkles,
+		Tag,
+		Package,
+		Star,
+		Layers,
+		Heart,
+		Zap
+	} from '@lucide/svelte';
 
-	let data = $state(/** @type {any} */ (null));
+	// Map icon name strings → Svelte components
+	const ICONS = {
+		TrendingDown,
+		TrendingUp,
+		Sparkles,
+		Tag,
+		Package,
+		Star,
+		Layers,
+		Heart,
+		Zap,
+		Compass
+	};
+
+	let shelvesList = $state(/** @type {any[]} */ ([]));
+	let watchlistItems = $state(/** @type {any[]} */ ([]));
 	let loading = $state(true);
 	let q = $state('');
+
+	function shelfBrowseUrl(shelf) {
+		return browseUrl({
+			filters: shelf.filters ? JSON.parse(shelf.filters) : null,
+			sorts: shelf.sorts ? JSON.parse(shelf.sorts) : []
+		});
+	}
 
 	async function load() {
 		loading = true;
 		try {
-			data = await getHome(12);
+			const [preview, wl] = await Promise.all([shelvesPreview(8), getWatchlist()]);
+			shelvesList = preview;
+			watchlistItems = wl;
 		} catch (e) {
 			toast.error('Failed to load: ' + e.message);
 		} finally {
@@ -30,25 +67,6 @@
 	function submitSearch() {
 		if (q.trim()) goto(`/search?q=${encodeURIComponent(q.trim())}`);
 	}
-
-	async function removeWatch(item) {
-		await watchlist.toggle(item); // syncs shared state + toasts
-		await load();
-	}
-
-	async function setTarget(item) {
-		const val = prompt('Target price (₹) — blank for any drop:', item.watchlist.target_price ?? '');
-		if (val === null) return;
-		await updateWatchlist(item.watchlist.id, item.product.id, val ? parseFloat(val) : null);
-		toast.success('Target updated');
-		await load();
-	}
-
-	// drops carry previous_price → synthesize a 2-point history so the card shows a trend.
-	const dropHistory = (item) =>
-		item.previous_price != null && item.latest_price
-			? [{ price: item.latest_price.price }, { price: item.previous_price }]
-			: [];
 
 	onMount(load);
 </script>
@@ -97,77 +115,54 @@
 
 	{#if loading}
 		<div class="space-y-8" in:fade>
-			<Shelf
-				title="Price drops"
-				icon={TrendingDown}
-				{loading}
-				skeleton={skeletonCard}
-				card={() => {}}
-			/>
-			<Shelf
-				title="New additions"
-				icon={Sparkles}
-				{loading}
-				skeleton={skeletonCard}
-				card={() => {}}
-			/>
-			<Shelf title="Top discounts" icon={Tag} {loading} skeleton={skeletonCard} card={() => {}} />
+			{#each Array(4) as _}
+				<Shelf title="Loading…" loading={true} skeleton={skeletonCard} card={() => {}} />
+			{/each}
 		</div>
-	{:else if data}
+	{:else}
 		<div class="space-y-8" in:fade={{ duration: 150 }}>
-			<Shelf
-				title="Price drops"
-				icon={TrendingDown}
-				href="/drops"
-				items={data.price_drops}
-				empty="No price drops yet — they'll show up here after the next sync."
-			>
-				{#snippet card(item)}
-					<ProductCard {item} variant="browse" history={dropHistory(item)} />
-				{/snippet}
-			</Shelf>
+			<!-- Dynamic shelves from backend -->
+			{#each shelvesList as { shelf, items }}
+				{@const Icon = ICONS[shelf.icon] ?? Layers}
+				<Shelf
+					title={shelf.name}
+					icon={Icon}
+					href={shelfBrowseUrl(shelf)}
+					{items}
+					empty="Nothing here yet."
+				>
+					{#snippet card(item)}
+						<ProductCard {item} variant="browse" />
+					{/snippet}
+				</Shelf>
+			{/each}
 
-			<Shelf
-				title="New additions"
-				icon={Sparkles}
-				href="/new"
-				items={data.new_additions}
-				empty="No products tracked yet."
-			>
-				{#snippet card(item)}
-					<ProductCard {item} variant="browse" />
-				{/snippet}
-			</Shelf>
+			<!-- Watchlist (special — not a filter shelf) -->
+			{#if watchlistItems.length > 0}
+				<Shelf
+					title="Your watchlist"
+					icon={Heart}
+					href="/watchlist"
+					items={watchlistItems.slice(0, 8)}
+					empty="Your watchlist is empty."
+				>
+					{#snippet card(item)}
+						<ProductCard
+							{item}
+							variant="watchlist"
+							target={item.watchlist?.target_price}
+							onremove={() => watchlist.toggle(item).then(load)}
+						/>
+					{/snippet}
+				</Shelf>
+			{/if}
 
-			<Shelf
-				title="Top discounts"
-				icon={Tag}
-				href="/browse?sort=discount_pct"
-				items={data.top_discounts}
-				empty="No active discounts right now."
-			>
-				{#snippet card(item)}
-					<ProductCard {item} variant="browse" />
-				{/snippet}
-			</Shelf>
-
-			<Shelf
-				title="Your watchlist"
-				icon={Heart}
-				href="/watchlist"
-				items={data.watchlist}
-				empty="Your watchlist is empty. Browse games to start tracking."
-			>
-				{#snippet card(item)}
-					<ProductCard
-						{item}
-						variant="watchlist"
-						target={item.watchlist?.target_price}
-						onremove={() => removeWatch(item)}
-						ontarget={() => setTarget(item)}
-					/>
-				{/snippet}
-			</Shelf>
+			<!-- Browse CTA -->
+			<div class="flex items-center justify-center py-4">
+				<Button href="/browse" variant="outline" size="lg">
+					<Compass class="size-4" /> Browse all games
+				</Button>
+			</div>
 		</div>
 	{/if}
 </div>

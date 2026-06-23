@@ -32,3 +32,4 @@ frontend/.svelte-kit/
 # OS
 .DS_Store
 Thumbs.db
+backend/static/

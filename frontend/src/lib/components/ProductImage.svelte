@@ -59,7 +59,13 @@
 	});
 </script>
 
-<div bind:this={el} class={cn('relative overflow-hidden bg-muted/40', className)}>
+<div
+	bind:this={el}
+	class={cn(
+		'relative overflow-hidden bg-muted/30 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:shadow-[inset_0_0_28px_rgba(0,0,0,0.45)]',
+		className
+	)}
+>
 	{#if !loaded && !errored}
 		<div class="absolute inset-0 animate-pulse bg-muted/60"></div>
 	{/if}

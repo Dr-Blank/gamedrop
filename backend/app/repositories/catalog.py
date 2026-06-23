@@ -1,58 +1,42 @@
 """Catalog data-access layer.
 
-Single source of truth for the "enriched product" read model used by browse,
-search, the home dashboard and every feed. Keeping the latest-snapshot join,
-BGG enrichment and override merging here means routes stay thin and no two
-endpoints can drift in how they shape a product card.
+Single source of truth for the "enriched product" read model: browse,
+search, home dashboard, all feeds. Latest-snapshot join, BGG enrichment,
+and override merging live here so no two endpoints can drift.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 
-from sqlalchemy import case, func, text
+from sqlalchemy import case, func
 from sqlmodel import Session, select
 
-from ..models import BggCache, PriceSnapshot, Product, ProductOverride, Store
+from ..filter_engine import (
+    Condition,
+    FilterNode,
+    SortSpec,
+    apply_filter,
+    apply_sorts,
+    build_field_registry,
+    filter_uses_field,
+)
+from ..models import (
+    BggCache,
+    PriceSnapshot,
+    Product,
+    ProductOverride,
+    Store,
+    WatchlistItem,
+)
 
 # ---------------------------------------------------------------------------
-# Sort catalogue (shared by browse + feeds)
-# ---------------------------------------------------------------------------
-
-SORT_OPTIONS = {
-    "title": "Name (A–Z)",
-    "price_asc": "Price ↑",
-    "price_desc": "Price ↓",
-    "newest": "Newly added",
-    "price_changed": "Price changed recently",
-    "discount_pct": "Biggest % discount",
-    "discount_abs": "Biggest absolute discount",
-    "bgg_rating": "BGG rating ↓",
-    "value": "Best value (price ÷ rating)",
-    "value_weight": "Price per complexity (÷ weight)",
-    "price_rating_rank": "Price × rank score",
-}
-
-
-@dataclass(frozen=True)
-class CatalogFilters:
-    q: str | None = None
-    store_id: str | None = None
-    min_price: float | None = None
-    max_price: float | None = None
-    in_stock: bool | None = None
-    has_bgg: bool | None = None
-    min_bgg_rating: float | None = None
-
-
-# ---------------------------------------------------------------------------
-# Reusable subqueries
+# Subqueries
 # ---------------------------------------------------------------------------
 
 
 def _latest_snapshot_subq():
-    """(product_id, max_date) for the most recent snapshot of each product."""
+    """(product_id, max_date) for the most recent snapshot per product."""
     return (
         select(
             PriceSnapshot.product_id,
@@ -64,7 +48,7 @@ def _latest_snapshot_subq():
 
 
 def _first_seen_subq():
-    """(product_id, first_date) — proxy for when a product was first tracked."""
+    """(product_id, first_date) — when product was first tracked."""
     return (
         select(
             PriceSnapshot.product_id,
@@ -75,8 +59,24 @@ def _first_seen_subq():
     )
 
 
+def _prev_snapshot_subq():
+    """(product_id, prev_price, prev_available) — second-most-recent snapshot."""
+    ranked = select(
+        PriceSnapshot.product_id,
+        PriceSnapshot.price.label("prev_price"),
+        PriceSnapshot.available.label("prev_available"),
+        func.row_number()
+        .over(
+            partition_by=PriceSnapshot.product_id,
+            order_by=PriceSnapshot.recorded_at.desc(),
+        )
+        .label("rn"),
+    ).subquery()
+    return select(ranked).where(ranked.c.rn == 2).subquery()
+
+
 def _bgg_subq():
-    """BGG numeric fields pulled out of the cached JSON for filtering/sorting."""
+    """BGG numeric fields pulled from cached JSON."""
     return select(
         BggCache.bgg_id,
         func.json_extract(BggCache.data, "$.bgg_rating").label("bgg_rating"),
@@ -86,26 +86,55 @@ def _bgg_subq():
     ).subquery()
 
 
-_DISCOUNT_PCT = case(
-    (
-        (PriceSnapshot.compare_at_price > PriceSnapshot.price)
-        & (PriceSnapshot.compare_at_price > 0),
-        (PriceSnapshot.compare_at_price - PriceSnapshot.price)
-        / PriceSnapshot.compare_at_price,
-    ),
-    else_=0,
-)
-_DISCOUNT_ABS = case(
-    (
-        PriceSnapshot.compare_at_price > PriceSnapshot.price,
-        PriceSnapshot.compare_at_price - PriceSnapshot.price,
-    ),
-    else_=0,
-)
+# ---------------------------------------------------------------------------
+# Base join + registry helper
+# ---------------------------------------------------------------------------
+
+
+def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist):
+    return (
+        select(Product, PriceSnapshot)
+        .join(latest, Product.id == latest.c.product_id, isouter=True)
+        .join(
+            PriceSnapshot,
+            (PriceSnapshot.product_id == latest.c.product_id)
+            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            isouter=True,
+        )
+        .join(bgg, Product.bgg_id == bgg.c.bgg_id, isouter=True)
+        .join(first_seen, Product.id == first_seen.c.product_id, isouter=True)
+        .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
+        .join(watchlist, Product.id == watchlist.c.product_id, isouter=True)
+    )
+
+
+def _watchlist_subq():
+    """Distinct product_ids in the watchlist."""
+    return select(WatchlistItem.product_id).distinct().subquery()
+
+
+def _subqueries():
+    latest = _latest_snapshot_subq()
+    bgg = _bgg_subq()
+    first_seen = _first_seen_subq()
+    prev_snap = _prev_snapshot_subq()
+    watchlist = _watchlist_subq()
+    return latest, bgg, first_seen, prev_snap, watchlist
+
+
+def get_field_registry():
+    """Registry for introspection endpoint — subqueries are never executed."""
+    _, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    return build_field_registry(
+        bgg_subq=bgg,
+        first_seen_subq=first_seen,
+        prev_snap_subq=prev_snap,
+        watchlist_subq=watchlist,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Enrichment — turn ORM rows into card dicts (batched, no N+1)
+# Enrichment — (product, snapshot) pairs → card dicts
 # ---------------------------------------------------------------------------
 
 
@@ -140,11 +169,7 @@ def make_cards(
     *,
     extra: dict[int, dict] | None = None,
 ) -> list[dict]:
-    """Batch-enrich (product, latest_snapshot) pairs into card dicts.
-
-    `extra` lets feeds attach per-product fields (e.g. previous_price) keyed by
-    product id. Loads BGG cache + overrides in two queries total.
-    """
+    """Batch-enrich (product, latest_snapshot) pairs into card dicts."""
     products = [p for p, _ in items]
     product_ids = [p.id for p in products if p.id is not None]
     bgg_ids = {p.bgg_id for p in products if p.bgg_id}
@@ -161,6 +186,27 @@ def make_cards(
         for c in session.exec(select(BggCache).where(BggCache.bgg_id.in_(bgg_ids))):
             bgg_cache[c.bgg_id] = c
 
+    # Batch-fetch last 12 price snapshots per product for sparkline display.
+    histories: dict[int, list[dict]] = {}
+    if product_ids:
+        rn_col = (
+            func.row_number()
+            .over(
+                partition_by=PriceSnapshot.product_id,
+                order_by=PriceSnapshot.recorded_at.desc(),
+            )
+            .label("rn")
+        )
+        subq = (
+            select(PriceSnapshot.product_id, PriceSnapshot.price, rn_col)
+            .where(PriceSnapshot.product_id.in_(product_ids))
+            .subquery()
+        )
+        for pid, price in session.exec(
+            select(subq.c.product_id, subq.c.price).where(subq.c.rn <= 12)
+        ):
+            histories.setdefault(int(pid), []).append({"price": float(price)})
+
     cards = []
     for product, snap in items:
         price = snap.price if snap else None
@@ -171,6 +217,7 @@ def make_cards(
             "bgg": _parse_bgg(bgg_cache.get(product.bgg_id), product.bgg_id),
             "override": overrides.get(product.id) if product.id else None,
             "discount_pct": _discount_pct(price, cap),
+            "price_history": histories.get(product.id, []),
         }
         if extra and product.id in extra:
             card.update(extra[product.id])
@@ -179,24 +226,82 @@ def make_cards(
 
 
 # ---------------------------------------------------------------------------
-# Browse / filter / sort
+# Core query
 # ---------------------------------------------------------------------------
+
+_DISCOUNT_PCT = case(
+    (
+        (PriceSnapshot.compare_at_price > PriceSnapshot.price)
+        & (PriceSnapshot.compare_at_price > 0),
+        (PriceSnapshot.compare_at_price - PriceSnapshot.price)
+        / PriceSnapshot.compare_at_price,
+    ),
+    else_=0,
+)
+_DISCOUNT_ABS = case(
+    (
+        PriceSnapshot.compare_at_price > PriceSnapshot.price,
+        PriceSnapshot.compare_at_price - PriceSnapshot.price,
+    ),
+    else_=0,
+)
 
 
 def query_products(
     session: Session,
     *,
-    filters: CatalogFilters = CatalogFilters(),
-    sort: str = "title",
+    filter_node: FilterNode | None = None,
+    sorts: list[SortSpec] | None = None,
     page: int = 1,
     limit: int = 48,
+    include_hidden: bool = False,
 ) -> list[tuple[Product, PriceSnapshot | None]]:
     """Filtered, sorted, paginated (product, latest_snapshot) pairs."""
-    latest = _latest_snapshot_subq()
-    bgg = _bgg_subq()
+    latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    registry = build_field_registry(
+        bgg_subq=bgg,
+        first_seen_subq=first_seen,
+        prev_snap_subq=prev_snap,
+        watchlist_subq=watchlist,
+    )
+    stmt = _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist)
 
+    filter_on_hidden = filter_node is not None and filter_uses_field(
+        filter_node, "hidden"
+    )
+    if not include_hidden and not filter_on_hidden:
+        stmt = stmt.where(Product.hidden == False)  # noqa: E712
+
+    if filter_node is not None:
+        stmt = stmt.where(apply_filter(filter_node, registry))
+
+    if sorts:
+        stmt = apply_sorts(stmt, sorts, registry)
+    else:
+        stmt = stmt.order_by(Product.title.asc())
+
+    offset = (page - 1) * limit
+    rows = session.exec(stmt.offset(offset).limit(limit)).all()
+    return [(r[0], r[1]) for r in rows]
+
+
+def count_products(
+    session: Session,
+    *,
+    filter_node: FilterNode | None = None,
+    include_hidden: bool = False,
+) -> int:
+    """Total matching row count (for pagination)."""
+    latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    registry = build_field_registry(
+        bgg_subq=bgg,
+        first_seen_subq=first_seen,
+        prev_snap_subq=prev_snap,
+        watchlist_subq=watchlist,
+    )
     stmt = (
-        select(Product, PriceSnapshot)
+        select(func.count())
+        .select_from(Product)
         .join(latest, Product.id == latest.c.product_id, isouter=True)
         .join(
             PriceSnapshot,
@@ -205,83 +310,27 @@ def query_products(
             isouter=True,
         )
         .join(bgg, Product.bgg_id == bgg.c.bgg_id, isouter=True)
-        .where(Product.hidden == False)  # noqa: E712 — hidden games never surface in feeds
+        .join(first_seen, Product.id == first_seen.c.product_id, isouter=True)
+        .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
+        .join(watchlist, Product.id == watchlist.c.product_id, isouter=True)
     )
-
-    if filters.q:
-        stmt = stmt.where(Product.title.ilike(f"%{filters.q}%"))
-    if filters.store_id:
-        stmt = stmt.where(Product.store_id == filters.store_id)
-    if filters.in_stock is not None:
-        stmt = stmt.where(PriceSnapshot.available == filters.in_stock)
-    if filters.has_bgg is True:
-        stmt = stmt.where(Product.bgg_id.is_not(None))
-    if filters.has_bgg is False:
-        stmt = stmt.where(Product.bgg_id.is_(None))
-    if filters.min_price is not None:
-        stmt = stmt.where(PriceSnapshot.price >= filters.min_price)
-    if filters.max_price is not None:
-        stmt = stmt.where(PriceSnapshot.price <= filters.max_price)
-    if filters.min_bgg_rating is not None:
-        stmt = stmt.where(bgg.c.bgg_rating >= filters.min_bgg_rating)
-
-    stmt = _apply_sort(stmt, sort, bgg)
-
-    offset = (page - 1) * limit
-    rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    return [(r[0], r[1]) for r in rows]
-
-
-def _apply_sort(stmt, sort: str, bgg):
-    match sort:
-        case "price_asc":
-            return stmt.order_by(PriceSnapshot.price.asc())
-        case "price_desc":
-            return stmt.order_by(PriceSnapshot.price.desc())
-        case "newest":
-            return stmt.order_by(Product.updated_at.desc())
-        case "price_changed":
-            return stmt.order_by(PriceSnapshot.recorded_at.desc())
-        case "discount_pct":
-            return stmt.order_by(_DISCOUNT_PCT.desc())
-        case "discount_abs":
-            return stmt.order_by(_DISCOUNT_ABS.desc())
-        case "bgg_rating":
-            return stmt.order_by(bgg.c.bgg_rating.desc().nulls_last())
-        case "value":
-            expr = case(
-                (bgg.c.bgg_rating > 0, PriceSnapshot.price / bgg.c.bgg_rating),
-                else_=text("9999999"),
-            )
-            return stmt.order_by(expr.asc())
-        case "value_weight":
-            expr = case(
-                (bgg.c.avg_weight > 0, PriceSnapshot.price / bgg.c.avg_weight),
-                else_=text("9999999"),
-            )
-            return stmt.order_by(expr.asc())
-        case "price_rating_rank":
-            expr = case(
-                (
-                    (bgg.c.bgg_rating > 0)
-                    & (bgg.c.rank > 0)
-                    & (PriceSnapshot.price > 0),
-                    bgg.c.bgg_rating / (bgg.c.rank * PriceSnapshot.price),
-                ),
-                else_=0,
-            )
-            return stmt.order_by(expr.desc())
-        case _:
-            return stmt.order_by(Product.title.asc())
+    filter_on_hidden = filter_node is not None and filter_uses_field(
+        filter_node, "hidden"
+    )
+    if not include_hidden and not filter_on_hidden:
+        stmt = stmt.where(Product.hidden == False)  # noqa: E712
+    if filter_node is not None:
+        stmt = stmt.where(apply_filter(filter_node, registry))
+    return session.exec(stmt).one()
 
 
 # ---------------------------------------------------------------------------
-# Feeds
+# Feeds (used by old catalog routes — kept for search bar + hidden page)
 # ---------------------------------------------------------------------------
 
 
 def _ranked_snapshots_subq():
-    """Each snapshot tagged with its recency rank within its product (1 = latest)."""
+    """Each snapshot with recency rank (1 = latest) per product."""
     return select(
         PriceSnapshot.product_id,
         PriceSnapshot.price,
@@ -300,13 +349,11 @@ def _ranked_snapshots_subq():
 def price_drops(
     session: Session, *, page: int = 1, limit: int = 12, in_stock_only: bool = False
 ) -> list[dict]:
-    """Products whose latest price is below their previous recorded price."""
+    """Products whose latest price < their previous recorded price."""
     ranked = _ranked_snapshots_subq()
     latest = select(ranked).where(ranked.c.rn == 1).subquery()
     prev = select(ranked).where(ranked.c.rn == 2).subquery()
-
     drop_pct = (prev.c.price - latest.c.price) / prev.c.price
-
     stmt = (
         select(Product, PriceSnapshot, prev.c.price.label("previous_price"))
         .join(latest, Product.id == latest.c.product_id)
@@ -322,7 +369,6 @@ def price_drops(
     if in_stock_only:
         stmt = stmt.where(latest.c.available == True)  # noqa: E712
     stmt = stmt.order_by(drop_pct.desc())
-
     offset = (page - 1) * limit
     rows = session.exec(stmt.offset(offset).limit(limit)).all()
     extra = {r[0].id: {"previous_price": r[2]} for r in rows}
@@ -331,53 +377,42 @@ def price_drops(
 
 def new_additions(session: Session, *, page: int = 1, limit: int = 12) -> list[dict]:
     """Most recently first-seen products."""
-    first_seen = _first_seen_subq()
-    latest = _latest_snapshot_subq()
-
-    stmt = (
-        select(Product, PriceSnapshot)
-        .join(first_seen, Product.id == first_seen.c.product_id)
-        .join(latest, Product.id == latest.c.product_id, isouter=True)
-        .join(
-            PriceSnapshot,
-            (PriceSnapshot.product_id == Product.id)
-            & (PriceSnapshot.recorded_at == latest.c.max_date),
-            isouter=True,
-        )
-        .where(Product.hidden == False)  # noqa: E712
-        .order_by(first_seen.c.first_date.desc())
-    )
-    offset = (page - 1) * limit
-    rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    return make_cards(session, [(r[0], r[1]) for r in rows])
-
-
-def top_discounts(session: Session, *, page: int = 1, limit: int = 12) -> list[dict]:
-    """Largest current % discount (compare-at vs price) on the latest snapshot."""
     rows = query_products(
         session,
-        filters=CatalogFilters(),
-        sort="discount_pct",
+        sorts=[SortSpec(field="first_seen", dir="desc")],
         page=page,
         limit=limit,
     )
-    # query_products already orders by discount; drop zero-discount tail.
+    return make_cards(session, rows)
+
+
+def top_discounts(session: Session, *, page: int = 1, limit: int = 12) -> list[dict]:
+    """Largest current % discount."""
+    rows = query_products(
+        session,
+        filter_node=Condition(field="discount_pct", op="gt", value=0),
+        sorts=[SortSpec(field="discount_pct", dir="desc")],
+        page=page,
+        limit=limit,
+    )
     cards = make_cards(session, rows)
     return [c for c in cards if (c["discount_pct"] or 0) > 0]
 
 
 def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
-    """Title search returning enriched cards (used by the global search bar)."""
+    """Title search for the global search bar."""
     if not q or not q.strip():
         return []
     rows = query_products(
-        session, filters=CatalogFilters(q=q.strip()), sort="title", limit=limit
+        session,
+        filter_node=Condition(field="title", op="contains", value=q.strip()),
+        limit=limit,
     )
     return make_cards(session, rows)
 
 
 def hidden_products(session: Session, *, page: int = 1, limit: int = 48) -> list[dict]:
-    """Enriched cards for products the user has hidden — for the Hidden page."""
+    """Enriched cards for hidden products."""
     latest = _latest_snapshot_subq()
     stmt = (
         select(Product, PriceSnapshot)

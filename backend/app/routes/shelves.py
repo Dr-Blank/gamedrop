@@ -1,0 +1,109 @@
+import contextlib
+import json
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from ..db import get_session
+from ..filter_engine import FilterNode, SortSpec
+from ..models import Shelf
+from ..repositories import catalog as repo
+
+router = APIRouter(prefix="/shelves", tags=["shelves"])
+
+
+class ShelfCreate(BaseModel):
+    name: str
+    icon: str = "Layers"
+    filters: FilterNode | None = None
+    sorts: list[SortSpec] = []
+
+
+class ShelfPatch(BaseModel):
+    name: str | None = None
+    icon: str | None = None
+    position: int | None = None
+
+
+@router.get("/")
+def list_shelves(session: Session = Depends(get_session)):
+    return session.exec(select(Shelf).order_by(Shelf.position, Shelf.id)).all()
+
+
+@router.post("/", status_code=201)
+def create_shelf(body: ShelfCreate, session: Session = Depends(get_session)):
+    position = session.exec(select(Shelf).order_by(Shelf.position.desc())).first()
+    next_pos = (position.position + 1) if position else 0
+    shelf = Shelf(
+        name=body.name,
+        icon=body.icon,
+        filters=json.dumps(body.filters.model_dump()) if body.filters else None,
+        sorts=json.dumps([s.model_dump() for s in body.sorts]) if body.sorts else None,
+        built_in=False,
+        position=next_pos,
+    )
+    session.add(shelf)
+    session.commit()
+    session.refresh(shelf)
+    return shelf
+
+
+@router.patch("/{shelf_id}")
+def patch_shelf(
+    shelf_id: int, body: ShelfPatch, session: Session = Depends(get_session)
+):
+    shelf = session.get(Shelf, shelf_id)
+    if not shelf:
+        raise HTTPException(404, "Shelf not found")
+    if body.name is not None:
+        shelf.name = body.name
+    if body.icon is not None:
+        shelf.icon = body.icon
+    if body.position is not None:
+        shelf.position = body.position
+    session.add(shelf)
+    session.commit()
+    session.refresh(shelf)
+    return shelf
+
+
+@router.delete("/{shelf_id}", status_code=204)
+def delete_shelf(shelf_id: int, session: Session = Depends(get_session)):
+    shelf = session.get(Shelf, shelf_id)
+    if not shelf:
+        raise HTTPException(404, "Shelf not found")
+    if shelf.built_in:
+        raise HTTPException(403, "Cannot delete built-in shelf")
+    session.delete(shelf)
+    session.commit()
+
+
+@router.get("/preview")
+def shelves_preview(limit: int = 8, session: Session = Depends(get_session)):
+    """All shelves with a product preview — single request for the home page."""
+    shelves = session.exec(select(Shelf).order_by(Shelf.position, Shelf.id)).all()
+    result = []
+    for shelf in shelves:
+        filter_node = None
+        sorts = None
+        if shelf.filters:
+            with contextlib.suppress(Exception):
+                from ..filter_engine import Condition, Group
+
+                raw = json.loads(shelf.filters)
+                filter_node = (
+                    Condition(**raw) if raw.get("type") == "condition" else Group(**raw)
+                )
+        if shelf.sorts:
+            with contextlib.suppress(Exception):
+                sorts = [SortSpec(**s) for s in json.loads(shelf.sorts)]
+        try:
+            rows = repo.query_products(
+                session, filter_node=filter_node, sorts=sorts, limit=limit
+            )
+            items = repo.make_cards(session, rows)
+        except Exception:
+            items = []
+        result.append({"shelf": shelf, "items": items})
+    return result

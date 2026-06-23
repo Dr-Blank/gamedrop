@@ -59,6 +59,18 @@ export const testNtfyConnection = () => req('/settings/test/ntfy', { method: 'PO
 export const browseStores = () => req('/browse/stores');
 export const browse = (params) => req(`/browse?${new URLSearchParams(params)}`);
 export const browseSorts = () => req('/browse/sorts');
+export const browseFields = () => req('/browse/fields');
+export const browseQuery = (body) =>
+	req('/browse/query', { method: 'POST', body: JSON.stringify(body) });
+
+// Shelves
+export const getShelves = () => req('/shelves/');
+export const shelvesPreview = (limit = 8) => req(`/shelves/preview?limit=${limit}`);
+export const createShelf = (body) =>
+	req('/shelves/', { method: 'POST', body: JSON.stringify(body) });
+export const patchShelf = (id, body) =>
+	req(`/shelves/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const deleteShelf = (id) => req(`/shelves/${id}`, { method: 'DELETE' });
 
 // Home dashboard + discovery feeds
 export const getHome = (shelfSize = 12) => req(`/home?shelf_size=${shelfSize}`);

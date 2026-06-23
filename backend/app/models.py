@@ -94,3 +94,16 @@ class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Shelf(SQLModel, table=True):
+    """Named filter+sort preset. Built-ins are seeded on startup; user shelves are added freely."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    icon: str = "Layers"  # lucide icon name
+    filters: str | None = None  # JSON FilterNode or null = no filter
+    sorts: str | None = None  # JSON SortSpec[] or null = default sort
+    built_in: bool = False
+    position: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
