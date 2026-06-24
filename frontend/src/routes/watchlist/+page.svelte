@@ -1,6 +1,7 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
+	import { beforeNavigate, afterNavigate } from '$app/navigation';
 	import { flip } from 'svelte/animate';
 	import {
 		getWatchlist,
@@ -109,6 +110,27 @@
 		targetPrice = '';
 		await Promise.all([load(), watchStore.load()]);
 	}
+
+	let _scrollTarget = $state(0);
+
+	beforeNavigate(() => {
+		sessionStorage.setItem('watchlist_scroll', String(window.scrollY));
+	});
+
+	afterNavigate(({ type }) => {
+		if (type === 'popstate') {
+			_scrollTarget = Number(sessionStorage.getItem('watchlist_scroll') || '0');
+			sessionStorage.removeItem('watchlist_scroll');
+		}
+	});
+
+	$effect(() => {
+		if (_scrollTarget && !loading) {
+			const t = _scrollTarget;
+			_scrollTarget = 0;
+			tick().then(() => window.scrollTo({ top: t, behavior: 'instant' }));
+		}
+	});
 
 	onMount(load);
 </script>

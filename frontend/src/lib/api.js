@@ -26,6 +26,10 @@ export const bggSearch = (q) => req(`/bgg/search?q=${encodeURIComponent(q)}`);
 export const bggGame = (id) => req(`/bgg/game/${id}`);
 export const linkBgg = (bggId, productId) =>
 	req(`/bgg/game/${bggId}/link/${productId}`, { method: 'POST' });
+export const bggUnlinked = (page = 1, limit = 20) =>
+	req(`/bgg/unlinked?page=${page}&limit=${limit}`);
+export const bggRefresh = (bggId) => req(`/bgg/game/${bggId}/refresh`, { method: 'POST' });
+export const unlinkBgg = (productId) => req(`/bgg/link/${productId}`, { method: 'DELETE' });
 
 // Prices
 export const priceSearch = (q, storeId) =>

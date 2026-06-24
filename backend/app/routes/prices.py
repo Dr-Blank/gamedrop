@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, desc, select
 
 from ..db import get_session
-from ..models import PriceSnapshot, Product
+from ..models import PriceSnapshot, Product, ProductOverride, WatchlistItem
 
 router = APIRouter(prefix="/prices", tags=["prices"])
 
@@ -22,7 +22,19 @@ def price_history(
         .order_by(desc(PriceSnapshot.recorded_at))
         .limit(limit)
     ).all()
-    return {"product": product, "history": snapshots}
+    override = session.get(ProductOverride, product_id)
+    watchlist_item = session.exec(
+        select(WatchlistItem).where(
+            WatchlistItem.product_id == product_id,
+            WatchlistItem.active == True,  # noqa: E712
+        )
+    ).first()
+    return {
+        "product": product,
+        "history": snapshots,
+        "override": override,
+        "watchlist_item": watchlist_item,
+    }
 
 
 @router.get("/search")

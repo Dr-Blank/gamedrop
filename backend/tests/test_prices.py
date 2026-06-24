@@ -1,7 +1,13 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Product, Store
+from app.models import (
+    PriceSnapshot,
+    Product,
+    ProductOverride,
+    Store,
+    WatchlistItem,
+)
 
 
 def _seed(session: Session):
@@ -67,3 +73,44 @@ def test_search_filter_by_store(client: TestClient, session: Session):
     r2 = client.get("/api/prices/search?q=catan&store_id=other")
     assert r.status_code == 200
     assert r2.json() == []
+
+
+def test_price_history_includes_override(client: TestClient, session: Session):
+    product = _seed(session)
+    session.add(ProductOverride(product_id=product.id, title="Catan Overridden"))
+    session.commit()
+
+    r = client.get(f"/api/prices/product/{product.id}")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["override"]["title"] == "Catan Overridden"
+
+
+def test_price_history_no_override_returns_null(client: TestClient, session: Session):
+    product = _seed(session)
+    r = client.get(f"/api/prices/product/{product.id}")
+    assert r.status_code == 200
+    assert r.json()["override"] is None
+
+
+def test_price_history_includes_watchlist_item(client: TestClient, session: Session):
+    product = _seed(session)
+    session.add(WatchlistItem(product_id=product.id, target_price=20.0, active=True))
+    session.commit()
+
+    r = client.get(f"/api/prices/product/{product.id}")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["watchlist_item"]["target_price"] == 20.0
+
+
+def test_price_history_inactive_watchlist_not_returned(
+    client: TestClient, session: Session
+):
+    product = _seed(session)
+    session.add(WatchlistItem(product_id=product.id, active=False))
+    session.commit()
+
+    r = client.get(f"/api/prices/product/{product.id}")
+    assert r.status_code == 200
+    assert r.json()["watchlist_item"] is None

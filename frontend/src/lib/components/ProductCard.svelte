@@ -88,7 +88,10 @@
 		onkeydown={onKey}
 	>
 		<!-- Image -->
-		<div class="relative aspect-[4/3] w-full">
+		<div
+			class="relative aspect-[4/3] w-full"
+			style="view-transition-name: product-{item.product.id}"
+		>
 			<ProductImage src={imgSrc} productId={item.product.id} alt={title} class="h-full w-full" />
 
 			<!-- permanent bottom fade: masks hard image edge, reveals more on hover -->

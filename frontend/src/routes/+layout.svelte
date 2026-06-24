@@ -1,7 +1,7 @@
 <script>
 	import './layout.css';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, onNavigate } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { slide, fly } from 'svelte/transition';
 	import {
@@ -15,6 +15,7 @@
 		Settings,
 		ScrollText,
 		EyeOff,
+		Link2,
 		Menu,
 		X,
 		Search,
@@ -50,6 +51,7 @@
 		{ href: '/stores', label: 'Stores', icon: Store },
 		{ href: '/notifications', label: 'Notifications', icon: Bell },
 		{ href: '/hidden', label: 'Hidden', icon: EyeOff },
+		{ href: '/bgg-link', label: 'BGG Link', icon: Link2 },
 		{ href: '/settings', label: 'Settings', icon: Settings },
 		{ href: '/logs', label: 'Logs', icon: ScrollText }
 	];
@@ -86,6 +88,16 @@
 			mobileOpen = false;
 		}
 	}
+
+	onNavigate((navigation) => {
+		if (!document.startViewTransition) return;
+		return new Promise((resolve) => {
+			document.startViewTransition(async () => {
+				resolve();
+				await navigation.complete;
+			});
+		});
+	});
 
 	onMount(() => {
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -235,3 +247,11 @@
 </div>
 
 <Toaster />
+
+<style>
+	/* Snappy fade for the page-level cross-fade; named elements morph natively */
+	::view-transition-old(root),
+	::view-transition-new(root) {
+		animation-duration: 0.15s;
+	}
+</style>

@@ -1,7 +1,8 @@
 <script>
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { goto, afterNavigate } from '$app/navigation';
+	import { tick } from 'svelte';
+	import { goto, afterNavigate, beforeNavigate } from '$app/navigation';
 	import { fly } from 'svelte/transition';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -55,6 +56,12 @@
 	let editItem = $state(null);
 	let editForm = $state({});
 	let editSaving = $state(false);
+	let _editOriginal = {}; // snapshot at open — used to detect unsaved changes
+
+	const editDirty = $derived(
+		JSON.stringify({ ...editForm, _bggUrlRaw: undefined }) !==
+			JSON.stringify({ ..._editOriginal, _bggUrlRaw: undefined })
+	);
 
 	const LIMIT = 48;
 	const hasFilters = $derived(filterTree.conditions.length > 0);
@@ -215,6 +222,7 @@
 			note: ov.note ?? '',
 			_bggUrlRaw: ''
 		};
+		_editOriginal = { ...editForm };
 	}
 
 	function closeEdit() {
@@ -266,11 +274,22 @@
 		fields = await browseFields();
 	});
 
+	beforeNavigate(() => {
+		sessionStorage.setItem('browse_scroll', String(window.scrollY));
+	});
+
 	// Decode URL params and search on every navigation to this route,
 	// including initial mount and same-route param changes (nav links).
-	afterNavigate(async () => {
+	afterNavigate(async ({ type }) => {
+		const savedScroll =
+			type === 'popstate' ? Number(sessionStorage.getItem('browse_scroll') || '0') : 0;
 		decodeFromUrl();
 		await search();
+		if (savedScroll) {
+			sessionStorage.removeItem('browse_scroll');
+			await tick();
+			window.scrollTo({ top: savedScroll, behavior: 'instant' });
+		}
 	});
 </script>
 
@@ -480,6 +499,9 @@
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
 		transition:fly={{ duration: 150 }}
+		onclick={(e) => {
+			if (e.target === e.currentTarget && !editDirty) closeEdit();
+		}}
 	>
 		<div
 			class="w-full max-w-md rounded-xl border bg-background p-6 shadow-xl"
@@ -499,13 +521,41 @@
 					<Input bind:value={editForm.url} placeholder={editItem.product.url ?? ''} class="mt-1" />
 				</label>
 				<label class="block text-sm">
-					<span class="text-muted-foreground">BGG ID</span>
+					<span class="text-muted-foreground">BGG Link</span>
+
+					{#if editForm.bgg_id}
+						<div
+							class="mt-1 flex items-center gap-2 rounded border bg-muted/50 px-2 py-1.5 text-xs"
+						>
+							<span class="font-mono">ID: {editForm.bgg_id}</span>
+							<a
+								href="https://boardgamegeek.com/boardgame/{editForm.bgg_id}"
+								target="_blank"
+								class="text-primary hover:underline">↗ BGG</a
+							>
+							<button
+								onclick={() => {
+									editForm.bgg_id = '';
+								}}
+								class="ml-auto text-muted-foreground hover:text-destructive">× clear</button
+							>
+						</div>
+					{/if}
+
 					<div class="mt-1 flex gap-2">
 						<Input
-							bind:value={editForm.bgg_id}
-							type="number"
-							placeholder={editItem.product.bgg_id ?? 'e.g. 167791'}
-							class="flex-1"
+							bind:value={editForm._bggUrlRaw}
+							placeholder="Paste BGG URL to auto-fill ID"
+							class="flex-1 text-sm"
+							oninput={() => {
+								const m = editForm._bggUrlRaw.match(
+									/boardgamegeek\.com\/(?:boardgame|rpg|videogame)\/(\d+)/i
+								);
+								if (m) {
+									editForm.bgg_id = m[1];
+									editForm._bggUrlRaw = '';
+								}
+							}}
 						/>
 						<Button
 							size="sm"
@@ -516,20 +566,9 @@
 									'_blank'
 								)}
 						>
-							Search ↗
+							Google ↗
 						</Button>
 					</div>
-					<Input
-						bind:value={editForm._bggUrlRaw}
-						placeholder="Paste BGG URL to auto-fill ID"
-						class="mt-2 text-xs"
-						oninput={() => {
-							const m = editForm._bggUrlRaw.match(
-								/boardgamegeek\.com\/(?:boardgame|rpg|videogame)\/(\d+)/i
-							);
-							if (m) editForm.bgg_id = m[1];
-						}}
-					/>
 				</label>
 				<div class="grid grid-cols-2 gap-3">
 					<label class="block text-sm">

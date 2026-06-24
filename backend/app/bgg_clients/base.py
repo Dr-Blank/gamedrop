@@ -36,6 +36,14 @@ async def _xml_get(
                 if r.status_code == 202:
                     await asyncio.sleep(3)
                     continue
+                if r.status_code == 401:
+                    from fastapi import HTTPException
+
+                    raise HTTPException(
+                        502,
+                        "BGG API returned 401 — anonymous access "
+                        "blocked; set a BGG API token in Settings",
+                    )
                 r.raise_for_status()
                 return xmltodict.parse(r.text)
     raise RuntimeError("BGG API not ready after retries")
