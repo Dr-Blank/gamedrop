@@ -1,18 +1,123 @@
 <script>
 	import { onMount } from 'svelte';
-	import { getWatchlist, patchWatchlistItem } from '$lib/api.js';
-	import * as Card from '$lib/components/ui/card';
-	import * as Table from '$lib/components/ui/table';
-	import { Badge } from '$lib/components/ui/badge';
+	import { fly } from 'svelte/transition';
+	import {
+		Bell,
+		TrendingDown,
+		TrendingUp,
+		Package,
+		PackageX,
+		Crosshair,
+		CheckCheck,
+		ExternalLink,
+		RefreshCw,
+		History
+	} from '@lucide/svelte';
+	import { goto } from '$app/navigation';
+	import {
+		getNotifications,
+		markAllNotificationsRead,
+		markNotificationRead,
+		backfillNotifications
+	} from '$lib/api.js';
+	import { notifications as notifStore } from '$lib/notifications.svelte.js';
+	import { Button } from '$lib/components/ui/button';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 
-	let watchlist = $state([]);
+	const PAGE_SIZE = 20;
+
+	/** @type {any[]} */
+	let items = $state([]);
+	let unread = $state(0);
 	let loading = $state(true);
+	let loadingMore = $state(false);
+	let hasMore = $state(false);
+	let offset = $state(0);
 	let error = $state('');
+	let backfilling = $state(false);
+	let backfillDone = $state(/** @type {number|null} */ null);
+
+	const KIND = {
+		price_drop: {
+			icon: TrendingDown,
+			bg: 'bg-emerald-100 dark:bg-emerald-900/40',
+			color: 'text-emerald-600 dark:text-emerald-400',
+			label: 'Price drop'
+		},
+		back_in_stock: {
+			icon: Package,
+			bg: 'bg-blue-100 dark:bg-blue-900/40',
+			color: 'text-blue-600 dark:text-blue-400',
+			label: 'Back in stock'
+		},
+		target_reached: {
+			icon: Crosshair,
+			bg: 'bg-orange-100 dark:bg-orange-900/40',
+			color: 'text-orange-600 dark:text-orange-400',
+			label: 'Target hit'
+		},
+		price_increase: {
+			icon: TrendingUp,
+			bg: 'bg-rose-100 dark:bg-rose-900/40',
+			color: 'text-rose-600 dark:text-rose-400',
+			label: 'Price increase'
+		},
+		out_of_stock: {
+			icon: PackageX,
+			bg: 'bg-zinc-100 dark:bg-zinc-800/60',
+			color: 'text-zinc-500 dark:text-zinc-400',
+			label: 'Out of stock'
+		}
+	};
+
+	function reltime(ts) {
+		const d = new Date(ts + 'Z');
+		const diff = Date.now() - d.getTime();
+		if (diff < 60_000) return 'just now';
+		if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+		if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+		const days = Math.floor(diff / 86_400_000);
+		if (days === 1) return 'yesterday';
+		if (days < 7) return `${days}d ago`;
+		return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+	}
+
+	function dayLabel(ts) {
+		const d = new Date(ts + 'Z');
+		const now = new Date();
+		const diff = now.setHours(0, 0, 0, 0) - d.setHours(0, 0, 0, 0);
+		if (diff <= 0) return 'Today';
+		if (diff <= 86_400_000) return 'Yesterday';
+		const days = Math.floor(diff / 86_400_000);
+		if (days < 7) return `${days} days ago`;
+		return new Date(ts + 'Z').toLocaleDateString(undefined, {
+			weekday: 'long',
+			day: 'numeric',
+			month: 'short'
+		});
+	}
+
+	/** Group items by calendar day */
+	let grouped = $derived(() => {
+		/** @type {Map<string, any[]>} */
+		const map = new Map();
+		for (const item of items) {
+			const label = dayLabel(item.sent_at);
+			if (!map.has(label)) map.set(label, []);
+			map.get(label).push(item);
+		}
+		return [...map.entries()];
+	});
 
 	async function load() {
 		loading = true;
+		error = '';
 		try {
-			watchlist = await getWatchlist();
+			const data = await getNotifications(PAGE_SIZE, 0);
+			items = data.items;
+			unread = data.unread;
+			offset = PAGE_SIZE;
+			hasMore = data.items.length === PAGE_SIZE;
 		} catch (e) {
 			error = e.message;
 		} finally {
@@ -20,99 +125,253 @@
 		}
 	}
 
-	async function toggle(id, field, value) {
-		await patchWatchlistItem(id, { [field]: value });
-		await load();
+	async function loadMore() {
+		loadingMore = true;
+		try {
+			const data = await getNotifications(PAGE_SIZE, offset);
+			items = [...items, ...data.items];
+			offset += PAGE_SIZE;
+			hasMore = data.items.length === PAGE_SIZE;
+		} catch {
+			// ignore
+		} finally {
+			loadingMore = false;
+		}
+	}
+
+	async function markAllRead() {
+		await markAllNotificationsRead();
+		items = items.map((n) => ({ ...n, read_at: new Date().toISOString() }));
+		unread = 0;
+		notifStore.unread = 0;
+	}
+
+	async function markRead(item) {
+		if (!item.read_at) {
+			await markNotificationRead(item.id);
+			items = items.map((n) =>
+				n.id === item.id ? { ...n, read_at: new Date().toISOString() } : n
+			);
+			unread = Math.max(0, unread - 1);
+			notifStore.unread = Math.max(0, notifStore.unread - 1);
+		}
+		if (item.product_id) {
+			goto(`/prices/${item.product_id}`);
+		}
+	}
+
+	async function runBackfill() {
+		backfilling = true;
+		backfillDone = null;
+		try {
+			const result = await backfillNotifications();
+			backfillDone = result.inserted;
+			if (result.inserted > 0) await load();
+		} catch {
+			backfillDone = -1;
+		} finally {
+			backfilling = false;
+		}
 	}
 
 	onMount(load);
 </script>
 
 <div class="space-y-6">
-	<div>
-		<h1 class="text-2xl font-bold">Notifications</h1>
-		<p class="mt-1 text-sm text-muted-foreground">
-			Configure what events trigger notifications. Notifications are sent via ntfy — configure your
-			ntfy server in <a href="/settings" class="underline hover:text-foreground">Settings</a>.
-		</p>
+	<!-- Page header -->
+	<div class="flex flex-wrap items-start justify-between gap-4">
+		<div>
+			<h1 class="flex items-center gap-2 text-2xl font-bold tracking-tight">
+				<Bell class="size-6 text-primary" />
+				Notifications
+			</h1>
+			<p class="mt-1 text-sm text-muted-foreground">
+				{#if loading}
+					Loading…
+				{:else}
+					{items.length} notification{items.length === 1 ? '' : 's'}
+					{#if unread > 0}
+						<span
+							class="ml-1 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground"
+							>{unread} unread</span
+						>
+					{/if}
+				{/if}
+			</p>
+		</div>
+
+		<div class="flex items-center gap-2">
+			<!-- Backfill historical -->
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={runBackfill}
+				disabled={backfilling}
+				class="gap-2"
+			>
+				{#if backfilling}
+					<RefreshCw class="size-3.5 animate-spin" />
+					Backfilling…
+				{:else}
+					<History class="size-3.5" />
+					Load history
+				{/if}
+			</Button>
+
+			{#if unread > 0}
+				<Button variant="outline" size="sm" onclick={markAllRead} class="gap-2">
+					<CheckCheck class="size-3.5" />
+					Mark all read
+				</Button>
+			{/if}
+		</div>
 	</div>
 
+	<!-- Backfill result -->
+	{#if backfillDone !== null}
+		<div
+			transition:fly={{ y: -8, duration: 200 }}
+			class="rounded-lg border {backfillDone < 0
+				? 'border-destructive/30 bg-destructive/5 text-destructive'
+				: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/30 dark:bg-emerald-900/20 dark:text-emerald-300'} px-4 py-3 text-sm"
+		>
+			{#if backfillDone < 0}
+				Backfill failed — check server logs.
+			{:else if backfillDone === 0}
+				History is already up to date — no new notifications added.
+			{:else}
+				Added {backfillDone} historical notification{backfillDone === 1 ? '' : 's'}.
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Loading skeletons -->
 	{#if loading}
-		<p class="text-muted-foreground">Loading…</p>
+		<div class="space-y-1">
+			{#each Array(6) as _}
+				<div class="flex items-start gap-3 rounded-xl border px-4 py-3">
+					<Skeleton class="mt-0.5 size-9 shrink-0 rounded-full" />
+					<div class="flex-1 space-y-2">
+						<Skeleton class="h-4 w-2/3" />
+						<Skeleton class="h-3 w-1/2" />
+					</div>
+					<Skeleton class="h-3 w-16 shrink-0" />
+				</div>
+			{/each}
+		</div>
 	{:else if error}
-		<p class="text-destructive">Error: {error}</p>
-	{:else if watchlist.length === 0}
-		<p class="text-muted-foreground">
-			No items on watchlist. Add games from the <a href="/" class="underline hover:text-foreground"
-				>Watchlist</a
-			> page.
-		</p>
+		<p class="text-sm text-destructive">Error: {error}</p>
+	{:else if items.length === 0}
+		<div
+			class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-20 text-center"
+		>
+			<Bell class="size-12 text-muted-foreground/30" />
+			<div>
+				<p class="font-medium">No notifications yet</p>
+				<p class="mt-1 text-sm text-muted-foreground">
+					Add games to your watchlist to start receiving alerts.
+				</p>
+			</div>
+			<div class="flex gap-2">
+				<Button variant="outline" href="/watchlist" size="sm">Go to Watchlist</Button>
+				<Button variant="outline" onclick={runBackfill} size="sm" disabled={backfilling}>
+					<History class="size-3.5" />
+					Load history
+				</Button>
+			</div>
+		</div>
 	{:else}
-		<Card.Root>
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Game</Table.Head>
-						<Table.Head>Store</Table.Head>
-						<Table.Head>Price / Stock</Table.Head>
-						<Table.Head class="text-center">Price drop</Table.Head>
-						<Table.Head class="text-center">Back in stock</Table.Head>
-						<Table.Head class="text-center">Target price</Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each watchlist as item}
-						<Table.Row>
-							<Table.Cell class="font-medium">
-								<a href="/prices/{item.product.id}" class="hover:underline">{item.product.title}</a>
-							</Table.Cell>
-							<Table.Cell class="text-sm text-muted-foreground">
-								{item.store?.name ?? item.product.store_id}
-							</Table.Cell>
-							<Table.Cell>
-								<div class="flex items-center gap-2">
-									{#if item.latest_price}
-										<span class="font-semibold">₹{item.latest_price.price.toFixed(0)}</span>
-									{:else}
-										<span class="text-muted-foreground">—</span>
-									{/if}
-									{#if item.latest_price?.available}
-										<Badge class="bg-green-100 text-green-800">In stock</Badge>
-									{:else}
-										<Badge variant="destructive">OOS</Badge>
+		<!-- Grouped list -->
+		<div class="space-y-6">
+			{#each grouped() as [day, dayItems]}
+				<div>
+					<!-- Day label -->
+					<div class="mb-2 flex items-center gap-3">
+						<span class="text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+							>{day}</span
+						>
+						<div class="h-px flex-1 bg-border"></div>
+					</div>
+
+					<div class="overflow-hidden rounded-xl border">
+						{#each dayItems as item, i}
+							{@const k = KIND[item.kind] ?? KIND.price_drop}
+							{@const Icon = k.icon}
+							{@const unreadItem = !item.read_at}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="group flex items-start gap-3 px-4 py-3.5 transition-colors
+									{unreadItem ? 'bg-primary/[0.03]' : 'bg-background'}
+									{i > 0 ? 'border-t' : ''}
+									hover:bg-muted/40"
+								role="button"
+								tabindex="0"
+								onclick={() => markRead(item)}
+								onkeydown={(e) => e.key === 'Enter' && markRead(item)}
+							>
+								<!-- Kind icon -->
+								<div
+									class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full {k.bg}"
+								>
+									<Icon class="size-4.5 {k.color}" />
+								</div>
+
+								<!-- Content -->
+								<div class="min-w-0 flex-1">
+									<div class="flex items-start gap-2">
+										<div class="min-w-0 flex-1">
+											<p
+												class="truncate text-sm leading-snug font-medium {unreadItem
+													? ''
+													: 'text-muted-foreground'}"
+											>
+												{item.title}
+											</p>
+											<p class="mt-0.5 text-xs text-muted-foreground">
+												{item.message}
+											</p>
+										</div>
+										<!-- Unread dot -->
+										{#if unreadItem}
+											<span class="mt-1.5 size-2 shrink-0 rounded-full bg-primary"></span>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Right side: time + action -->
+								<div class="flex shrink-0 flex-col items-end gap-2">
+									<span class="text-xs text-muted-foreground/60">{reltime(item.sent_at)}</span>
+									{#if item.product_url}
+										<a
+											href={item.product_url}
+											target="_blank"
+											rel="noopener"
+											onclick={(e) => e.stopPropagation()}
+											class="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted hover:text-foreground"
+										>
+											Store <ExternalLink class="size-3" />
+										</a>
 									{/if}
 								</div>
-							</Table.Cell>
-							<Table.Cell class="text-center">
-								<input
-									type="checkbox"
-									class="h-4 w-4 cursor-pointer accent-primary"
-									checked={item.watchlist.notify_price_drop ?? true}
-									onchange={(e) => toggle(item.watchlist.id, 'notify_price_drop', e.target.checked)}
-								/>
-							</Table.Cell>
-							<Table.Cell class="text-center">
-								<input
-									type="checkbox"
-									class="h-4 w-4 cursor-pointer accent-primary"
-									checked={item.watchlist.notify_back_in_stock ?? true}
-									onchange={(e) =>
-										toggle(item.watchlist.id, 'notify_back_in_stock', e.target.checked)}
-								/>
-							</Table.Cell>
-							<Table.Cell class="text-center">
-								<input
-									type="checkbox"
-									class="h-4 w-4 cursor-pointer accent-primary"
-									checked={item.watchlist.notify_target_reached ?? true}
-									onchange={(e) =>
-										toggle(item.watchlist.id, 'notify_target_reached', e.target.checked)}
-								/>
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Root>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
+		</div>
+
+		<!-- Load more -->
+		{#if hasMore}
+			<div class="flex justify-center pt-2">
+				<Button variant="outline" onclick={loadMore} disabled={loadingMore}>
+					{#if loadingMore}
+						<RefreshCw class="size-4 animate-spin" />
+						Loading…
+					{:else}
+						Load more
+					{/if}
+				</Button>
+			</div>
+		{/if}
 	{/if}
 </div>

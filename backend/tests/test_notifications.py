@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from sqlmodel import Session
@@ -44,7 +44,15 @@ def test_price_drop_triggers_notification(session: Session, product: Product):
 
     with patch(PATCH_DROP) as mock_drop:
         _check_watchlist(session, product, old, new)
-        mock_drop.assert_called_once_with("Catan", 40.0, 30.0, product.url, "s1")
+        mock_drop.assert_called_once_with(
+            "Catan",
+            40.0,
+            30.0,
+            product.url,
+            "s1",
+            product_id=product.id,
+            recorded_at=ANY,
+        )
 
 
 def test_price_drop_no_notification_when_price_unchanged(
@@ -112,7 +120,15 @@ def test_target_price_hit_triggers_notification(session: Session, product: Produ
 
     with patch(PATCH_TARGET) as mock_target:
         _check_watchlist(session, product, old, new)
-        mock_target.assert_called_once_with("Catan", 20.0, 19.99, product.url, "s1")
+        mock_target.assert_called_once_with(
+            "Catan",
+            20.0,
+            19.99,
+            product.url,
+            "s1",
+            product_id=product.id,
+            recorded_at=ANY,
+        )
 
 
 def test_target_price_not_hit_no_notification(session: Session, product: Product):
@@ -151,7 +167,14 @@ def test_back_in_stock_triggers_notification(session: Session, product: Product)
 
     with patch(PATCH_STOCK) as mock_stock:
         _check_watchlist(session, product, old, new)
-        mock_stock.assert_called_once_with("Catan", 30.0, product.url, "s1")
+        mock_stock.assert_called_once_with(
+            "Catan",
+            30.0,
+            product.url,
+            "s1",
+            product_id=product.id,
+            recorded_at=ANY,
+        )
 
 
 def test_out_of_stock_no_notification(session: Session, product: Product):
@@ -204,8 +227,15 @@ def test_no_notification_when_watchlist_inactive(session: Session, product: Prod
 def test_notification_title_is_latin1_safe(fn, args):
     """Regression: emoji in the ntfy title header raised
     'latin-1 codec can't encode' and got logged as a store sync error."""
+    from app.channels.ntfy import NtfyChannel
+
     mock_client = MagicMock()
-    with patch.object(notifier, "_client", return_value=mock_client):
+    ntfy_ch = NtfyChannel()
+    db_mock = MagicMock()
+    with (
+        patch.object(ntfy_ch, "_client", return_value=mock_client),
+        patch("app.notifier._channels", return_value=[ntfy_ch, db_mock]),
+    ):
         fn(*args)
 
     mock_client.send.assert_called_once()
@@ -216,8 +246,10 @@ def test_notification_title_is_latin1_safe(fn, args):
 
 def test_notification_failure_is_swallowed_and_logged():
     """A failing send must not bubble up and abort a sync."""
-    mock_client = MagicMock()
-    mock_client.send.side_effect = RuntimeError("ntfy down")
-    with patch.object(notifier, "_client", return_value=mock_client):
+    failing_ch = MagicMock()
+    failing_ch.send.side_effect = RuntimeError("ntfy down")
+    succeeding_ch = MagicMock()
+    with patch("app.notifier._channels", return_value=[failing_ch, succeeding_ch]):
         # Should not raise.
         notifier.notify_back_in_stock("Game", 30.0, "https://x", "S1")
+    succeeding_ch.send.assert_called_once()

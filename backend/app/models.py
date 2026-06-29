@@ -61,6 +61,8 @@ class WatchlistItem(SQLModel, table=True):
     notify_price_drop: bool = True
     notify_back_in_stock: bool = True
     notify_target_reached: bool = True
+    notify_price_increase: bool = True
+    notify_out_of_stock: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -76,7 +78,7 @@ class SyncLog(SQLModel, table=True):
 
 
 class ProductOverride(SQLModel, table=True):
-    """User-supplied corrections for any product field. Wins over scraped data."""
+    """User-supplied corrections for any product field."""
 
     product_id: int = Field(primary_key=True, foreign_key="product.id")
     title: str | None = None
@@ -97,7 +99,7 @@ class AppSetting(SQLModel, table=True):
 
 
 class Shelf(SQLModel, table=True):
-    """Named filter+sort preset. Built-ins are seeded on startup; user shelves are added freely."""
+    """Named filter+sort preset. Built-ins seeded on startup; user shelves added freely."""
 
     id: int | None = Field(default=None, primary_key=True)
     name: str
@@ -107,3 +109,14 @@ class Shelf(SQLModel, table=True):
     built_in: bool = False
     position: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NotificationLog(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    product_id: int | None = Field(default=None, foreign_key="product.id")
+    kind: str  # price_drop | back_in_stock | target_reached
+    title: str
+    message: str
+    product_url: str | None = None
+    read_at: datetime | None = None
+    sent_at: datetime = Field(default_factory=datetime.utcnow)

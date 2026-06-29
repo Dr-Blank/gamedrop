@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -128,7 +128,13 @@ def test_price_drop_triggers_notification(session: Session):
     with patch("app.scraper.notify_price_drop") as mock_notify:
         _check_watchlist(session, product, old_snap, new_snap)
         mock_notify.assert_called_once_with(
-            product.title, 100.0, 80.0, product.url, product.store_id
+            product.title,
+            100.0,
+            80.0,
+            product.url,
+            product.store_id,
+            product_id=product.id,
+            recorded_at=ANY,
         )
 
 
@@ -146,7 +152,12 @@ def test_back_in_stock_triggers_notification(session: Session):
     with patch("app.scraper.notify_back_in_stock") as mock_notify:
         _check_watchlist(session, product, old_snap, new_snap)
         mock_notify.assert_called_once_with(
-            product.title, 100.0, product.url, product.store_id
+            product.title,
+            100.0,
+            product.url,
+            product.store_id,
+            product_id=product.id,
+            recorded_at=ANY,
         )
 
 
@@ -164,7 +175,13 @@ def test_target_price_hit_triggers_notification(session: Session):
     with patch("app.scraper.notify_target_reached") as mock_notify:
         _check_watchlist(session, product, old_snap, new_snap)
         mock_notify.assert_called_once_with(
-            product.title, 70.0, 65.0, product.url, product.store_id
+            product.title,
+            70.0,
+            65.0,
+            product.url,
+            product.store_id,
+            product_id=product.id,
+            recorded_at=ANY,
         )
 
 

@@ -107,3 +107,10 @@ export const fetchProductImage = (productId) =>
 export const getAppLogs = (level, limit = 200) => req(`/logs/?level=${level ?? ''}&limit=${limit}`);
 export const getGithubIssueExport = (level = 'ERROR') =>
 	fetch(`/api/logs/github-issue?level=${level}`).then((r) => r.text());
+
+// Notifications
+export const getNotifications = (limit = 20, offset = 0) =>
+	req(`/notifications?limit=${limit}&offset=${offset}`);
+export const markNotificationRead = (id) => req(`/notifications/${id}/read`, { method: 'PATCH' });
+export const markAllNotificationsRead = () => req('/notifications/read-all', { method: 'POST' });
+export const backfillNotifications = () => req('/notifications/backfill', { method: 'POST' });

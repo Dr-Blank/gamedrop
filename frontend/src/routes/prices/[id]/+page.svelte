@@ -1,5 +1,4 @@
 <script>
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { fly, fade } from 'svelte/transition';
 	import {
@@ -293,7 +292,9 @@
 		}
 	}
 
-	onMount(() => {
+	$effect(() => {
+		// Re-run whenever productId changes (SvelteKit reuses component across /prices/[id] navigations)
+		void productId;
 		canGoBack = window.history.length > 1;
 		load();
 	});

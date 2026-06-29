@@ -6,7 +6,13 @@ from .adapters.shopify import ShopifyAdapter
 from .db import engine
 from .logger import get_logger
 from .models import PriceSnapshot, Product, Store, SyncLog, WatchlistItem
-from .notifier import notify_back_in_stock, notify_price_drop, notify_target_reached
+from .notifier import (
+    notify_back_in_stock,
+    notify_out_of_stock,
+    notify_price_drop,
+    notify_price_increase,
+    notify_target_reached,
+)
 
 log = get_logger(__name__)
 
@@ -31,48 +37,83 @@ def _check_watchlist(
     if not item:
         return
 
+    ts = new_snap.recorded_at
+
     # back in stock
     if old_snap and not old_snap.available and new_snap.available:
-        if not item.notify_back_in_stock:
-            return
-        notify_back_in_stock(
-            product.title, new_snap.price, product.url, product.store_id
-        )
-        item.last_notified_price = new_snap.price
-        session.add(item)
+        if item.notify_back_in_stock:
+            notify_back_in_stock(
+                product.title,
+                new_snap.price,
+                product.url,
+                product.store_id,
+                product_id=product.id,
+                recorded_at=ts,
+            )
+            item.last_notified_price = new_snap.price
+            session.add(item)
         return
 
     if not new_snap.available:
+        if old_snap and old_snap.available and item.notify_out_of_stock:
+            notify_out_of_stock(
+                product.title,
+                old_snap.price,
+                product.url,
+                product.store_id,
+                product_id=product.id,
+                recorded_at=ts,
+            )
+            session.add(item)
         return
 
     old_price = old_snap.price if old_snap else None
+    if old_price is None:
+        return
 
     if item.target_price is not None:
-        # notify once when price crosses target (avoid re-notifying same price)
         if (
             new_snap.price <= item.target_price
             and item.last_notified_price != new_snap.price
+            and item.notify_target_reached
         ):
-            if not item.notify_target_reached:
-                return
             notify_target_reached(
                 product.title,
                 item.target_price,
                 new_snap.price,
                 product.url,
                 product.store_id,
+                product_id=product.id,
+                recorded_at=ts,
+            )
+            item.last_notified_price = new_snap.price
+            session.add(item)
+    elif new_snap.price < old_price:
+        if item.notify_price_drop and item.last_notified_price != new_snap.price:
+            notify_price_drop(
+                product.title,
+                old_price,
+                new_snap.price,
+                product.url,
+                product.store_id,
+                product_id=product.id,
+                recorded_at=ts,
             )
             item.last_notified_price = new_snap.price
             session.add(item)
     elif (
-        old_price
-        and new_snap.price < old_price
+        new_snap.price > old_price
+        and item.notify_price_increase
         and item.last_notified_price != new_snap.price
     ):
-        if not item.notify_price_drop:
-            return
-        notify_price_drop(
-            product.title, old_price, new_snap.price, product.url, product.store_id
+        notify_price_increase(
+            product.title,
+            old_price,
+            new_snap.price,
+            product.url,
+            product.store_id,
+            product_id=product.id,
+            recorded_at=ts,
         )
         item.last_notified_price = new_snap.price
         session.add(item)
@@ -159,12 +200,18 @@ async def sync_store(store: Store) -> dict:
                     new_products += 1
 
                 for v in p.get("variants", []):
-                    latest = session.exec(
+                    variant_id = v.get("variant_id")
+                    latest_q = (
                         select(PriceSnapshot)
                         .where(PriceSnapshot.product_id == product.id)
                         .order_by(desc(PriceSnapshot.recorded_at))
                         .limit(1)
-                    ).first()
+                    )
+                    if variant_id is not None:
+                        latest_q = latest_q.where(
+                            PriceSnapshot.variant_id == variant_id
+                        )
+                    latest = session.exec(latest_q).first()
 
                     price_changed = (
                         not latest
@@ -189,7 +236,12 @@ async def sync_store(store: Store) -> dict:
             session.commit()
     except Exception as e:
         error_msg = f"db error: {e}"
-        log.error("sync db error: %s", e, extra={"store_id": store.id}, exc_info=True)
+        log.error(
+            "sync db error: %s",
+            e,
+            extra={"store_id": store.id},
+            exc_info=True,
+        )
         _write_sync_result(store.id, started_at, error=error_msg)
         raise
 

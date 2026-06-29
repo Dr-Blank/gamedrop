@@ -11,7 +11,6 @@
 		Sparkles,
 		Heart,
 		Store,
-		Bell,
 		Settings,
 		ScrollText,
 		EyeOff,
@@ -22,10 +21,12 @@
 		MoreHorizontal
 	} from '@lucide/svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import { browseUrl } from '$lib/browse.js';
 	import Toaster from '$lib/components/Toaster.svelte';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
+	import { notifications } from '$lib/notifications.svelte.js';
 
 	let { children } = $props();
 
@@ -49,7 +50,7 @@
 	];
 	const more = [
 		{ href: '/stores', label: 'Stores', icon: Store },
-		{ href: '/notifications', label: 'Notifications', icon: Bell },
+		{ href: '/notifications', label: 'Notifications', icon: null },
 		{ href: '/hidden', label: 'Hidden', icon: EyeOff },
 		{ href: '/bgg-link', label: 'BGG Link', icon: Link2 },
 		{ href: '/settings', label: 'Settings', icon: Settings },
@@ -103,6 +104,7 @@
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 		watchlist.load();
 		hidden.load();
+		notifications.load();
 	});
 </script>
 
@@ -190,6 +192,7 @@
 					{/if}
 				</div>
 
+				<NotificationBell />
 				<ThemeToggle />
 				<button
 					class="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
@@ -232,8 +235,34 @@
 								? 'bg-primary/10 font-medium text-primary'
 								: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
 						>
-							<Icon class="size-4" />
+							{#if Icon}
+								<Icon class="size-4" />
+							{:else}
+								<!-- Notifications: show Bell with unread badge -->
+								<span class="relative">
+									<svg
+										class="size-4"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path
+											d="M13.73 21a2 2 0 0 1-3.46 0"
+										/></svg
+									>
+									{#if notifications.unread > 0}
+										<span class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-500"
+										></span>
+									{/if}
+								</span>
+							{/if}
 							{link.label}
+							{#if link.href === '/notifications' && notifications.unread > 0}
+								<span
+									class="ml-auto rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white"
+									>{notifications.unread}</span
+								>
+							{/if}
 						</a>
 					{/each}
 				</div>

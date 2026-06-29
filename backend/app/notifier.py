@@ -1,38 +1,50 @@
-from python_ntfy import MessagePriority, NtfyClient, ViewAction
+from datetime import datetime
 
-from .config import get_setting
+from .channels import DatabaseChannel, NotificationChannel, NtfyChannel
 from .logger import get_logger
 
 log = get_logger(__name__)
 
 
-def _client() -> NtfyClient:
-    server = get_setting("ntfy_server") or "https://ntfy.sh"
-    topic = get_setting("ntfy_topic") or "board-game-tracker"
-    token = get_setting("ntfy_token")
-    return NtfyClient(topic=topic, server=server, auth=token or None)
+def _channels() -> list[NotificationChannel]:
+    return [NtfyChannel(), DatabaseChannel()]
 
 
-def _latin1_safe(text: str) -> str:
-    """ntfy sends the title as an HTTP header, which is latin-1 only. Emoji or
-    other non-latin-1 chars there raise UnicodeEncodeError (which previously got
-    recorded as a store sync error). Drop anything the header can't carry; use
-    `tags` for emoji instead. Message body is sent as UTF-8 and is left alone.
-    """
-    return text.encode("latin-1", "ignore").decode("latin-1")
-
-
-def _send(client: NtfyClient, *, kind: str, title: str, **kwargs) -> None:
-    """Send a notification, logging success/failure instead of bubbling errors."""
-    try:
-        client.send(title=_latin1_safe(title), **kwargs)
-        log.info(
-            "notification sent: %s",
-            kind,
-            extra={"kind": kind, "title": title},
-        )
-    except Exception:
-        log.exception("notification failed: %s", kind, extra={"kind": kind})
+def _dispatch(
+    channels: list[NotificationChannel],
+    *,
+    kind: str,
+    title: str,
+    message: str,
+    product_id: int | None,
+    url: str | None,
+    tags: list[str],
+    recorded_at: datetime | None = None,
+) -> None:
+    for ch in channels:
+        try:
+            ch.send(
+                kind=kind,
+                title=title,
+                message=message,
+                product_id=product_id,
+                url=url,
+                tags=tags,
+                recorded_at=recorded_at,
+            )
+            log.info(
+                "notification sent via %s: %s",
+                type(ch).__name__,
+                kind,
+                extra={"channel": type(ch).__name__, "kind": kind},
+            )
+        except Exception:
+            log.exception(
+                "channel failed: %s kind=%s",
+                type(ch).__name__,
+                kind,
+                extra={"channel": type(ch).__name__, "kind": kind},
+            )
 
 
 def notify_price_drop(
@@ -41,20 +53,20 @@ def notify_price_drop(
     new_price: float,
     product_url: str | None,
     store_name: str,
+    product_id: int | None = None,
+    channels: list[NotificationChannel] | None = None,
+    recorded_at: datetime | None = None,
 ):
     pct = round((old_price - new_price) / old_price * 100)
-    msg = f"{old_price:.0f} → {new_price:.0f}  ({pct}% off)\n{store_name}"
-    actions = (
-        [ViewAction(label="View on store", url=product_url)] if product_url else None
-    )
-    _send(
-        _client(),
+    _dispatch(
+        channels if channels is not None else _channels(),
         kind="price_drop",
-        message=msg,
         title=f"Price drop: {product_title}",
-        priority=MessagePriority.DEFAULT,
+        message=f"{old_price:.0f} → {new_price:.0f}  ({pct}% off)\n{store_name}",
+        product_id=product_id,
+        url=product_url,
         tags=["chart_with_downwards_trend", "shopping"],
-        actions=actions,
+        recorded_at=recorded_at,
     )
 
 
@@ -63,18 +75,19 @@ def notify_back_in_stock(
     price: float,
     product_url: str | None,
     store_name: str,
+    product_id: int | None = None,
+    channels: list[NotificationChannel] | None = None,
+    recorded_at: datetime | None = None,
 ):
-    actions = (
-        [ViewAction(label="View on store", url=product_url)] if product_url else None
-    )
-    _send(
-        _client(),
+    _dispatch(
+        channels if channels is not None else _channels(),
         kind="back_in_stock",
-        message=f"{price:.0f}  ·  {store_name}",
         title=f"Back in stock: {product_title}",
-        priority=MessagePriority.HIGH,
+        message=f"{price:.0f}  ·  {store_name}",
+        product_id=product_id,
+        url=product_url,
         tags=["white_check_mark", "shopping"],
-        actions=actions,
+        recorded_at=recorded_at,
     )
 
 
@@ -84,15 +97,61 @@ def notify_target_reached(
     current_price: float,
     product_url: str | None,
     store_name: str,
+    product_id: int | None = None,
+    channels: list[NotificationChannel] | None = None,
+    recorded_at: datetime | None = None,
 ):
-    actions = [ViewAction(label="Buy now", url=product_url)] if product_url else None
-    msg = f"Target {target_price:.0f} hit — now {current_price:.0f}\n{store_name}"
-    _send(
-        _client(),
+    _dispatch(
+        channels if channels is not None else _channels(),
         kind="target_reached",
-        message=msg,
         title=f"Price target hit: {product_title}",
-        priority=MessagePriority.HIGH,
+        message=f"Target {target_price:.0f} hit — now {current_price:.0f}\n{store_name}",
+        product_id=product_id,
+        url=product_url,
         tags=["dart", "shopping"],
-        actions=actions,
+        recorded_at=recorded_at,
+    )
+
+
+def notify_out_of_stock(
+    product_title: str,
+    price: float,
+    product_url: str | None,
+    store_name: str,
+    product_id: int | None = None,
+    channels: list[NotificationChannel] | None = None,
+    recorded_at: datetime | None = None,
+):
+    _dispatch(
+        channels if channels is not None else _channels(),
+        kind="out_of_stock",
+        title=f"Out of stock: {product_title}",
+        message=f"Was {price:.0f}  ·  {store_name}",
+        product_id=product_id,
+        url=product_url,
+        tags=["x", "shopping"],
+        recorded_at=recorded_at,
+    )
+
+
+def notify_price_increase(
+    product_title: str,
+    old_price: float,
+    new_price: float,
+    product_url: str | None,
+    store_name: str,
+    product_id: int | None = None,
+    channels: list[NotificationChannel] | None = None,
+    recorded_at: datetime | None = None,
+):
+    pct = round((new_price - old_price) / old_price * 100)
+    _dispatch(
+        channels if channels is not None else _channels(),
+        kind="price_increase",
+        title=f"Price increased: {product_title}",
+        message=f"{old_price:.0f} → {new_price:.0f}  (+{pct}%)\n{store_name}",
+        product_id=product_id,
+        url=product_url,
+        tags=["chart_with_upwards_trend", "shopping"],
+        recorded_at=recorded_at,
     )
