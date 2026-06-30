@@ -1,0 +1,34 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 5%
+
+flag_management:
+  default_rules:
+    carryforward: true
+
+flags:
+  backend:
+    paths:
+      - backend/app/
+    carryforward: true
+  frontend:
+    paths:
+      - frontend/src/lib/
+    carryforward: true
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
+
+ignore:
+  - "backend/tests/**"
+  - "frontend/src/tests/**"
+  - "frontend/src/tests/mocks/**"

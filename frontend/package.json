@@ -8,7 +8,7 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "vitest run",
+		"test": "vitest run --coverage",
 		"test:watch": "vitest",
 		"lint": "prettier --check .",
 		"format": "prettier --write ."

@@ -19,6 +19,12 @@ export default defineConfig({
 		environment: 'jsdom',
 		globals: true,
 		setupFiles: ['./src/tests/setup.js'],
-		include: ['src/tests/**/*.test.js']
+		include: ['src/tests/**/*.test.js'],
+		coverage: {
+			provider: 'v8',
+			reporter: ['text', 'lcov', 'json'],
+			include: ['src/lib/**'],
+			exclude: ['src/tests/**', 'src/tests/mocks/**']
+		}
 	}
 });

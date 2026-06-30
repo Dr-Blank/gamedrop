@@ -33,3 +33,8 @@ frontend/.svelte-kit/
 .DS_Store
 Thumbs.db
 backend/static/
+
+# Coverage
+backend/coverage.xml
+backend/.coverage
+frontend/coverage/
