@@ -67,12 +67,15 @@ async def test_bgg():
 
 @router.post("/test/ntfy")
 async def test_ntfy():
-    from ..notifier import _client
+    from ..channels import NtfyChannel
 
     try:
-        _client().send(
-            message="Test notification from Board Game Tracker ✓",
+        NtfyChannel().send(
+            kind="test",
             title="Connection test",
+            message="Test notification from Board Game Tracker ✓",
+            product_id=None,
+            url=None,
             tags=["white_check_mark"],
         )
         log.info("ntfy test notification sent")

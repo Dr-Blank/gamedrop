@@ -29,15 +29,19 @@ def session_fixture(test_engine):
 
 @pytest.fixture(autouse=True)
 def patch_db_engine(test_engine):
-    """Redirect app.db.engine to the in-memory test engine for every test.
-    Prevents DatabaseChannel (and any code using the engine directly) from
-    writing to the real production DB during the test suite."""
+    """Redirect app.db.engine and app.config.engine to the in-memory test engine.
+    config.py imports engine via `from .db import engine`, so its local binding
+    must be patched separately — reassigning app.db.engine alone doesn't update it."""
+    from app import config as _config
     from app import db as _db
 
-    original = _db.engine
+    original_db = _db.engine
+    original_cfg = _config.engine
     _db.engine = test_engine
+    _config.engine = test_engine
     yield
-    _db.engine = original
+    _db.engine = original_db
+    _config.engine = original_cfg
 
 
 @pytest.fixture(name="client")
