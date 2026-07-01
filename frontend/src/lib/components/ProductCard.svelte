@@ -154,20 +154,20 @@
 				>
 					<Sparkline {history} width={200} height={34} class="w-full" />
 					<div class="mt-0.5 flex items-center justify-between text-[0.7rem] text-muted-foreground">
-						<span>Low {fmt(range.min)}</span>
+						<span>{range.trend < 0 ? `High ${fmt(range.max)}` : `Low ${fmt(range.min)}`}</span>
 						<span
-							class="inline-flex items-center gap-0.5 {range.trend > 0
+							class="inline-flex items-center gap-0.5 {range.trend < 0
 								? 'text-green-600 dark:text-green-400'
-								: range.trend < 0
+								: range.trend > 0
 									? 'text-rose-500'
 									: ''}"
 						>
-							{#if range.trend > 0}<TrendingDown
+							{#if range.trend < 0}<TrendingDown
 									class="size-3"
-								/>{:else if range.trend < 0}<TrendingUp class="size-3" />{/if}
+								/>{:else if range.trend > 0}<TrendingUp class="size-3" />{/if}
 							{range.trend !== 0 ? fmt(Math.abs(range.trend)) : 'flat'}
 						</span>
-						<span>High {fmt(range.max)}</span>
+						<span>{range.trend < 0 ? `Low ${fmt(range.min)}` : `High ${fmt(range.max)}`}</span>
 					</div>
 				</div>
 			{/if}
