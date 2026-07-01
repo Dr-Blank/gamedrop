@@ -65,27 +65,31 @@
 	function open() {
 		goto(href);
 	}
-	/** @param {KeyboardEvent} e */
-	function onKey(e) {
-		if (e.key === 'Enter' || e.key === ' ') {
-			e.preventDefault();
-			open();
-		}
-	}
 	/** @param {Event} e @param {(()=>void)|null} fn */
 	function act(e, fn) {
 		e.stopPropagation();
 		fn?.();
 	}
+	/** Svelte action: prevents anchor navigation when click originates from a nested button/link. */
+	function cardLink(node) {
+		/** @param {MouseEvent} e */
+		function handler(e) {
+			const t = /** @type {Element} */ (e.target);
+			if (t.closest('button, [data-slot="button"]')) e.preventDefault();
+		}
+		node.addEventListener('click', handler);
+		return { destroy: () => node.removeEventListener('click', handler) };
+	}
 </script>
 
 {#if !(isHidden && variant !== 'hidden')}
+	<a
+		href={href}
+		class="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+		use:cardLink
+	>
 	<Card.Root
-		class="group relative flex cursor-pointer flex-col overflow-hidden p-0 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg hover:shadow-black/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-		role="link"
-		tabindex={0}
-		onclick={open}
-		onkeydown={onKey}
+		class="group relative flex cursor-pointer flex-col overflow-hidden p-0 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg hover:shadow-black/5"
 	>
 		<!-- Image -->
 		<div
@@ -261,4 +265,5 @@
 			</div>
 		</div>
 	</Card.Root>
+	</a>
 {/if}

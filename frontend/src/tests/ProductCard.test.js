@@ -36,3 +36,43 @@ describe('ProductCard (watchlist variant)', () => {
 		expect(screen.getByLabelText('Add to watchlist')).toBeInTheDocument();
 	});
 });
+
+describe('ProductCard tab/new-window support', () => {
+	it('wraps card in <a> with correct href (enables browser middle-click and right-click new tab)', () => {
+		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
+		const anchor = container.querySelector('a[href="/prices/2"]');
+		expect(anchor).toBeInTheDocument();
+	});
+
+	it('watchlist variant also has correct href anchor', () => {
+		const { container } = render(ProductCard, { props: { item, variant: 'watchlist' } });
+		const anchor = container.querySelector('a[href="/prices/2"]');
+		expect(anchor).toBeInTheDocument();
+	});
+
+	it('hidden variant also has correct href anchor', () => {
+		const { container } = render(ProductCard, {
+			props: { item: { ...item, bgg: null }, variant: 'hidden' }
+		});
+		const anchor = container.querySelector('a[href="/prices/2"]');
+		expect(anchor).toBeInTheDocument();
+	});
+
+	it('clicking remove button prevents card anchor from navigating', async () => {
+		const onremove = vi.fn();
+		const { container } = render(ProductCard, { props: { item, variant: 'watchlist', onremove } });
+		let anchorEvent;
+		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => { anchorEvent = e; });
+		await fireEvent.click(screen.getByTitle('Remove from watchlist'));
+		expect(onremove).toHaveBeenCalledOnce();
+		expect(anchorEvent?.defaultPrevented).toBe(true);
+	});
+
+	it('clicking hide button prevents card anchor from navigating', async () => {
+		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
+		let anchorEvent;
+		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => { anchorEvent = e; });
+		await fireEvent.click(screen.getByTitle('Hide this game permanently'));
+		expect(anchorEvent?.defaultPrevented).toBe(true);
+	});
+});
