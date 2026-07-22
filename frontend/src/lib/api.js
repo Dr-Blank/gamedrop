@@ -75,6 +75,8 @@ export const createShelf = (body) =>
 export const patchShelf = (id, body) =>
 	req(`/shelves/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteShelf = (id) => req(`/shelves/${id}`, { method: 'DELETE' });
+export const reorderShelves = (ids) =>
+	req('/shelves/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
 
 // Home dashboard + discovery feeds
 export const getHome = (shelfSize = 12) => req(`/home?shelf_size=${shelfSize}`);

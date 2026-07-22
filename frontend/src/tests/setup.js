@@ -10,6 +10,27 @@ class IntersectionObserver {
 }
 vi.stubGlobal('IntersectionObserver', IntersectionObserver);
 
+// Svelte transitions (in:fade) and animations (animate:flip) call
+// element.animate / element.getAnimations, which jsdom lacks.
+if (!Element.prototype.getAnimations) {
+	Element.prototype.getAnimations = () => [];
+}
+if (!Element.prototype.animate) {
+	Element.prototype.animate = () => ({
+		cancel: vi.fn(),
+		finish: vi.fn(),
+		play: vi.fn(),
+		pause: vi.fn(),
+		reverse: vi.fn(),
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
+		currentTime: 0,
+		playState: 'finished',
+		finished: Promise.resolve(),
+		onfinish: null
+	});
+}
+
 if (!window.matchMedia) {
 	vi.stubGlobal(
 		'matchMedia',

@@ -2,47 +2,35 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { fade } from 'svelte/transition';
-	import { shelvesPreview, getWatchlist } from '$lib/api.js';
+	import {
+		shelvesPreview,
+		getWatchlist,
+		getShelves,
+		patchShelf,
+		reorderShelves
+	} from '$lib/api.js';
 	import { browseUrl } from '$lib/browse.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
+	import { shelfIcon } from '$lib/shelfIcons.js';
 	import Shelf from '$lib/components/Shelf.svelte';
+	import ShelfMenu from '$lib/components/ShelfMenu.svelte';
+	import ShelfReorderList from '$lib/components/ShelfReorderList.svelte';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Search,
-		Compass,
-		TrendingDown,
-		TrendingUp,
-		Sparkles,
-		Tag,
-		Package,
-		Star,
-		Layers,
-		Heart,
-		Zap
-	} from '@lucide/svelte';
-
-	// Map icon name strings → Svelte components
-	const ICONS = {
-		TrendingDown,
-		TrendingUp,
-		Sparkles,
-		Tag,
-		Package,
-		Star,
-		Layers,
-		Heart,
-		Zap,
-		Compass
-	};
+	import { Search, Compass, Heart, GripVertical } from '@lucide/svelte';
 
 	let shelvesList = $state(/** @type {any[]} */ ([]));
 	let watchlistItems = $state(/** @type {any[]} */ ([]));
 	let loading = $state(true);
 	let q = $state('');
+
+	// Reorder mode: shelves collapse to draggable rows; order saves on exit.
+	let editing = $state(false);
+	let editOrder = $state(/** @type {any[]} */ ([]));
+	let hiddenShelves = $state(/** @type {any[]} */ ([]));
 
 	function shelfBrowseUrl(shelf) {
 		return browseUrl({
@@ -66,6 +54,70 @@
 
 	function submitSearch() {
 		if (q.trim()) goto(`/search?q=${encodeURIComponent(q.trim())}`);
+	}
+
+	/** Persist the running order of the visible shelves. Hidden shelves are not
+	 * listed, so the backend keeps them after the visible ones.
+	 * @param {any[]} shelves */
+	async function saveOrder(shelves) {
+		try {
+			await reorderShelves(shelves.map((s) => s.id));
+		} catch (e) {
+			toast.error('Failed to save shelf order: ' + e.message);
+		}
+	}
+
+	/** Quick reorder from a shelf's own menu — saves right away.
+	 * @param {number} index @param {number} dir */
+	async function moveShelf(index, dir) {
+		const to = index + dir;
+		if (to < 0 || to >= shelvesList.length) return;
+		const next = [...shelvesList];
+		[next[index], next[to]] = [next[to], next[index]];
+		shelvesList = next;
+		await saveOrder(next.map((row) => row.shelf));
+	}
+
+	/** @param {any} shelf */
+	async function hideShelf(shelf) {
+		try {
+			await patchShelf(shelf.id, { hidden: true });
+			shelvesList = shelvesList.filter((row) => row.shelf.id !== shelf.id);
+			editOrder = editOrder.filter((s) => s.id !== shelf.id);
+			hiddenShelves = [...hiddenShelves, { ...shelf, hidden: true }];
+			toast.success(`Removed ${shelf.name} from home`);
+		} catch (e) {
+			toast.error(e.message);
+		}
+	}
+
+	/** @param {any} shelf */
+	async function unhideShelf(shelf) {
+		try {
+			await patchShelf(shelf.id, { hidden: false });
+			hiddenShelves = hiddenShelves.filter((s) => s.id !== shelf.id);
+			editOrder = [...editOrder, { ...shelf, hidden: false }];
+			toast.success(`Added ${shelf.name} to home`);
+		} catch (e) {
+			toast.error(e.message);
+		}
+	}
+
+	async function startEditing() {
+		editOrder = shelvesList.map((row) => row.shelf);
+		editing = true;
+		try {
+			const all = await getShelves();
+			hiddenShelves = all.filter((s) => s.hidden);
+		} catch (e) {
+			toast.error('Failed to load hidden shelves: ' + e.message);
+		}
+	}
+
+	async function finishEditing() {
+		editing = false;
+		await saveOrder(editOrder);
+		await load();
 	}
 
 	onMount(load);
@@ -119,11 +171,27 @@
 				<Shelf title="Loading…" loading={true} skeleton={skeletonCard} card={() => {}} />
 			{/each}
 		</div>
+	{:else if editing}
+		<div in:fade={{ duration: 150 }}>
+			<ShelfReorderList
+				bind:shelves={editOrder}
+				hidden={hiddenShelves}
+				onhide={hideShelf}
+				onunhide={unhideShelf}
+				ondone={finishEditing}
+			/>
+		</div>
 	{:else}
 		<div class="space-y-8" in:fade={{ duration: 150 }}>
+			<div class="flex justify-end">
+				<Button variant="ghost" size="sm" onclick={startEditing} class="text-muted-foreground">
+					<GripVertical class="size-4" /> Edit shelves
+				</Button>
+			</div>
+
 			<!-- Dynamic shelves from backend -->
-			{#each shelvesList as { shelf, items }}
-				{@const Icon = ICONS[shelf.icon] ?? Layers}
+			{#each shelvesList as { shelf, items }, i (shelf.id)}
+				{@const Icon = shelfIcon(shelf.icon)}
 				<Shelf
 					title={shelf.name}
 					icon={Icon}
@@ -133,6 +201,16 @@
 				>
 					{#snippet card(item)}
 						<ProductCard {item} variant="browse" />
+					{/snippet}
+					{#snippet actions()}
+						<ShelfMenu
+							canMoveUp={i > 0}
+							canMoveDown={i < shelvesList.length - 1}
+							onmoveup={() => moveShelf(i, -1)}
+							onmovedown={() => moveShelf(i, 1)}
+							onhide={() => hideShelf(shelf)}
+							onreorder={startEditing}
+						/>
 					{/snippet}
 				</Shelf>
 			{/each}

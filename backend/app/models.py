@@ -108,6 +108,9 @@ class Shelf(SQLModel, table=True):
     sorts: str | None = None  # JSON SortSpec[] or null = default sort
     built_in: bool = False
     position: int = 0
+    # Hidden shelves stay defined but drop off the home page. Built-in shelves
+    # can't be deleted, so this is how they get removed from the home page.
+    hidden: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

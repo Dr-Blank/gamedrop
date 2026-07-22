@@ -24,10 +24,16 @@ class ShelfPatch(BaseModel):
     name: str | None = None
     icon: str | None = None
     position: int | None = None
+    hidden: bool | None = None
+
+
+class ShelfReorder(BaseModel):
+    ids: list[int]
 
 
 @router.get("/")
 def list_shelves(session: Session = Depends(get_session)):
+    """Every shelf, hidden ones included — the home page editor needs both."""
     return session.exec(select(Shelf).order_by(Shelf.position, Shelf.id)).all()
 
 
@@ -62,10 +68,34 @@ def patch_shelf(
         shelf.icon = body.icon
     if body.position is not None:
         shelf.position = body.position
+    if body.hidden is not None:
+        shelf.hidden = body.hidden
     session.add(shelf)
     session.commit()
     session.refresh(shelf)
     return shelf
+
+
+@router.post("/reorder")
+def reorder_shelves(body: ShelfReorder, session: Session = Depends(get_session)):
+    """Set shelf order from a list of ids. Shelves omitted from the list keep
+    their relative order and land after the listed ones."""
+    shelves = session.exec(select(Shelf).order_by(Shelf.position, Shelf.id)).all()
+    by_id = {s.id: s for s in shelves}
+
+    missing = [sid for sid in body.ids if sid not in by_id]
+    if missing:
+        raise HTTPException(404, f"Unknown shelf ids: {missing}")
+    if len(set(body.ids)) != len(body.ids):
+        raise HTTPException(400, "Duplicate shelf ids")
+
+    ordered = [by_id[sid] for sid in body.ids]
+    ordered += [s for s in shelves if s.id not in set(body.ids)]
+    for pos, shelf in enumerate(ordered):
+        shelf.position = pos
+        session.add(shelf)
+    session.commit()
+    return session.exec(select(Shelf).order_by(Shelf.position, Shelf.id)).all()
 
 
 @router.delete("/{shelf_id}", status_code=204)
@@ -81,8 +111,12 @@ def delete_shelf(shelf_id: int, session: Session = Depends(get_session)):
 
 @router.get("/preview")
 def shelves_preview(limit: int = 8, session: Session = Depends(get_session)):
-    """All shelves with a product preview — single request for the home page."""
-    shelves = session.exec(select(Shelf).order_by(Shelf.position, Shelf.id)).all()
+    """Visible shelves with a product preview — single request for the home page."""
+    shelves = session.exec(
+        select(Shelf)
+        .where(Shelf.hidden == False)  # noqa: E712
+        .order_by(Shelf.position, Shelf.id)
+    ).all()
     result = []
     for shelf in shelves:
         filter_node = None

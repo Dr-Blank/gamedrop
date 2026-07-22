@@ -12,7 +12,10 @@
 		/** @type {import('svelte').Snippet<[any]>} */
 		card,
 		/** @type {import('svelte').Snippet} */
-		skeleton
+		skeleton,
+		/** Extra header controls, rendered after the scroll arrows.
+		 * @type {import('svelte').Snippet | undefined} */
+		actions = undefined
 	} = $props();
 
 	let scroller = $state(/** @type {HTMLDivElement | null} */ (null));
@@ -68,6 +71,7 @@
 					<ChevronRight class="size-4" />
 				</Button>
 			</div>
+			{@render actions?.()}
 		</div>
 	</div>
 
