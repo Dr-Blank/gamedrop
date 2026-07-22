@@ -1,9 +1,11 @@
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from sqlmodel import Session, desc, select
 
+from . import db as _db
 from .adapters.shopify import ShopifyAdapter
-from .db import engine
 from .logger import get_logger
 from .models import PriceSnapshot, Product, Store, SyncLog, WatchlistItem
 from .notifier import (
@@ -23,12 +25,38 @@ def get_adapter(store: Store):
     raise ValueError(f"Unknown store type: {store.type}")
 
 
+# A queued notification: (function, args, kwargs), dispatched after commit.
+PendingNotification = tuple[Callable[..., None], tuple, dict[str, Any]]
+
+
+def dispatch_pending(pending: list[PendingNotification]) -> None:
+    """Fire queued notifications. Must run *outside* the sync transaction —
+    every channel opens its own connection, and SQLite allows a single writer,
+    so dispatching mid-transaction fails with 'database is locked'."""
+    for fn, args, kwargs in pending:
+        fn(*args, **kwargs)
+    pending.clear()
+
+
 def _check_watchlist(
     session: Session,
     product: Product,
     old_snap: PriceSnapshot | None,
     new_snap: PriceSnapshot,
+    pending: list[PendingNotification] | None = None,
 ):
+    """Queue notifications for a price change onto `pending`.
+
+    With no `pending` list the notifications fire immediately — only safe when
+    the caller holds no open write transaction.
+    """
+
+    def emit(fn: Callable[..., None], *args, **kwargs) -> None:
+        if pending is None:
+            fn(*args, **kwargs)
+        else:
+            pending.append((fn, args, kwargs))
+
     item = session.exec(
         select(WatchlistItem).where(
             WatchlistItem.product_id == product.id, WatchlistItem.active
@@ -42,7 +70,8 @@ def _check_watchlist(
     # back in stock
     if old_snap and not old_snap.available and new_snap.available:
         if item.notify_back_in_stock:
-            notify_back_in_stock(
+            emit(
+                notify_back_in_stock,
                 product.title,
                 new_snap.price,
                 product.url,
@@ -56,7 +85,8 @@ def _check_watchlist(
 
     if not new_snap.available:
         if old_snap and old_snap.available and item.notify_out_of_stock:
-            notify_out_of_stock(
+            emit(
+                notify_out_of_stock,
                 product.title,
                 old_snap.price,
                 product.url,
@@ -77,7 +107,8 @@ def _check_watchlist(
             and item.last_notified_price != new_snap.price
             and item.notify_target_reached
         ):
-            notify_target_reached(
+            emit(
+                notify_target_reached,
                 product.title,
                 item.target_price,
                 new_snap.price,
@@ -90,7 +121,8 @@ def _check_watchlist(
             session.add(item)
     elif new_snap.price < old_price:
         if item.notify_price_drop and item.last_notified_price != new_snap.price:
-            notify_price_drop(
+            emit(
+                notify_price_drop,
                 product.title,
                 old_price,
                 new_snap.price,
@@ -106,7 +138,8 @@ def _check_watchlist(
         and item.notify_price_increase
         and item.last_notified_price != new_snap.price
     ):
-        notify_price_increase(
+        emit(
+            notify_price_increase,
             product.title,
             old_price,
             new_snap.price,
@@ -128,7 +161,7 @@ def _write_sync_result(
     error: str | None = None,
 ):
     now = datetime.utcnow()
-    with Session(engine) as session:
+    with Session(_db.engine) as session:
         store = session.get(Store, store_id)
         if store:
             if error is None:
@@ -168,9 +201,10 @@ async def sync_store(store: Store) -> dict:
     new_products = 0
     updated_products = 0
     price_changes = 0
+    pending: list[PendingNotification] = []
 
     try:
-        with Session(engine) as session:
+        with Session(_db.engine) as session:
             for p in raw_products:
                 existing = session.exec(
                     select(Product).where(
@@ -230,7 +264,7 @@ async def sync_store(store: Store) -> dict:
                         )
                         session.add(snap)
                         session.flush()
-                        _check_watchlist(session, product, latest, snap)
+                        _check_watchlist(session, product, latest, snap, pending)
                         price_changes += 1
 
             session.commit()
@@ -244,6 +278,9 @@ async def sync_store(store: Store) -> dict:
         )
         _write_sync_result(store.id, started_at, error=error_msg)
         raise
+
+    # Transaction is closed — channels can now take the write lock themselves.
+    dispatch_pending(pending)
 
     log.info(
         "sync done: +%d new, %d price changes",
@@ -269,7 +306,7 @@ async def sync_store(store: Store) -> dict:
 
 
 async def sync_all_stores():
-    with Session(engine) as session:
+    with Session(_db.engine) as session:
         stores = session.exec(select(Store).where(Store.enabled)).all()
     for store in stores:
         await sync_store(store)
