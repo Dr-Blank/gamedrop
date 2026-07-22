@@ -12,6 +12,7 @@
 	let copied = $state(false);
 	let logsCopied = $state(false);
 
+	const NEW_ISSUE_URL = 'https://github.com/Dr-Blank/gamedrop/issues/new';
 	const LEVELS = ['', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 	const LEVEL_CLASS = {
 		DEBUG: 'text-muted-foreground',
@@ -67,10 +68,12 @@
 		setTimeout(() => (copied = false), 2000);
 	}
 
-	function openGithubIssue() {
-		const title = encodeURIComponent('Bug report — application error');
-		const body = encodeURIComponent(issueText);
-		window.open(`https://github.com/new/issue?title=${title}&body=${body}`, '_blank');
+	// Logs are far too big for a query string — GitHub answers a prefilled body with
+	// "Your request URL is too long" (414). Copy the report to the clipboard instead
+	// and open a blank issue form for the user to paste into.
+	async function openGithubIssue() {
+		await copyIssue();
+		window.open(NEW_ISSUE_URL, '_blank');
 	}
 
 	onMount(load);
@@ -140,11 +143,15 @@
 						<Button size="sm" variant="outline" onclick={copyIssue}>
 							{copied ? '✓ Copied' : 'Copy'}
 						</Button>
-						<Button size="sm" onclick={openGithubIssue}>Open GitHub ↗</Button>
+						<Button size="sm" onclick={openGithubIssue}>Copy &amp; open GitHub ↗</Button>
 					</div>
 				</Card.Title>
 			</Card.Header>
-			<Card.Content>
+			<Card.Content class="space-y-2">
+				<p class="text-xs text-muted-foreground">
+					GitHub rejects prefilled issue bodies this long, so the report is copied to your clipboard
+					— paste it into the issue form that opens.
+				</p>
 				<textarea
 					class="w-full rounded border bg-muted/30 p-3 font-mono text-xs"
 					rows="16"
