@@ -5,5 +5,13 @@ yarn.lock
 bun.lock
 bun.lockb
 
+# Generated output — `bun run test` writes coverage/, `bun run build` writes
+# build/ and .svelte-kit/. All are gitignored, so CI never sees them, but
+# locally they made `prettier --check .` report failures CI could not
+# reproduce and made `prettier --write .` churn generated files.
+/coverage/
+/build/
+/.svelte-kit/
+
 # Miscellaneous
 /static/

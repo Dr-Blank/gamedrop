@@ -62,7 +62,9 @@ describe('ProductCard tab/new-window support', () => {
 		const onremove = vi.fn();
 		const { container } = render(ProductCard, { props: { item, variant: 'watchlist', onremove } });
 		let anchorEvent;
-		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => { anchorEvent = e; });
+		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => {
+			anchorEvent = e;
+		});
 		await fireEvent.click(screen.getByTitle('Remove from watchlist'));
 		expect(onremove).toHaveBeenCalledOnce();
 		expect(anchorEvent?.defaultPrevented).toBe(true);
@@ -71,7 +73,9 @@ describe('ProductCard tab/new-window support', () => {
 	it('clicking hide button prevents card anchor from navigating', async () => {
 		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
 		let anchorEvent;
-		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => { anchorEvent = e; });
+		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => {
+			anchorEvent = e;
+		});
 		await fireEvent.click(screen.getByTitle('Hide this game permanently'));
 		expect(anchorEvent?.defaultPrevented).toBe(true);
 	});
