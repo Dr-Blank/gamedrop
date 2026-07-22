@@ -4,7 +4,7 @@
 	import { toast } from '$lib/toast.svelte.js';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
-	import { Button } from '$lib/components/ui/button';
+	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { Sparkles } from '@lucide/svelte';
 
 	let items = $state([]);
@@ -67,12 +67,6 @@
 				<ProductCard {item} variant="browse" />
 			{/each}
 		</div>
-		{#if hasMore}
-			<div class="flex justify-center pt-2">
-				<Button variant="outline" onclick={more} disabled={loading}>
-					{loading ? 'Loading…' : 'Load more'}
-				</Button>
-			</div>
-		{/if}
+		<InfiniteScroll {hasMore} {loading} onload={more} />
 	{/if}
 </div>

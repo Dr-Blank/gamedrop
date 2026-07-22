@@ -170,8 +170,10 @@
 							class="h-7 rounded border bg-background px-2 text-xs"
 						/>
 					{:else}
+						<!-- data-field: lets a shortcut jump straight to a condition's value. -->
 						<input
 							type="text"
+							data-field={cond.field}
 							bind:value={cond.value}
 							class="h-7 w-36 rounded border bg-background px-2 text-xs"
 						/>

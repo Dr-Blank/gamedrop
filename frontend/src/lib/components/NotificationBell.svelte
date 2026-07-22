@@ -122,9 +122,14 @@
 	</button>
 
 	{#if open}
+		<!-- role/tabindex: the panel swallows the click that the window handler
+		     uses to close the menu, which makes it interactive to a11y checks. -->
 		<div
 			transition:fly={{ y: -6, duration: 150 }}
+			role="menu"
+			tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
 			class="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border bg-popover shadow-lg sm:w-96"
 		>
 			<!-- header -->

@@ -18,28 +18,20 @@
 		Menu,
 		X,
 		Search,
+		Keyboard,
 		MoreHorizontal
 	} from '@lucide/svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
-	import { browseUrl } from '$lib/browse.js';
+	import { DROPS_URL, NEW_URL } from '$lib/browse.js';
 	import Toaster from '$lib/components/Toaster.svelte';
+	import ShortcutHelp from '$lib/components/ShortcutHelp.svelte';
+	import { shortcuts } from '$lib/shortcuts.svelte.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 	import { notifications } from '$lib/notifications.svelte.js';
 
 	let { children } = $props();
-
-	const DROPS_URL = browseUrl({
-		filters: { type: 'condition', field: 'price_change', op: 'lt', value: 0 },
-		sorts: [
-			{ field: 'price_change', dir: 'asc' },
-			{ field: 'recorded_at', dir: 'desc' }
-		]
-	});
-	const NEW_URL = browseUrl({
-		sorts: [{ field: 'first_seen', dir: 'desc' }]
-	});
 
 	const primary = [
 		{ href: '/', label: 'Home', icon: Home },
@@ -54,12 +46,31 @@
 		{ href: '/hidden', label: 'Hidden', icon: EyeOff },
 		{ href: '/bgg-link', label: 'BGG Link', icon: Link2 },
 		{ href: '/settings', label: 'Settings', icon: Settings },
-		{ href: '/logs', label: 'Logs', icon: ScrollText }
+		{ href: '/logs', label: 'Logs', icon: ScrollText },
+		{ href: '/shortcuts', label: 'Shortcuts', icon: Keyboard }
 	];
 
 	let mobileOpen = $state(false);
 	let moreOpen = $state(false);
 	let q = $state('');
+	/** @type {HTMLInputElement | null} */
+	let searchInput = $state(null);
+	/** @type {HTMLInputElement | null} */
+	let mobileSearchInput = $state(null);
+	let searchFocused = $state(false);
+
+	// The desktop search box is hidden under md — open the mobile nav instead so
+	// the shortcut has something to focus on a phone.
+	$effect(() =>
+		shortcuts.registerSearchFocus(() => {
+			if (searchInput?.offsetParent) {
+				searchInput.select();
+				return;
+			}
+			mobileOpen = true;
+			setTimeout(() => mobileSearchInput?.select(), 0);
+		})
+	);
 
 	const path = $derived($page.url.pathname);
 
@@ -108,7 +119,7 @@
 	});
 </script>
 
-<svelte:window onclick={() => (moreOpen = false)} />
+<svelte:window onclick={() => (moreOpen = false)} onkeydown={(e) => shortcuts.handle(e)} />
 
 <div class="min-h-[100dvh] bg-background text-foreground">
 	<header
@@ -150,10 +161,21 @@
 					class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
 				/>
 				<input
+					bind:this={searchInput}
 					bind:value={q}
+					onfocus={() => (searchFocused = true)}
+					onblur={() => (searchFocused = false)}
 					placeholder="Search…"
-					class="h-9 w-full rounded-lg border bg-background pr-3 pl-8 text-sm shadow-sm transition-colors focus:ring-2 focus:ring-ring focus:outline-none"
+					aria-keyshortcuts="/ Control+K"
+					class="h-9 w-full rounded-lg border bg-background pr-10 pl-8 text-sm shadow-sm transition-colors focus:ring-2 focus:ring-ring focus:outline-none"
 				/>
+				<!-- Hint, not a control: it would only be in the way once typing starts. -->
+				{#if !searchFocused && !q}
+					<kbd
+						class="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-b-2 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+						>/</kbd
+					>
+				{/if}
 			</form>
 
 			<div class="ml-auto flex items-center gap-1 md:ml-1">
@@ -186,6 +208,12 @@
 								>
 									<Icon class="size-4" />
 									{link.label}
+									{#if link.href === '/shortcuts'}
+										<kbd
+											class="ml-auto rounded border border-b-2 bg-muted px-1 font-mono text-[10px]"
+											>?</kbd
+										>
+									{/if}
 								</a>
 							{/each}
 						</div>
@@ -219,6 +247,7 @@
 							class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
 						/>
 						<input
+							bind:this={mobileSearchInput}
 							bind:value={q}
 							placeholder="Search any game…"
 							class="h-10 w-full rounded-lg border bg-background pr-3 pl-9 text-sm"
@@ -276,6 +305,7 @@
 </div>
 
 <Toaster />
+<ShortcutHelp />
 
 <style>
 	/* Snappy fade for the page-level cross-fade; named elements morph natively */

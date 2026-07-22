@@ -3,6 +3,7 @@ from sqlmodel import Session, desc, select
 
 from ..db import get_session
 from ..models import PriceSnapshot, Product, ProductOverride, WatchlistItem
+from ..text_search import rank_titles
 
 router = APIRouter(prefix="/prices", tags=["prices"])
 
@@ -48,8 +49,9 @@ def search_by_name(
     if store_id:
         query = query.where(Product.store_id == store_id)
     products = session.exec(query).all()
-    ql = q.lower()
-    matched = [p for p in products if ql in p.title.lower()]
+    by_id = {p.id: p for p in products}
+    ranked = rank_titles(q, [(p.id, p.title) for p in products])
+    matched = [by_id[pid] for pid, _ in ranked]
 
     results = []
     for p in matched:

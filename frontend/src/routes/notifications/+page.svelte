@@ -23,6 +23,8 @@
 	import { notifications as notifStore } from '$lib/notifications.svelte.js';
 	import { Button } from '$lib/components/ui/button';
 	import Skeleton from '$lib/components/Skeleton.svelte';
+	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
+	import { shortcuts, NOTIFICATION_SHORTCUTS } from '$lib/shortcuts.svelte.js';
 
 	const PAGE_SIZE = 20;
 
@@ -138,6 +140,8 @@
 			loadingMore = false;
 		}
 	}
+
+	$effect(() => shortcuts.register(NOTIFICATION_SHORTCUTS, { u: markAllRead }));
 
 	async function markAllRead() {
 		await markAllNotificationsRead();
@@ -360,18 +364,6 @@
 			{/each}
 		</div>
 
-		<!-- Load more -->
-		{#if hasMore}
-			<div class="flex justify-center pt-2">
-				<Button variant="outline" onclick={loadMore} disabled={loadingMore}>
-					{#if loadingMore}
-						<RefreshCw class="size-4 animate-spin" />
-						Loading…
-					{:else}
-						Load more
-					{/if}
-				</Button>
-			</div>
-		{/if}
+		<InfiniteScroll {hasMore} loading={loadingMore} onload={loadMore} />
 	{/if}
 </div>

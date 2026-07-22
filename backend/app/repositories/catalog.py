@@ -29,6 +29,7 @@ from ..models import (
     Store,
     WatchlistItem,
 )
+from ..text_search import rank_titles
 
 # ---------------------------------------------------------------------------
 # Subqueries
@@ -405,16 +406,34 @@ def top_discounts(session: Session, *, page: int = 1, limit: int = 12) -> list[d
     return [c for c in cards if (c["discount_pct"] or 0) > 0]
 
 
+def _rows_by_ids(
+    session: Session, ids: list[int]
+) -> list[tuple[Product, PriceSnapshot | None]]:
+    """(product, latest_snapshot) pairs for the given ids, in the given order."""
+    if not ids:
+        return []
+    latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    stmt = _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist).where(
+        Product.id.in_(ids)
+    )
+    by_id = {r[0].id: (r[0], r[1]) for r in session.exec(stmt).all()}
+    return [by_id[i] for i in ids if i in by_id]
+
+
 def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
-    """Title search for the global search bar."""
+    """Title search for the global search bar.
+
+    Ranked and typo-tolerant: scoring runs in Python over the candidate titles
+    because SQLite `LIKE` can only do substrings, which makes a single typo
+    return nothing at all. See app.text_search.
+    """
     if not q or not q.strip():
         return []
-    rows = query_products(
-        session,
-        filter_node=Condition(field="title", op="contains", value=q.strip()),
-        limit=limit,
-    )
-    return make_cards(session, rows)
+    candidates = session.exec(
+        select(Product.id, Product.title).where(Product.hidden == False)  # noqa: E712
+    ).all()
+    ranked = rank_titles(q, [(r[0], r[1]) for r in candidates], limit=limit)
+    return make_cards(session, _rows_by_ids(session, [pid for pid, _ in ranked]))
 
 
 def hidden_products(session: Session, *, page: int = 1, limit: int = 48) -> list[dict]:

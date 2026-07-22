@@ -20,6 +20,8 @@
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import FilterGroup from '$lib/components/FilterGroup.svelte';
+	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
+	import { shortcuts, BROWSE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
 	import {
 		Compass,
 		SlidersHorizontal,
@@ -146,6 +148,29 @@
 		page_ += 1;
 		await search(false);
 	}
+
+	// Page-scoped shortcuts — unregistered on navigate, so the help sheet only
+	// advertises them here.
+	/** Open the filter panel on a store condition, ready to pick a store. */
+	function quickStoreFilter() {
+		showFilters = true;
+		const existing = filterTree.conditions.find(
+			(c) => c.type === 'condition' && c.field === 'store_id'
+		);
+		if (!existing) {
+			filterTree.conditions.push({ type: 'condition', field: 'store_id', op: 'eq', value: '' });
+		}
+		tick().then(() => document.querySelector('[data-field="store_id"]')?.focus());
+	}
+
+	$effect(() =>
+		shortcuts.register(BROWSE_SHORTCUTS, {
+			f: () => (showFilters = !showFilters),
+			r: resetFilters,
+			'mod+enter': applyFilters,
+			'.': quickStoreFilter
+		})
+	);
 
 	function applyFilters() {
 		pushUrl(); // afterNavigate will decode URL + search
@@ -436,13 +461,12 @@
 				/>
 			{/each}
 		</div>
-		{#if items.length < total}
-			<div class="flex justify-center pt-2">
-				<Button variant="outline" onclick={loadMore} disabled={loading}>
-					{loading ? 'Loading…' : `Load more (${total - items.length} remaining)`}
-				</Button>
-			</div>
-		{/if}
+		<InfiniteScroll
+			hasMore={items.length < total}
+			{loading}
+			onload={loadMore}
+			remaining={total - items.length}
+		/>
 	{/if}
 </div>
 
@@ -498,7 +522,11 @@
 {#if editItem}
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+		role="presentation"
 		transition:fly={{ duration: 150 }}
+		onkeydown={(e) => {
+			if (e.key === 'Escape' && !editDirty) closeEdit();
+		}}
 		onclick={(e) => {
 			if (e.target === e.currentTarget && !editDirty) closeEdit();
 		}}

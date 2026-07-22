@@ -556,24 +556,35 @@
 					<Card.Content class="space-y-4">
 						<div class="grid gap-4 sm:grid-cols-2">
 							<div class="space-y-1">
-								<label class="text-xs font-medium text-muted-foreground">Title</label>
-								<Input bind:value={editForm.title} placeholder={data.product.title} />
+								<label for="ov-title" class="text-xs font-medium text-muted-foreground">Title</label
+								>
+								<Input id="ov-title" bind:value={editForm.title} placeholder={data.product.title} />
 							</div>
 							<div class="space-y-1">
-								<label class="text-xs font-medium text-muted-foreground">URL</label>
-								<Input bind:value={editForm.url} placeholder={data.product.url ?? 'Product URL'} />
-							</div>
-							<div class="space-y-1">
-								<label class="text-xs font-medium text-muted-foreground">Price override (₹)</label>
+								<label for="ov-url" class="text-xs font-medium text-muted-foreground">URL</label>
 								<Input
+									id="ov-url"
+									bind:value={editForm.url}
+									placeholder={data.product.url ?? 'Product URL'}
+								/>
+							</div>
+							<div class="space-y-1">
+								<label for="ov-price" class="text-xs font-medium text-muted-foreground"
+									>Price override (₹)</label
+								>
+								<Input
+									id="ov-price"
 									type="number"
 									bind:value={editForm.override_price}
 									placeholder="Leave blank to use scraped price"
 								/>
 							</div>
 							<div class="space-y-1">
-								<label class="text-xs font-medium text-muted-foreground">Stock override</label>
+								<label for="ov-stock" class="text-xs font-medium text-muted-foreground"
+									>Stock override</label
+								>
 								<select
+									id="ov-stock"
 									bind:value={editForm.override_available}
 									class="h-9 w-full rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
 								>
@@ -583,8 +594,9 @@
 								</select>
 							</div>
 							<div class="space-y-1 sm:col-span-2">
-								<label class="text-xs font-medium text-muted-foreground">Note</label>
+								<label for="ov-note" class="text-xs font-medium text-muted-foreground">Note</label>
 								<textarea
+									id="ov-note"
 									bind:value={editForm.note}
 									placeholder="Internal note…"
 									class="min-h-[4rem] w-full rounded-md border bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
@@ -592,7 +604,9 @@
 								></textarea>
 							</div>
 							<div class="space-y-1 sm:col-span-2">
-								<label class="text-xs font-medium text-muted-foreground">BGG link</label>
+								<label for="ov-bgg" class="text-xs font-medium text-muted-foreground"
+									>BGG link</label
+								>
 								{#if editForm.bgg_id}
 									<div class="flex items-center gap-2">
 										<span class="rounded-md border bg-muted px-3 py-1.5 font-mono text-sm">
@@ -620,6 +634,7 @@
 								{:else}
 									<div class="flex gap-2">
 										<Input
+											id="ov-bgg"
 											bind:value={editBggUrlRaw}
 											placeholder="Paste BGG URL to link…"
 											oninput={() => {

@@ -5,6 +5,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { linkBgg, bggUnlinked } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
+	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { Link2 } from '@lucide/svelte';
 
 	let products = $state([]);
@@ -175,12 +176,11 @@
 			{/each}
 		</div>
 
-		{#if products.length < total}
-			<div class="flex justify-center pt-2">
-				<Button variant="outline" onclick={loadMore} disabled={loadingMore}>
-					{loadingMore ? 'Loading…' : `Load more (${total - products.length} remaining)`}
-				</Button>
-			</div>
-		{/if}
+		<InfiniteScroll
+			hasMore={products.length < total}
+			loading={loadingMore}
+			onload={loadMore}
+			remaining={total - products.length}
+		/>
 	{/if}
 </div>

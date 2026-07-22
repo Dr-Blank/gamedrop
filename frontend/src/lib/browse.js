@@ -9,3 +9,14 @@ export function browseUrl({ filters = null, sorts = [] } = {}) {
 	const qs = params.toString();
 	return qs ? `/browse?${qs}` : '/browse';
 }
+
+/** Named presets — the nav and the keyboard shortcuts must point at the same URL. */
+export const DROPS_URL = browseUrl({
+	filters: { type: 'condition', field: 'price_change', op: 'lt', value: 0 },
+	sorts: [
+		{ field: 'price_change', dir: 'asc' },
+		{ field: 'recorded_at', dir: 'desc' }
+	]
+});
+
+export const NEW_URL = browseUrl({ sorts: [{ field: 'first_seen', dir: 'desc' }] });

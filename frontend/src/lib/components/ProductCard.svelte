@@ -83,8 +83,11 @@
 </script>
 
 {#if !(isHidden && variant !== 'hidden')}
+	<!-- data-product-card / data-action: the j-k card cursor finds cards and
+	     their buttons through the DOM, so every grid gets it for free. -->
 	<a
 		{href}
+		data-product-card
 		class="block rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 		use:cardLink
 	>
@@ -126,6 +129,7 @@
 				{#if variant === 'browse'}
 					<div class="absolute top-2 right-2 flex items-center gap-1">
 						<button
+							data-action="hide"
 							onclick={(e) => act(e, () => hidden.hide(item))}
 							class="grid size-8 place-items-center rounded-full bg-background/80 text-muted-foreground shadow-sm backdrop-blur transition-all hover:scale-110 hover:bg-background hover:text-foreground active:scale-95"
 							title="Hide this game permanently"
@@ -134,6 +138,7 @@
 							<EyeOff class="size-4" />
 						</button>
 						<button
+							data-action="watch"
 							onclick={(e) => act(e, () => watchlist.toggle(item))}
 							class="grid size-8 place-items-center rounded-full bg-background/80 shadow-sm backdrop-blur transition-all hover:scale-110 hover:bg-background active:scale-95 {watched
 								? 'text-rose-500'
