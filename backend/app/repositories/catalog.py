@@ -109,8 +109,14 @@ def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist):
 
 
 def _watchlist_subq():
-    """Distinct product_ids in the watchlist."""
-    return select(WatchlistItem.product_id).distinct().subquery()
+    """Distinct product_ids on the watchlist. Removal is a soft delete
+    (active=False), so inactive rows must not count as watched."""
+    return (
+        select(WatchlistItem.product_id)
+        .where(WatchlistItem.active)
+        .distinct()
+        .subquery()
+    )
 
 
 def _subqueries():

@@ -34,6 +34,7 @@ from app.filter_engine import (
 )
 from app.models import BggCache, PriceSnapshot, Product, Store, WatchlistItem
 from app.repositories.catalog import (
+    count_products,
     get_field_registry,
     query_products,
 )
@@ -1142,6 +1143,46 @@ def test_is_watched_separates_watched_from_unwatched(session: Session):
     titles = [r[0].title for r in rows]
     assert "Watched" in titles
     assert "Unwatched" not in titles
+
+
+def test_is_watched_false_after_unwatch(session: Session):
+    """Removing from the watchlist is a soft delete (active=False) — the
+    product must stop matching is_watched=true."""
+    _store(session)
+    p = _product(session, "Unwatched Again", 40.0)
+    item = WatchlistItem(product_id=p.id)
+    session.add(item)
+    session.commit()
+
+    item.active = False
+    session.add(item)
+    session.commit()
+
+    watched = query_products(
+        session,
+        filter_node=Condition(field="is_watched", op="eq", value=True),
+    )
+    assert p.id not in [r[0].id for r in watched]
+
+    unwatched = query_products(
+        session,
+        filter_node=Condition(field="is_watched", op="eq", value=False),
+    )
+    assert p.id in [r[0].id for r in unwatched]
+
+
+def test_is_watched_count_excludes_inactive(session: Session):
+    """count_products must agree with query_products after a soft delete."""
+    _store(session)
+    active = _product(session, "Still Watched", 30.0)
+    removed = _product(session, "Removed", 30.0)
+    session.add(WatchlistItem(product_id=active.id))
+    session.add(WatchlistItem(product_id=removed.id, active=False))
+    session.commit()
+
+    node = Condition(field="is_watched", op="eq", value=True)
+    assert count_products(session, filter_node=node) == 1
+    assert [r[0].id for r in query_products(session, filter_node=node)] == [active.id]
 
 
 def test_is_watched_in_fields_endpoint(client: TestClient):
