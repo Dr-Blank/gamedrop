@@ -8,6 +8,8 @@
 		class: className = '',
 		/** When set and `src` is empty, lazily fetch + store this product's image. */
 		productId = /** @type {number|null} */ (null),
+		/** Skip the viewport gate — for one image the page is built around. */
+		eager = false,
 		/** Tailwind sizing for the fallback emoji */
 		fallbackText = '🎲'
 	} = $props();
@@ -15,9 +17,11 @@
 	let loaded = $state(false);
 	let errored = $state(false);
 	let el = $state(/** @type {HTMLDivElement | null} */ (null));
-	let near = $state(false);
+	let scrolledNear = $state(false);
 	let fetched = $state(''); // image url resolved on demand from the backend
 	let tried = false;
+
+	const near = $derived(eager || scrolledNear);
 
 	// Effective source: provided src wins, else whatever we fetched on demand.
 	const effSrc = $derived(src || fetched);
@@ -28,7 +32,7 @@
 		const io = new IntersectionObserver(
 			(entries) => {
 				if (entries.some((e) => e.isIntersecting)) {
-					near = true;
+					scrolledNear = true;
 					io.disconnect();
 				}
 			},
@@ -74,7 +78,7 @@
 		<img
 			src={effSrc}
 			{alt}
-			loading="lazy"
+			loading={eager ? 'eager' : 'lazy'}
 			decoding="async"
 			onload={() => (loaded = true)}
 			onerror={() => (errored = true)}

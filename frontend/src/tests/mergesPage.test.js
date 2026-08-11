@@ -5,7 +5,7 @@ vi.mock('$lib/api.js', () => ({
 	mergeQueue: vi.fn(),
 	decideMerges: vi.fn(),
 	getStores: vi.fn().mockResolvedValue([]),
-	fetchProductImage: vi.fn()
+	fetchProductImage: vi.fn().mockResolvedValue({ image_url: null })
 }));
 vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }
@@ -33,6 +33,17 @@ describe('merges page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		api.decideMerges.mockResolvedValue({ merged: 1, rejected: 0, skipped: 0 });
+		api.fetchProductImage.mockResolvedValue({ image_url: null });
+	});
+
+	it('fetches images for the pairs coming up, not just the one on screen', async () => {
+		api.mergeQueue.mockResolvedValue({ items: [pair(200, 1, 2), pair(120, 3, 4)], total: 2 });
+		render(MergesPage);
+		await screen.findByText('200');
+
+		// All four listings, though only the first pair is rendered.
+		await waitFor(() => expect(api.fetchProductImage).toHaveBeenCalledWith(3));
+		expect(api.fetchProductImage).toHaveBeenCalledWith(4);
 	});
 
 	it('shows the best-scoring pair first', async () => {

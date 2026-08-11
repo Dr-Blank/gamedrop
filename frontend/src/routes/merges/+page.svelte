@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import { fly } from 'svelte/transition';
-	import { mergeQueue, decideMerges } from '$lib/api.js';
+	import { mergeQueue, decideMerges, fetchProductImage } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import { inr } from '$lib/gamePricing.js';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
@@ -19,6 +19,9 @@
 	// Decisions are buffered, so a fast run costs one request instead of ten.
 	const FLUSH_IDLE_MS = 800;
 	const FLUSH_AT = 10;
+	// Pairs to fetch images for ahead of the one on screen. Deciding is meant to
+	// be held-down-key fast, and an image that arrives after the click is a stall.
+	const PRELOAD_AHEAD = 4;
 
 	let queue = $state([]);
 	let index = $state(0);
@@ -48,6 +51,39 @@
 
 	function priceOf(card) {
 		return card.compare?.cheapest?.price ?? card.latest_price?.price ?? null;
+	}
+
+	/** product id -> image url, including ones resolved on demand. */
+	let images = $state(new Map());
+	const warmed = new Set();
+
+	function srcFor(card) {
+		return card.bgg?.thumbnail || card.product.image_url || images.get(card.product.id) || '';
+	}
+
+	/** Put a card's image in the browser cache before the card is shown. */
+	async function warmCard(card) {
+		const id = card.product.id;
+		if (warmed.has(id)) return;
+		warmed.add(id);
+		let url = card.bgg?.thumbnail || card.product.image_url || '';
+		if (!url) {
+			try {
+				url = (await fetchProductImage(id))?.image_url || '';
+			} catch {
+				return;
+			}
+			if (!url) return;
+			images = new Map(images).set(id, url);
+		}
+		new Image().src = url;
+	}
+
+	function warmAhead() {
+		for (const item of queue.slice(index, index + 1 + PRELOAD_AHEAD)) {
+			warmCard(item.left);
+			warmCard(item.right);
+		}
 	}
 
 	async function load(reset = true) {
@@ -143,6 +179,12 @@
 		await load(false);
 	}
 
+	$effect(() => {
+		void queue;
+		void index;
+		warmAhead();
+	});
+
 	$effect(() =>
 		shortcuts.register(MERGE_SHORTCUTS, {
 			y: () => decide('merge'),
@@ -181,9 +223,10 @@
 			{storeColors.name(store)}
 		</div>
 		<ProductImage
-			src={card.bgg?.thumbnail || card.product.image_url || ''}
+			src={srcFor(card)}
 			productId={card.product.id}
 			alt={card.game.title}
+			eager
 			class="h-28 w-full rounded-lg object-contain"
 		/>
 		<div class="min-w-0">
