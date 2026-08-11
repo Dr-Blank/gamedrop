@@ -177,6 +177,22 @@ describe('merges page', () => {
 		expect(heights.size).toBe(1);
 	});
 
+	it('builds a row preview only for the row under the pointer', async () => {
+		api.mergeQueue.mockResolvedValue({ items: [pair(200, 1, 2), pair(190, 3, 4)], total: 2 });
+		render(MergesPage);
+		await screen.findByText('200');
+		await fireEvent.click(screen.getByRole('button', { name: /all above score/i }));
+
+		expect(screen.queryByText('Catan (shop-a)')).not.toBeInTheDocument();
+
+		const row = screen.getAllByRole('button', { name: /^merge$/i })[0].closest('div.h-20');
+		await fireEvent.mouseEnter(row);
+		expect(await screen.findAllByText('Catan (shop-a)')).toHaveLength(1);
+
+		await fireEvent.mouseLeave(row);
+		await waitFor(() => expect(screen.queryByText('Catan (shop-a)')).not.toBeInTheDocument());
+	});
+
 	it('says so when there is nothing left to review', async () => {
 		api.mergeQueue.mockResolvedValue({ items: [], total: 0 });
 		render(MergesPage);

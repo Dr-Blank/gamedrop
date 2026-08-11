@@ -54,6 +54,8 @@
 	let loading = $state(true);
 	let refilling = $state(false);
 	let bulkThreshold = $state(150);
+	/** Key of the row under the pointer — only that row builds its preview. */
+	let hoveredRow = $state(/** @type {string|null} */ (null));
 
 	/** Pairs put off for later, kept out of the review queue. */
 	let skipped = $state([]);
@@ -431,10 +433,12 @@
 
 <!-- Both sides at once: the point of the preview is telling two boxes apart,
      which one enlarged image can't do. Floating and click-through, so the row
-     heights — and so the buttons under the pointer — never move. -->
+     heights — and so the buttons under the pointer — never move.
+     Mounted only for the hovered row: kept in every row it would pull two
+     full-size images per row at once and stall the whole tab. -->
 {#snippet rowPreview(item)}
 	<div
-		class="pointer-events-none absolute bottom-full left-14 z-40 mb-1 hidden gap-3 rounded-xl border bg-popover p-3 shadow-2xl group-hover/row:flex"
+		class="pointer-events-none absolute bottom-full left-14 z-40 mb-1 flex gap-3 rounded-xl border bg-popover p-3 shadow-2xl"
 	>
 		{#each [item.left, item.right] as card (card.product.id)}
 			<div class="w-52">
@@ -461,8 +465,18 @@
 <!-- Fixed height: a decided row leaves, the next slides into the same place, and
      the pointer is already on its button. -->
 {#snippet row(item, actions)}
-	<div class="group/row relative flex h-20 items-center gap-3 rounded-lg border px-2.5">
-		{@render rowPreview(item)}
+	{@const key = keyOf(item)}
+	<div
+		class="relative flex h-20 items-center gap-3 rounded-lg border px-2.5"
+		role="listitem"
+		onmouseenter={() => (hoveredRow = key)}
+		onmouseleave={() => {
+			if (hoveredRow === key) hoveredRow = null;
+		}}
+	>
+		{#if hoveredRow === key}
+			{@render rowPreview(item)}
+		{/if}
 		<span class="w-8 shrink-0 text-center font-semibold tabular-nums">
 			{Math.round(item.score)}
 		</span>
@@ -672,7 +686,7 @@
 				No pairs at {bulkThreshold} or above. Lower the score to see more.
 			</p>
 		{:else}
-			<div class="space-y-2">
+			<div class="space-y-2" role="list">
 				{#each aboveThreshold as item (keyOf(item))}
 					{@render row(item, queueActions)}
 				{/each}
@@ -689,7 +703,7 @@
 					<RotateCcw class="size-3.5" /> Send all back to review
 				</Button>
 			</div>
-			<div class="space-y-2">
+			<div class="space-y-2" role="list">
 				{#each skipped as item (keyOf(item))}
 					{@render row(item, skippedActions)}
 				{/each}
@@ -724,7 +738,7 @@
 				No rejected pairs at {rejectedFloor} or above.
 			</p>
 		{:else}
-			<div class="space-y-2">
+			<div class="space-y-2" role="list">
 				{#each rejected as item (keyOf(item))}
 					{@render row(item, rejectedActions)}
 				{/each}
