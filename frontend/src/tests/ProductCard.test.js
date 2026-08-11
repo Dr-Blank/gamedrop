@@ -120,4 +120,24 @@ describe('ProductCard price line', () => {
 		render(ProductCard, { props: { item: multi, variant: 'browse' } });
 		expect(screen.getByText('₹380 less than other')).toBeInTheDocument();
 	});
+
+	it('gives a shop one dot even when it lists the game twice', () => {
+		const twice = {
+			...item,
+			compare: {
+				listing_count: 3,
+				store_ids: ['satyam', 'other'],
+				cheapest: { product_id: 2, store_id: 'satyam', price: 610, available: true },
+				cheapest_in_stock: { product_id: 2, store_id: 'satyam', price: 610, available: true },
+				offers: [
+					{ product_id: 2, store_id: 'satyam', price: 610, available: true },
+					{ product_id: 4, store_id: 'satyam', price: 700, available: true },
+					{ product_id: 3, store_id: 'other', price: 990, available: true }
+				]
+			}
+		};
+		const { container } = render(ProductCard, { props: { item: twice, variant: 'browse' } });
+		expect(container.querySelectorAll('span[title="satyam"]')).toHaveLength(1);
+		expect(container.querySelectorAll('span[title="other"]')).toHaveLength(1);
+	});
 });

@@ -72,12 +72,15 @@
 	// The shop the quoted price comes from — its colour is what marks it as best.
 	const quotedStore = $derived(pricing ? pricing.primary.store_id : item.product.store_id);
 	const storeColor = $derived(storeColors.of(quotedStore));
-	// Every shop selling it, cheapest first, so the dots read as a ranking.
-	const offerStores = $derived(
-		[...(item.compare?.offers ?? [])]
-			.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
-			.map((o) => o.store_id)
-	);
+	// Every shop selling it, cheapest first, so the dots read as a ranking. One
+	// shop can list the same game twice, so a shop gets one dot at its best price.
+	const offerStores = $derived([
+		...new Set(
+			[...(item.compare?.offers ?? [])]
+				.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
+				.map((o) => o.store_id)
+		)
+	]);
 
 	// MRP is reference, not news — it stays, but out of the price line.
 	const mrpPct = $derived.by(() => {
