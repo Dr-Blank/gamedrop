@@ -1,7 +1,7 @@
 # Stage 1: build frontend
 FROM node:22-slim AS frontend-builder
 WORKDIR /frontend
-RUN npm install -g bun
+RUN npm install -g bun@1.3.14
 COPY frontend/package.json frontend/bun.lock* ./
 RUN bun install --frozen-lockfile
 COPY frontend/ ./
