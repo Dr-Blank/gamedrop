@@ -100,12 +100,24 @@ def _watchlist_subq():
     )
 
 
+def _store_count_subq():
+    """(game_id, store_count) — how many shops sell each game."""
+    return (
+        select(
+            Product.game_id.label("game_id"),
+            func.count(func.distinct(Product.store_id)).label("store_count"),
+        )
+        .group_by(Product.game_id)
+        .subquery()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Base join + registry helper
 # ---------------------------------------------------------------------------
 
 
-def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist):
+def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist, store_count):
     return (
         select(Product, PriceSnapshot, Game)
         .join(Game, Product.game_id == Game.id)
@@ -120,6 +132,7 @@ def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist):
         .join(first_seen, Product.id == first_seen.c.product_id, isouter=True)
         .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
         .join(watchlist, Product.game_id == watchlist.c.game_id, isouter=True)
+        .join(store_count, Product.game_id == store_count.c.game_id, isouter=True)
     )
 
 
@@ -129,17 +142,19 @@ def _subqueries():
     first_seen = _first_seen_subq()
     prev_snap = _prev_snapshot_subq()
     watchlist = _watchlist_subq()
-    return latest, bgg, first_seen, prev_snap, watchlist
+    store_count = _store_count_subq()
+    return latest, bgg, first_seen, prev_snap, watchlist, store_count
 
 
 def get_field_registry():
     """Registry for the introspection endpoint — subqueries are never executed."""
-    _, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    _, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
     return build_field_registry(
         bgg_subq=bgg,
         first_seen_subq=first_seen,
         prev_snap_subq=prev_snap,
         watchlist_subq=watchlist,
+        store_count_subq=store_count,
     )
 
 
@@ -399,14 +414,17 @@ def query_products(
     game whose listings straddle a page boundary can make that page come
     back short of `limit`.
     """
-    latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
     registry = build_field_registry(
         bgg_subq=bgg,
         first_seen_subq=first_seen,
         prev_snap_subq=prev_snap,
         watchlist_subq=watchlist,
+        store_count_subq=store_count,
     )
-    stmt = _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist)
+    stmt = _build_joined_stmt(
+        latest, bgg, first_seen, prev_snap, watchlist, store_count
+    )
 
     filter_on_hidden = filter_node is not None and filter_uses_field(
         filter_node, "hidden"
@@ -442,12 +460,13 @@ def count_products(
     include_hidden: bool = False,
 ) -> int:
     """Total matching game count (for pagination) — distinct, to match query_products."""
-    latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
+    latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
     registry = build_field_registry(
         bgg_subq=bgg,
         first_seen_subq=first_seen,
         prev_snap_subq=prev_snap,
         watchlist_subq=watchlist,
+        store_count_subq=store_count,
     )
     stmt = (
         select(func.count(func.distinct(Game.id)))
@@ -464,6 +483,7 @@ def count_products(
         .join(first_seen, Product.id == first_seen.c.product_id, isouter=True)
         .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
         .join(watchlist, Product.game_id == watchlist.c.game_id, isouter=True)
+        .join(store_count, Product.game_id == store_count.c.game_id, isouter=True)
     )
     filter_on_hidden = filter_node is not None and filter_uses_field(
         filter_node, "hidden"
@@ -555,10 +575,10 @@ def _rows_by_ids(session: Session, ids: list[int]) -> list[CatalogRow]:
     """Catalog rows for the given listing ids, in the given order."""
     if not ids:
         return []
-    latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
-    stmt = _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist).where(
-        Product.id.in_(ids)
-    )
+    latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
+    stmt = _build_joined_stmt(
+        latest, bgg, first_seen, prev_snap, watchlist, store_count
+    ).where(Product.id.in_(ids))
     by_id = {r[0].id: (r[0], r[1], r[2]) for r in session.exec(stmt).all()}
     return [by_id[i] for i in ids if i in by_id]
 

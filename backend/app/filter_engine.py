@@ -133,6 +133,7 @@ def build_field_registry(
     first_seen_subq: Any | None = None,
     prev_snap_subq: Any | None = None,
     watchlist_subq: Any | None = None,
+    store_count_subq: Any | None = None,
 ) -> dict[str, FieldDef]:
     """Build the full field registry for a single query execution."""
     from .models import Game, PriceSnapshot, Product
@@ -263,6 +264,14 @@ def build_field_registry(
             expr=back_in_stock,
             type="bool",
             label="Back in Stock",
+        )
+
+    # store_count: shops selling this game — 1 means it is merged with nothing
+    if store_count_subq is not None:
+        reg["store_count"] = FieldDef(
+            expr=func.coalesce(store_count_subq.c.store_count, 1),
+            type="int",
+            label="Stores Selling It",
         )
 
     # is_watched: true if the listing's game is watched

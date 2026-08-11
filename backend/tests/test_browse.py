@@ -174,3 +174,67 @@ def test_browse_merged_game_one_card(client: TestClient, session: Session):
     assert len(data["items"]) == 1
     assert data["total"] == 1
     assert data["items"][0]["compare"]["listing_count"] == 2
+
+
+def _seed_merged_pair(session: Session):
+    """One game sold at two stores, plus a single-store game."""
+    for sid in ("s1", "s2"):
+        session.add(
+            Store(
+                id=sid, name=sid.upper(), type="shopify", base_url=f"https://{sid}.com"
+            )
+        )
+    session.commit()
+
+    shared = Game(title="Poker Chip Set")
+    session.add(shared)
+    session.flush()
+    p1 = make_product(
+        session, store_id="s1", external_id="e1", title="Poker Chip Set", game=shared
+    )
+    p2 = make_product(
+        session, store_id="s2", external_id="e2", title="Poker Chip Set", game=shared
+    )
+    p3 = make_product(session, store_id="s1", external_id="e3", title="Azul")
+    for pid in (p1.id, p2.id, p3.id):
+        session.add(PriceSnapshot(product_id=pid, price=100.0, available=True))
+    session.commit()
+
+
+def test_store_count_field_is_filterable(client: TestClient, session: Session):
+    r = client.get("/api/browse/fields")
+    field = next(f for f in r.json() if f["name"] == "store_count")
+    assert field["type"] == "int"
+    assert field["filterable"] and field["sortable"]
+
+
+def test_filter_unmerged_games_only(client: TestClient, session: Session):
+    _seed_merged_pair(session)
+    r = client.post("/api/browse/query", json=_q(filters=_cond("store_count", "eq", 1)))
+    assert r.status_code == 200
+    data = r.json()
+    assert [i["game"]["title"] for i in data["items"]] == ["Azul"]
+    assert data["total"] == 1
+
+
+def test_filter_merged_games_only(client: TestClient, session: Session):
+    _seed_merged_pair(session)
+    r = client.post("/api/browse/query", json=_q(filters=_cond("store_count", "gt", 1)))
+    assert [i["game"]["title"] for i in r.json()["items"]] == ["Poker Chip Set"]
+
+
+def test_store_count_counts_stores_not_listings(client: TestClient, session: Session):
+    """Two listings at one store is still one store — that game is unmerged."""
+    session.add(Store(id="s1", name="S1", type="shopify", base_url="https://s1.com"))
+    session.commit()
+    game = Game(title="Catan")
+    session.add(game)
+    session.flush()
+    a = make_product(session, store_id="s1", external_id="a", title="Catan", game=game)
+    b = make_product(session, store_id="s1", external_id="b", title="Catan", game=game)
+    session.add(PriceSnapshot(product_id=a.id, price=10.0, available=True))
+    session.add(PriceSnapshot(product_id=b.id, price=10.0, available=True))
+    session.commit()
+
+    r = client.post("/api/browse/query", json=_q(filters=_cond("store_count", "eq", 1)))
+    assert [i["game"]["title"] for i in r.json()["items"]] == ["Catan"]
