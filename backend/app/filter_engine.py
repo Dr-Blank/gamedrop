@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, not_, or_
+from sqlalchemy import and_, func, not_, or_, select
 from sqlmodel import SQLModel
 
 # ---------------------------------------------------------------------------
@@ -315,13 +315,25 @@ class Condition(BaseModel):
     value: Any = None
 
 
+_STORE_CMP_OPS = frozenset({"eq", "ne", "gt", "gte", "lt", "lte"})
+
+
+class StoreCompare(BaseModel):
+    """Compare a game's latest price at two stores (e.g. Store A < Store B)."""
+
+    type: Literal["store_compare"] = "store_compare"
+    store_a: str
+    store_b: str
+    op: str
+
+
 class Group(BaseModel):
     type: Literal["group"] = "group"
     op: Literal["and", "or", "not"]
     conditions: list[FilterNode]
 
 
-FilterNode = Annotated[Condition | Group, Field(discriminator="type")]
+FilterNode = Annotated[Condition | Group | StoreCompare, Field(discriminator="type")]
 
 Group.model_rebuild()  # resolve forward ref
 
@@ -341,18 +353,77 @@ class SortSpec(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def filter_uses_field(node: Condition | Group, field: str) -> bool:
+def filter_uses_field(node: Condition | Group | StoreCompare, field: str) -> bool:
     """Return True if the filter tree references a specific field anywhere."""
     if isinstance(node, Condition):
         return node.field == field
+    if isinstance(node, StoreCompare):
+        return False
     return any(filter_uses_field(c, field) for c in node.conditions)
 
 
-def apply_filter(node: Condition | Group, registry: dict[str, FieldDef]) -> Any:
+def apply_filter(
+    node: Condition | Group | StoreCompare, registry: dict[str, FieldDef]
+) -> Any:
     """Recursively convert a FilterNode into a SQLAlchemy WHERE clause."""
     if isinstance(node, Condition):
         return _apply_condition(node, registry)
+    if isinstance(node, StoreCompare):
+        return _apply_store_compare(node)
     return _apply_group(node, registry)
+
+
+def _apply_store_compare(node: StoreCompare) -> Any:
+    """Game.id IN (games where latest price at store_a `op` latest price at store_b)."""
+    if node.op not in _STORE_CMP_OPS:
+        raise ValueError(f"Unknown store_compare op: {node.op!r}")
+
+    from .models import Game, PriceSnapshot, Product
+
+    latest = (
+        select(
+            PriceSnapshot.product_id,
+            func.max(PriceSnapshot.recorded_at).label("max_date"),
+        )
+        .group_by(PriceSnapshot.product_id)
+        .subquery()
+    )
+    per_store_stmt = (
+        select(
+            Product.game_id.label("game_id"),
+            Product.store_id.label("store_id"),
+            PriceSnapshot.price.label("price"),
+        )
+        .join(latest, Product.id == latest.c.product_id)
+        .join(
+            PriceSnapshot,
+            (PriceSnapshot.product_id == latest.c.product_id)
+            & (PriceSnapshot.recorded_at == latest.c.max_date),
+        )
+    )
+    a = per_store_stmt.subquery("store_a")
+    b = per_store_stmt.subquery("store_b")
+
+    match node.op:
+        case "eq":
+            cmp_expr = a.c.price == b.c.price
+        case "ne":
+            cmp_expr = a.c.price != b.c.price
+        case "gt":
+            cmp_expr = a.c.price > b.c.price
+        case "gte":
+            cmp_expr = a.c.price >= b.c.price
+        case "lt":
+            cmp_expr = a.c.price < b.c.price
+        case "lte":
+            cmp_expr = a.c.price <= b.c.price
+
+    matching_games = (
+        select(a.c.game_id)
+        .join(b, a.c.game_id == b.c.game_id)
+        .where(a.c.store_id == node.store_a, b.c.store_id == node.store_b, cmp_expr)
+    )
+    return Game.id.in_(matching_games)
 
 
 def _apply_condition(cond: Condition, registry: dict[str, FieldDef]) -> Any:

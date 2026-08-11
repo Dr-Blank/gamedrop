@@ -1,9 +1,9 @@
 <script>
-	import { X, Plus, GitBranch } from '@lucide/svelte';
+	import { X, Plus, GitBranch, ArrowLeftRight } from '@lucide/svelte';
 	import FilterGroup from './FilterGroup.svelte';
 
-	/** @type {{ group: any, fields: any[], depth?: number, onremove?: () => void }} */
-	let { group = $bindable(), fields, depth = 0, onremove } = $props();
+	/** @type {{ group: any, fields: any[], stores?: any[], depth?: number, onremove?: () => void }} */
+	let { group = $bindable(), fields, stores = [], depth = 0, onremove } = $props();
 
 	const OP_LABELS = {
 		eq: 'is',
@@ -21,6 +21,8 @@
 		is_not_null: 'is set'
 	};
 
+	const STORE_CMP_OPS = ['lt', 'lte', 'eq', 'ne', 'gte', 'gt'];
+
 	const NO_VALUE_OPS = new Set(['is_null', 'is_not_null']);
 	const ARRAY_OPS = new Set(['in', 'not_in']);
 
@@ -37,10 +39,11 @@
 
 	function defaultValue(fieldName, op) {
 		if (NO_VALUE_OPS.has(op)) return null;
+		if (ARRAY_OPS.has(op)) return [];
+		if (fieldName === 'store_id') return stores[0]?.id ?? '';
 		const f = fieldDef(fieldName);
 		if (!f) return '';
 		if (f.type === 'bool') return true;
-		if (ARRAY_OPS.has(op)) return [];
 		return '';
 	}
 
@@ -57,6 +60,12 @@
 
 	function addGroup() {
 		group.conditions.push({ type: 'group', op: 'and', conditions: [] });
+	}
+
+	function addStoreCompare() {
+		const a = stores[0]?.id ?? '';
+		const b = stores[1]?.id ?? stores[0]?.id ?? '';
+		group.conditions.push({ type: 'store_compare', store_a: a, op: 'lt', store_b: b });
 	}
 
 	function removeChild(i) {
@@ -143,7 +152,23 @@
 
 				<!-- Value -->
 				{#if !NO_VALUE_OPS.has(cond.op)}
-					{#if fieldType(cond.field) === 'bool'}
+					{#if cond.field === 'store_id' && ARRAY_OPS.has(cond.op)}
+						<select
+							multiple
+							bind:value={cond.value}
+							class="h-7 rounded border bg-background px-2 text-xs"
+						>
+							{#each stores as s}
+								<option value={s.id}>{s.name}</option>
+							{/each}
+						</select>
+					{:else if cond.field === 'store_id'}
+						<select bind:value={cond.value} class="h-7 rounded border bg-background px-2 text-xs">
+							{#each stores as s}
+								<option value={s.id}>{s.name}</option>
+							{/each}
+						</select>
+					{:else if fieldType(cond.field) === 'bool'}
 						<select bind:value={cond.value} class="h-7 rounded border bg-background px-2 text-xs">
 							<option value={true}>true</option>
 							<option value={false}>false</option>
@@ -187,12 +212,46 @@
 					<X class="size-3.5" />
 				</button>
 			</div>
+		{:else if cond.type === 'store_compare'}
+			<div class="flex flex-wrap items-center gap-1.5 pl-2">
+				<!-- Store A -->
+				<select bind:value={cond.store_a} class="h-7 rounded border bg-background px-2 text-xs">
+					{#each stores as s}
+						<option value={s.id}>{s.name}</option>
+					{/each}
+				</select>
+
+				<span class="text-xs text-muted-foreground">price</span>
+
+				<!-- Operator -->
+				<select bind:value={cond.op} class="h-7 rounded border bg-background px-2 text-xs">
+					{#each STORE_CMP_OPS as op}
+						<option value={op}>{OP_LABELS[op] ?? op}</option>
+					{/each}
+				</select>
+
+				<!-- Store B -->
+				<select bind:value={cond.store_b} class="h-7 rounded border bg-background px-2 text-xs">
+					{#each stores as s}
+						<option value={s.id}>{s.name}</option>
+					{/each}
+				</select>
+				<span class="text-xs text-muted-foreground">price</span>
+
+				<button
+					onclick={() => removeChild(i)}
+					class="rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+				>
+					<X class="size-3.5" />
+				</button>
+			</div>
 		{:else}
 			<!-- Nested group (recursive) -->
 			<div class="pl-2">
 				<FilterGroup
 					bind:group={group.conditions[i]}
 					{fields}
+					{stores}
 					depth={depth + 1}
 					onremove={() => removeChild(i)}
 				/>
@@ -208,6 +267,14 @@
 		>
 			<Plus class="size-3" /> condition
 		</button>
+		{#if stores.length >= 2}
+			<button
+				onclick={addStoreCompare}
+				class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+			>
+				<ArrowLeftRight class="size-3" /> compare stores
+			</button>
+		{/if}
 		{#if depth < 3}
 			<button
 				onclick={addGroup}

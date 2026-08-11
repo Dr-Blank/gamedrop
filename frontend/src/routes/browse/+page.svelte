@@ -39,6 +39,7 @@
 	// ---------------------------------------------------------------------------
 
 	let fields = $state([]);
+	let stores = $state([]);
 	let items = $state([]);
 	let total = $state(0);
 	let loading = $state(false);
@@ -300,9 +301,10 @@
 	// Init
 	// ---------------------------------------------------------------------------
 
-	// Load fields once (independent of navigation)
+	// Load fields + stores once (independent of navigation)
 	onMount(async () => {
 		fields = await browseFields();
+		stores = await browseStores();
 	});
 
 	beforeNavigate(() => {
@@ -364,7 +366,7 @@
 					<div class="space-y-2">
 						<p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Filters</p>
 						{#if fields.length}
-							<FilterGroup bind:group={filterTree} {fields} depth={0} />
+							<FilterGroup bind:group={filterTree} {fields} {stores} depth={0} />
 						{/if}
 					</div>
 

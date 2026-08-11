@@ -25,6 +25,7 @@ from app.filter_engine import (
     Condition,
     Group,
     SortSpec,
+    StoreCompare,
     _infer_type,
     apply_filter,
     apply_sorts,
@@ -1334,3 +1335,113 @@ def test_price_pct_change_in_fields_endpoint(client: TestClient):
     field = next((f for f in r.json() if f["name"] == "price_pct_change"), None)
     assert field is not None
     assert field["type"] == "float"
+
+
+# ---------------------------------------------------------------------------
+# store_compare filter — cross-store price comparison for the same game
+# ---------------------------------------------------------------------------
+
+
+def _same_game_two_stores(session: Session, price_a: float, price_b: float):
+    """Two listings for one game, one per store (s1/s2), each with a price."""
+    _store(session, sid="s1", name="Store One")
+    _store(session, sid="s2", name="Store Two")
+    game = Game(title="CrossStoreGame")
+    session.add(game)
+    session.flush()
+    pa = make_product(
+        session, store_id="s1", external_id="a", title="CrossStoreGame", game=game
+    )
+    pb = make_product(
+        session, store_id="s2", external_id="b", title="CrossStoreGame", game=game
+    )
+    session.add(PriceSnapshot(product_id=pa.id, price=price_a, available=True))
+    session.add(PriceSnapshot(product_id=pb.id, price=price_b, available=True))
+    session.commit()
+    return game, pa, pb
+
+
+def test_store_compare_lt_matches_when_a_cheaper(session: Session):
+    game, _, _ = _same_game_two_stores(session, 20.0, 30.0)
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="s2", op="lt")
+    )
+    assert game.id in {g.id for _, _, g in rows}
+
+
+def test_store_compare_gt_excludes_when_a_cheaper(session: Session):
+    game, _, _ = _same_game_two_stores(session, 20.0, 30.0)
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="s2", op="gt")
+    )
+    assert game.id not in {g.id for _, _, g in rows}
+
+
+@pytest.mark.parametrize(
+    "op,price_a,price_b,expected",
+    [
+        ("eq", 25.0, 25.0, True),
+        ("eq", 25.0, 30.0, False),
+        ("ne", 25.0, 30.0, True),
+        ("ne", 25.0, 25.0, False),
+        ("gte", 30.0, 30.0, True),
+        ("gte", 20.0, 30.0, False),
+        ("lte", 30.0, 30.0, True),
+        ("lte", 40.0, 30.0, False),
+    ],
+)
+def test_store_compare_ops(session: Session, op, price_a, price_b, expected):
+    game, _, _ = _same_game_two_stores(session, price_a, price_b)
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="s2", op=op)
+    )
+    matched = game.id in {g.id for _, _, g in rows}
+    assert matched is expected
+
+
+def test_store_compare_excludes_game_missing_other_store(session: Session):
+    """A game only listed at store A never matches, regardless of op."""
+    _store(session, sid="s1", name="Store One")
+    _store(session, sid="s2", name="Store Two")
+    p = _product(session, "OnlyOneStore", 20.0, sid="s1")
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="s2", op="lt")
+    )
+    assert p.game_id not in {g.id for _, _, g in rows}
+
+
+def test_store_compare_inside_and_group(session: Session):
+    """store_compare composes with a normal Condition inside a Group."""
+    game, _, _ = _same_game_two_stores(session, 20.0, 30.0)
+    node = Group(
+        op="and",
+        conditions=[
+            StoreCompare(store_a="s1", store_b="s2", op="lt"),
+            Condition(field="available", op="eq", value=True),
+        ],
+    )
+    rows = query_products(session, filter_node=node)
+    assert game.id in {g.id for _, _, g in rows}
+
+
+def test_store_compare_unknown_op_raises():
+    with pytest.raises(ValueError):
+        apply_filter(StoreCompare(store_a="s1", store_b="s2", op="bogus"), {})
+
+
+def test_store_compare_endpoint(client: TestClient, session: Session):
+    _same_game_two_stores(session, 20.0, 30.0)
+    r = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "store_compare",
+                "store_a": "s1",
+                "store_b": "s2",
+                "op": "lt",
+            }
+        },
+    )
+    assert r.status_code == 200
+    titles = [i["game"]["title"] for i in r.json()["items"]]
+    assert "CrossStoreGame" in titles
