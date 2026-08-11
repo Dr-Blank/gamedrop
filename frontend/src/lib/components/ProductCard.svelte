@@ -11,6 +11,7 @@
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
+	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import {
 		Heart,
 		Pencil,
@@ -67,6 +68,16 @@
 
 	// Hover trend follows whichever offer the card is quoting.
 	const trendHistory = $derived(pricing ? (pricing.primary.price_history ?? []) : (history ?? []));
+
+	// The shop the quoted price comes from — its colour is what marks it as best.
+	const quotedStore = $derived(pricing ? pricing.primary.store_id : item.product.store_id);
+	const storeColor = $derived(storeColors.of(quotedStore));
+	// Every shop selling it, cheapest first, so the dots read as a ranking.
+	const offerStores = $derived(
+		[...(item.compare?.offers ?? [])]
+			.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
+			.map((o) => o.store_id)
+	);
 
 	// price-range glance from history
 	const range = $derived.by(() => {
@@ -132,6 +143,18 @@
 						>
 							<Store class="size-3" />
 							{pricing.storeCount} stores
+							<!-- Cheapest first; the ringed dot is the shop being quoted. -->
+							<span class="ml-0.5 flex items-center gap-0.5">
+								{#each offerStores as storeId (storeId)}
+									<span
+										class="size-1.5 rounded-full"
+										style="background:{storeColors.of(storeId)}; {storeId === quotedStore
+											? `outline:1.5px solid ${storeColors.of(storeId)}; outline-offset:1px`
+											: 'opacity:0.45'}"
+										title={storeId}
+									></span>
+								{/each}
+							</span>
 						</Badge>
 					{/if}
 					{#if range?.atLow}
@@ -212,11 +235,14 @@
 
 				<div class="flex flex-wrap items-center gap-2">
 					<PriceTag {price} {compareAt} discountPct={pricing ? null : item.discount_pct} />
-					{#if pricing}
-						<span class="text-[0.7rem] text-muted-foreground">
-							at {pricing.primary.store_id}
-						</span>
-					{/if}
+					<span
+						class="inline-flex items-center gap-1 text-[0.7rem] text-muted-foreground"
+						title={pricing ? `Cheapest in stock: ${quotedStore}` : quotedStore}
+					>
+						<span class="size-1.5 rounded-full" style="background:{storeColor}" aria-hidden="true"
+						></span>
+						at {quotedStore}
+					</span>
 				</div>
 
 				{#if pricing?.blocked}
@@ -226,7 +252,13 @@
 					>
 						<XCircle class="size-3 text-rose-500" />
 						<span class="line-through">{inr(pricing.blocked.price)}</span>
-						at {pricing.blocked.store_id} — out of stock
+						at
+						<span
+							class="size-1.5 rounded-full"
+							style="background:{storeColors.of(pricing.blocked.store_id)}"
+							aria-hidden="true"
+						></span>
+						{pricing.blocked.store_id} — out of stock
 					</p>
 				{/if}
 
@@ -275,6 +307,7 @@
 								href={storeUrl}
 								target="_blank"
 								class="flex-1"
+								style="border-color:{tint(storeColor, 0.55)}; background:{tint(storeColor, 0.08)}"
 								onclick={(e) => e.stopPropagation()}
 							>
 								<ExternalLink class="size-3.5" />
