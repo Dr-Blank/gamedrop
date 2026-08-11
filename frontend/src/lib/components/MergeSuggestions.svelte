@@ -61,6 +61,10 @@
 			drop(candidateId);
 			toast.success('Merged — prices now compared side by side');
 			onmerged?.(payload);
+			// The rest of the list was answering "which game is this listing?",
+			// which is now settled — re-ask for whatever still stands.
+			results = [];
+			await load();
 		} catch (e) {
 			toast.error(e.message);
 		} finally {
@@ -113,7 +117,7 @@
 				<span class="text-xs font-semibold tabular-nums">{inr(price)}</span>
 				{#if showScore}
 					<span class="text-[0.65rem] text-muted-foreground" title="Name match score">
-						{Math.round(s.score)}% match
+						{Math.round(s.score)} match
 					</span>
 				{/if}
 				{#if s.rejected}

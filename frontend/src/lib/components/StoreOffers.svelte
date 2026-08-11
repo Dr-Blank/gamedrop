@@ -109,7 +109,7 @@
 									<Button
 										size="icon-sm"
 										variant="ghost"
-										title="Remove from this group"
+										title="Unmerge — give this listing a game of its own"
 										onclick={() => onunmerge(offer.product_id)}
 									>
 										<Unlink class="size-3.5" />

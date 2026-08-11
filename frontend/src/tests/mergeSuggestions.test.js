@@ -48,6 +48,32 @@ describe('MergeSuggestions', () => {
 		expect(api.mergeProducts).toHaveBeenCalledWith(1, 9);
 	});
 
+	it('re-asks the server after a merge, so stale suggestions for the listing go', async () => {
+		api.mergeSuggestions
+			.mockResolvedValueOnce({
+				items: [
+					candidate,
+					{
+						...candidate,
+						item: {
+							...candidate.item,
+							product: { ...candidate.item.product, id: 11 },
+							game: { id: 5, title: 'Carcassonne' }
+						}
+					}
+				]
+			})
+			.mockResolvedValueOnce({ items: [] });
+		api.mergeProducts.mockResolvedValue({ game: { id: 4 }, listing_count: 2, offers: [] });
+
+		render(MergeSuggestions, { props: { productId: 1 } });
+		const buttons = await screen.findAllByRole('button', { name: /same game/i });
+		await fireEvent.click(buttons[0]);
+
+		await waitFor(() => expect(api.mergeSuggestions).toHaveBeenCalledTimes(2));
+		expect(screen.queryByText('Carcassonne')).not.toBeInTheDocument();
+	});
+
 	it('offers a manual name search when nothing is suggested', async () => {
 		api.mergeSuggestions.mockResolvedValue({ items: [] });
 		api.mergeCandidates.mockResolvedValue({ items: [{ ...candidate, rejected: true }] });
