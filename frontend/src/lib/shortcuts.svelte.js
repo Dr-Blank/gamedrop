@@ -215,11 +215,20 @@ export const BROWSE_SHORTCUTS = [
 /** @type {Shortcut[]} */
 export const NOTIFICATION_SHORTCUTS = [{ keys: 'u', label: 'Mark all as read', group: 'Alerts' }];
 
+/** @type {Shortcut[]} */
+export const MERGE_SHORTCUTS = [
+	{ keys: 'y', label: 'Same game — merge', group: 'Merges' },
+	{ keys: 'n', label: 'Not the same game', group: 'Merges' },
+	{ keys: 's', label: 'Skip, decide later', group: 'Merges' },
+	{ keys: 'z', label: 'Undo the last decision', group: 'Merges' }
+];
+
 /** Everything that exists, live or not — the /shortcuts page renders this. */
 export const SHORTCUT_CATALOG = [
 	...GLOBAL_SHORTCUTS,
 	...BROWSE_SHORTCUTS,
-	...NOTIFICATION_SHORTCUTS
+	...NOTIFICATION_SHORTCUTS,
+	...MERGE_SHORTCUTS
 ];
 
 /** Pretty-print 'mod+k' / 'g h' for the help sheet. */

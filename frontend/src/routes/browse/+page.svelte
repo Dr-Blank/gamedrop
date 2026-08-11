@@ -29,6 +29,7 @@
 		Plus,
 		X,
 		Bookmark,
+		Unlink,
 		ArrowUp,
 		ArrowDown,
 		Trash2
@@ -77,6 +78,21 @@
 			(c) => c.type === 'condition' && c.field === 'hidden' && c.op === 'eq' && c.value === true
 		)
 	);
+
+	// A game sold by one shop has nothing merged into it.
+	const UNMERGED = { type: 'condition', field: 'store_count', op: 'eq', value: 1 };
+	const unmergedOnly = $derived(
+		filterTree.conditions.some(
+			(c) => c.type === 'condition' && c.field === 'store_count' && c.op === 'eq' && c.value === 1
+		)
+	);
+
+	function toggleUnmerged() {
+		filterTree.conditions = unmergedOnly
+			? filterTree.conditions.filter((c) => !(c.type === 'condition' && c.field === 'store_count'))
+			: [...filterTree.conditions, { ...UNMERGED }];
+		pushUrl();
+	}
 
 	// ---------------------------------------------------------------------------
 	// URL ↔ state encoding
@@ -333,6 +349,15 @@
 			<Compass class="size-6 text-primary" /> Browse
 		</h1>
 		<div class="flex gap-2">
+			<Button
+				variant={unmergedOnly ? 'default' : 'outline'}
+				size="sm"
+				onclick={toggleUnmerged}
+				aria-pressed={unmergedOnly}
+				title="Games only one shop sells"
+			>
+				<Unlink class="size-4" /> Not merged
+			</Button>
 			<Button
 				variant="outline"
 				size="sm"
