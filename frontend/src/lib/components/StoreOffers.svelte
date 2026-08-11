@@ -32,8 +32,8 @@
 		<p class="text-xs text-rose-500">Out of stock at every store in this group.</p>
 	{/if}
 
-	<div class="overflow-hidden rounded-lg border">
-		<table class="w-full text-sm">
+	<div class="overflow-x-auto rounded-lg border">
+		<table class="w-full min-w-[420px] text-sm">
 			<thead class="bg-muted/50 text-muted-foreground">
 				<tr>
 					<th class="px-3 py-2 text-left font-medium">Store</th>
