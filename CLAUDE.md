@@ -23,6 +23,17 @@ line below. Prefer clearer code over a comment.
 Docstrings: one short line. Add one more line only when a non-obvious
 architectural choice needs a reminder of *why*.
 
+## Commits
+
+One commit per feature or fix — whatever makes a self-contained, reviewable
+change. Split work up as you go rather than landing one large diff at the end.
+
+Small means coherent, not trivial: don't split a feature into one-line commits
+that do nothing on their own, and don't pad the history. If a feature genuinely
+needs a big diff, one commit is fine.
+
+Conventional Commits, one line, no body, no trailers.
+
 ## API versioning
 
 App is in alpha. No backward compat needed for API or frontend — break freely.
