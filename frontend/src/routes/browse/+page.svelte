@@ -13,6 +13,7 @@
 		browseQuery,
 		browseStores,
 		createShelf,
+		patchGame,
 		setOverride,
 		clearOverride
 	} from '$lib/api.js';
@@ -239,12 +240,12 @@
 		editItem = item;
 		const ov = item.override ?? {};
 		editForm = {
-			title: ov.title ?? '',
+			title: item.game.title ?? '',
+			note: item.game.note ?? '',
+			bgg_id: item.game.bgg_id ?? '',
 			url: ov.url ?? '',
-			bgg_id: ov.bgg_id ?? item.product.bgg_id ?? '',
 			override_price: ov.override_price ?? '',
 			override_available: ov.override_available ?? '',
-			note: ov.note ?? '',
 			_bggUrlRaw: ''
 		};
 		_editOriginal = { ...editForm };
@@ -258,20 +259,25 @@
 	async function saveOverride() {
 		editSaving = true;
 		try {
-			const body = {};
-			if (editForm.title) body.title = editForm.title;
-			if (editForm.url) body.url = editForm.url;
-			if (editForm.bgg_id !== '') body.bgg_id = Number(editForm.bgg_id) || null;
+			// Name, note and BGG belong to the game; price, stock and URL to the shop.
+			await patchGame(editItem.game.id, {
+				title: editForm.title,
+				note: editForm.note || null,
+				bgg_id: editForm.bgg_id === '' ? null : Number(editForm.bgg_id) || null
+			});
+			const listing = {};
+			if (editForm.url) listing.url = editForm.url;
 			if (editForm.override_price !== '')
-				body.override_price = Number(editForm.override_price) || null;
+				listing.override_price = Number(editForm.override_price) || null;
 			if (editForm.override_available !== '')
-				body.override_available =
+				listing.override_available =
 					editForm.override_available === true || editForm.override_available === 'true';
-			if (editForm.note) body.note = editForm.note;
-			await setOverride(editItem.product.id, body);
-			toast.success('Override saved');
+			if (Object.keys(listing).length) await setOverride(editItem.product.id, listing);
+			toast.success('Saved');
 			await search(true);
 			closeEdit();
+		} catch (e) {
+			toast.error(e.message);
 		} finally {
 			editSaving = false;
 		}
@@ -535,17 +541,18 @@
 			class="w-full max-w-md rounded-xl border bg-background p-6 shadow-xl"
 			transition:fly={{ y: 12 }}
 		>
-			<h2 class="mb-1 text-lg font-semibold">Override fields</h2>
+			<h2 class="mb-1 text-lg font-semibold">Edit</h2>
 			<p class="mb-4 text-xs text-muted-foreground">
-				Values here take priority over scraped data. Leave blank to keep scraped value.
+				Name and BGG link apply to the game everywhere. Price, stock and URL apply only to
+				{editItem.product.store_id}.
 			</p>
 			<div class="space-y-3">
 				<label class="block text-sm">
-					<span class="text-muted-foreground">Title</span>
+					<span class="text-muted-foreground">Name</span>
 					<Input bind:value={editForm.title} placeholder={editItem.product.title} class="mt-1" />
 				</label>
 				<label class="block text-sm">
-					<span class="text-muted-foreground">URL</span>
+					<span class="text-muted-foreground">URL at {editItem.product.store_id}</span>
 					<Input bind:value={editForm.url} placeholder={editItem.product.url ?? ''} class="mt-1" />
 				</label>
 				<label class="block text-sm">
@@ -590,7 +597,7 @@
 							variant="outline"
 							onclick={() =>
 								window.open(
-									`https://www.google.com/search?q=${encodeURIComponent('BGG ' + (editItem.override?.title || editItem.product.title))}`,
+									`https://www.google.com/search?q=${encodeURIComponent('BGG ' + editItem.game.title)}`,
 									'_blank'
 								)}
 						>
@@ -622,16 +629,12 @@
 				</div>
 				<label class="block text-sm">
 					<span class="text-muted-foreground">Note</span>
-					<Input
-						bind:value={editForm.note}
-						placeholder="e.g. price includes shipping"
-						class="mt-1"
-					/>
+					<Input bind:value={editForm.note} placeholder="e.g. wait for a sale" class="mt-1" />
 				</label>
 			</div>
 			<div class="mt-5 flex items-center gap-2">
 				<Button onclick={saveOverride} disabled={editSaving}>
-					{editSaving ? 'Saving…' : 'Save overrides'}
+					{editSaving ? 'Saving…' : 'Save'}
 				</Button>
 				<Button variant="ghost" onclick={closeEdit}>Cancel</Button>
 				{#if editItem.override}
@@ -641,7 +644,7 @@
 						onclick={removeOverride}
 						disabled={editSaving}
 					>
-						Clear all
+						Clear corrections
 					</Button>
 				{/if}
 			</div>

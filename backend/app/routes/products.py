@@ -6,11 +6,16 @@ from sqlmodel import Session
 
 from ..db import get_session
 from ..logger import get_logger
-from ..models import Product, ProductOverride
+from ..models import Game, Product, ProductOverride
 from ..repositories import catalog as repo
+from ..services import games as game_service
 
 router = APIRouter(prefix="/products", tags=["products"])
 log = get_logger(__name__)
+
+
+class MergeBody(BaseModel):
+    other_product_id: int
 
 
 @router.get("/hidden")
@@ -19,25 +24,30 @@ def list_hidden(
     limit: int = 48,
     session: Session = Depends(get_session),
 ):
-    items = repo.hidden_products(session, page=page, limit=limit)
+    items = repo.hidden_games(session, page=page, limit=limit)
     return {"items": items, "page": page, "limit": limit}
 
 
 def _set_hidden(product_id: int, value: bool, session: Session):
+    """Hiding is a decision about the game, so it applies to every shop."""
     product = session.get(Product, product_id)
     if not product:
         raise HTTPException(404, "Product not found")
-    product.hidden = value
+    game = session.get(Game, product.game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    game.hidden = value
+    session.add(game)
     product.updated_at = datetime.utcnow()
     session.add(product)
     session.commit()
     log.info(
-        "product %s %s",
-        product_id,
+        "game %s %s",
+        game.id,
         "hidden" if value else "unhidden",
         extra={"product_id": product_id},
     )
-    return {"ok": True, "hidden": value}
+    return {"ok": True, "hidden": value, "game_id": game.id}
 
 
 @router.post("/{product_id}/image")
@@ -83,6 +93,75 @@ async def fetch_product_image(
     return {"image_url": image_url}
 
 
+@router.get("/{product_id}/merge-suggestions")
+def merge_suggestions(
+    product_id: int,
+    limit: int = game_service.SUGGESTION_LIMIT,
+    session: Session = Depends(get_session),
+):
+    """Same-game candidates from other stores, best match first."""
+    if not session.get(Product, product_id):
+        raise HTTPException(404, "Product not found")
+    return {
+        "items": game_service.suggestions_for(session, product_id, limit=limit),
+    }
+
+
+@router.get("/{product_id}/merge-candidates")
+def merge_candidate_search(
+    product_id: int,
+    q: str,
+    limit: int = 12,
+    session: Session = Depends(get_session),
+):
+    """Search other stores by name, for when the ranked suggestions miss."""
+    if not session.get(Product, product_id):
+        raise HTTPException(404, "Product not found")
+    return {
+        "items": game_service.search_candidates(session, product_id, q, limit=limit)
+    }
+
+
+@router.post("/{product_id}/merge")
+def merge_products(
+    product_id: int,
+    body: MergeBody,
+    session: Session = Depends(get_session),
+):
+    """Confirm two listings are the same game."""
+    try:
+        return game_service.merge(session, product_id, body.other_product_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/{product_id}/reject-merge")
+def reject_merge(
+    product_id: int,
+    body: MergeBody,
+    session: Session = Depends(get_session),
+):
+    """Reject a suggestion; the pair is not suggested again."""
+    try:
+        game_service.reject(session, product_id, body.other_product_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True}
+
+
+@router.delete("/{product_id}/game")
+def leave_game(product_id: int, session: Session = Depends(get_session)):
+    """Undo a merge: this listing gets a game of its own."""
+    try:
+        return game_service.unmerge(session, product_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+
+
 @router.put("/{product_id}/hide")
 def hide_product(product_id: int, session: Session = Depends(get_session)):
     return _set_hidden(product_id, True, session)
@@ -94,12 +173,9 @@ def unhide_product(product_id: int, session: Session = Depends(get_session)):
 
 
 class OverrideBody(BaseModel):
-    title: str | None = None
     url: str | None = None
-    bgg_id: int | None = None
     override_price: float | None = None
     override_available: bool | None = None
-    note: str | None = None
 
 
 @router.put("/{product_id}/override")

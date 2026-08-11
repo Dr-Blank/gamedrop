@@ -12,7 +12,7 @@ vi.mock('$lib/toast.svelte.js', () => ({
 import { watchlist } from '$lib/watchlist.svelte.js';
 import * as api from '$lib/api.js';
 
-const item = { product: { id: 7, title: 'Catan' } };
+const item = { game: { id: 7, title: 'Catan' }, product: { id: 70, game_id: 7 } };
 
 describe('watchlist store', () => {
 	beforeEach(() => {
@@ -20,10 +20,10 @@ describe('watchlist store', () => {
 		watchlist.map = new Map();
 	});
 
-	it('load() builds a product_id -> watchlist_id map', async () => {
+	it('load() builds a game_id -> watchlist_id map', async () => {
 		api.getWatchlist.mockResolvedValue([
-			{ product: { id: 7 }, watchlist: { id: 99 } },
-			{ product: { id: 8 }, watchlist: { id: 100 } }
+			{ game: { id: 7 }, watchlist: { id: 99 } },
+			{ game: { id: 8 }, watchlist: { id: 100 } }
 		]);
 		await watchlist.load();
 		expect(watchlist.has(7)).toBe(true);

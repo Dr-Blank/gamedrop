@@ -24,6 +24,8 @@ from app.models import (
 )
 from app.scraper import _check_watchlist
 
+from .factories import make_product
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -40,11 +42,9 @@ def _product(
     url: str = "https://s1.com/catan",
     title: str = "Catan",
 ) -> Product:
-    p = Product(store_id=store_id, external_id="e1", title=title, url=url)
-    session.add(p)
-    session.commit()
-    session.refresh(p)
-    return p
+    return make_product(
+        session, store_id=store_id, external_id="e1", title=title, url=url
+    )
 
 
 def _snap(
@@ -65,13 +65,13 @@ def _snap(
 
 def _watch(
     session: Session,
-    product_id: int,
+    game_id: int,
     target_price: float | None = None,
     notify_price_increase: bool = True,
     notify_out_of_stock: bool = True,
 ) -> WatchlistItem:
     item = WatchlistItem(
-        product_id=product_id,
+        game_id=game_id,
         target_price=target_price,
         active=True,
         notify_price_increase=notify_price_increase,
@@ -91,7 +91,7 @@ def test_backfill_does_not_duplicate_live_notification(client, session: Session)
     Backfill runs → sees same (product_id, kind, sent_at) key → skips."""
     _store(session)
     product = _product(session)
-    _watch(session, product.id)
+    _watch(session, product.game_id)
 
     t0 = datetime.utcnow() - timedelta(days=2)
     t1 = datetime.utcnow() - timedelta(days=1)
@@ -194,7 +194,7 @@ def test_price_drop_uses_per_variant_old_price(session: Session):
     not variant B's. Prevents wrong old_price and spurious notifications."""
     _store(session)
     product = _product(session)
-    _watch(session, product.id)
+    _watch(session, product.game_id)
 
     t0 = datetime.utcnow() - timedelta(hours=2)
     t1 = datetime.utcnow() - timedelta(hours=1)
@@ -228,7 +228,7 @@ def test_variant_b_does_not_compare_against_variant_a_snapshot(
     use variant B's own last snapshot — not the newly flushed variant A row."""
     _store(session)
     product = _product(session)
-    _watch(session, product.id)
+    _watch(session, product.game_id)
 
     t0 = datetime.utcnow() - timedelta(hours=2)
 
@@ -269,7 +269,7 @@ def test_variant_b_does_not_compare_against_variant_a_snapshot(
 def test_price_increase_triggers_notification(session: Session):
     _store(session)
     product = _product(session)
-    _watch(session, product.id, notify_price_increase=True)
+    _watch(session, product.game_id, notify_price_increase=True)
 
     old = _snap(product.id, 400.0)
     new = _snap(product.id, 500.0)
@@ -290,7 +290,7 @@ def test_price_increase_triggers_notification(session: Session):
 def test_price_increase_no_notification_when_flag_off(session: Session):
     _store(session)
     product = _product(session)
-    item = _watch(session, product.id, notify_price_increase=False)
+    item = _watch(session, product.game_id, notify_price_increase=False)
     item.notify_price_increase = False
     session.add(item)
     session.commit()
@@ -315,7 +315,7 @@ def test_notification_url_stored_matches_product_url(session: Session):
     _store(session)
     product_url = "https://s1.com/products/catan-base-game"
     product = _product(session, url=product_url)
-    _watch(session, product.id)
+    _watch(session, product.game_id)
 
     old = _snap(product.id, 500.0)
     new = _snap(product.id, 400.0)
@@ -343,7 +343,7 @@ def test_notification_url_is_none_when_product_has_no_url(session: Session):
     product.url = None
     session.add(product)
     session.commit()
-    _watch(session, product.id)
+    _watch(session, product.game_id)
 
     old = _snap(product.id, 500.0)
     new = _snap(product.id, 400.0)
@@ -369,7 +369,7 @@ def test_notification_url_is_none_when_product_has_no_url(session: Session):
 def test_backfill_includes_price_increase(client, session: Session):
     _store(session)
     product = _product(session)
-    _watch(session, product.id, notify_price_increase=True)
+    _watch(session, product.game_id, notify_price_increase=True)
 
     t0 = datetime.utcnow() - timedelta(days=2)
     t1 = datetime.utcnow() - timedelta(days=1)
@@ -399,15 +399,12 @@ def test_notification_product_id_correct_for_two_products(session: Session):
     its own product's id — no cross-contamination, no wrong id."""
     _store(session)
     product_a = _product(session, url="https://s1.com/a", title="Product A")
-    product_b = Product(
-        store_id="s1", external_id="e2", title="Product B", url="https://s1.com/b"
+    product_b = make_product(
+        session, external_id="e2", title="Product B", url="https://s1.com/b"
     )
-    session.add(product_b)
-    session.commit()
-    session.refresh(product_b)
 
-    _watch(session, product_a.id)
-    _watch(session, product_b.id)
+    _watch(session, product_a.game_id)
+    _watch(session, product_b.game_id)
 
     from app.channels.database import DatabaseChannel
 
@@ -450,15 +447,12 @@ def test_notification_product_url_stored_per_product(session: Session):
     """product_url in each NotificationLog row must match that product's url."""
     _store(session)
     product_a = _product(session, url="https://s1.com/game-a", title="Game A")
-    product_b = Product(
-        store_id="s1", external_id="e2", title="Game B", url="https://s1.com/game-b"
+    product_b = make_product(
+        session, external_id="e2", title="Game B", url="https://s1.com/game-b"
     )
-    session.add(product_b)
-    session.commit()
-    session.refresh(product_b)
 
-    _watch(session, product_a.id)
-    _watch(session, product_b.id)
+    _watch(session, product_a.game_id)
+    _watch(session, product_b.game_id)
 
     from app.channels.database import DatabaseChannel
 
@@ -520,7 +514,7 @@ def test_list_notifications_api_includes_product_id(client, session: Session):
 def test_out_of_stock_triggers_notification(session: Session):
     _store(session)
     product = _product(session)
-    item = _watch(session, product.id)
+    item = _watch(session, product.game_id)
     item.notify_out_of_stock = True
     session.add(item)
     session.commit()
@@ -543,7 +537,7 @@ def test_out_of_stock_triggers_notification(session: Session):
 def test_out_of_stock_no_notification_when_was_already_oos(session: Session):
     _store(session)
     product = _product(session)
-    _watch(session, product.id)
+    _watch(session, product.game_id)
 
     old = _snap(product.id, 400.0, available=False)
     new = _snap(product.id, 400.0, available=False)
@@ -556,7 +550,7 @@ def test_out_of_stock_no_notification_when_was_already_oos(session: Session):
 def test_out_of_stock_no_notification_when_flag_off(session: Session):
     _store(session)
     product = _product(session)
-    item = _watch(session, product.id)
+    item = _watch(session, product.game_id)
     item.notify_out_of_stock = False
     session.add(item)
     session.commit()
@@ -576,7 +570,7 @@ def test_out_of_stock_no_notification_when_flag_off(session: Session):
 def test_backfill_includes_out_of_stock(client, session: Session):
     _store(session)
     product = _product(session)
-    item = _watch(session, product.id)
+    item = _watch(session, product.game_id)
     item.notify_out_of_stock = True
     session.add(item)
     session.commit()

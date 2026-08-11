@@ -9,6 +9,8 @@ from sqlmodel import Session
 
 from app.models import BggCache, PriceSnapshot, Product, Store
 
+from .factories import make_product
+
 
 def _store(session: Session, sid: str = "s1"):
     session.add(Store(id=sid, name=sid, type="shopify", base_url=f"https://{sid}.com"))
@@ -24,16 +26,13 @@ def _product(
     bgg_id: int | None = None,
     updated_at: datetime | None = None,
 ) -> Product:
-    p = Product(
-        store_id="s1",
+    p = make_product(
+        session,
         external_id=title,
         title=title,
         bgg_id=bgg_id,
         updated_at=updated_at or datetime.utcnow(),
     )
-    session.add(p)
-    session.commit()
-    session.refresh(p)
     session.add(
         PriceSnapshot(
             product_id=p.id,

@@ -1,12 +1,12 @@
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func
 from sqlmodel import Session, select
 
 from ..bgg_client import get_game, search_games
 from ..db import get_session
-from ..models import Product, ProductOverride, WatchlistItem
+from ..models import Game, Product, WatchlistItem
 
 router = APIRouter(prefix="/bgg", tags=["bgg"])
 
@@ -40,89 +40,84 @@ async def refresh_bgg_cache(bgg_id: int):
 
 
 @router.get("/unlinked")
-def get_unlinked_products(
+def get_unlinked_games(
     page: int = 1,
     limit: int = 20,
     session: Session = Depends(get_session),
 ):
-    """Products with no bgg_id. Watchlisted items sort first."""
+    """Games with no BGG link. Watched games sort first."""
     base_where = [
-        Product.bgg_id.is_(None),
-        or_(
-            ProductOverride.product_id.is_(None),
-            ProductOverride.bgg_id.is_(None),
-        ),
-        Product.hidden == False,  # noqa: E712
+        Game.bgg_id.is_(None),
+        Game.hidden == False,  # noqa: E712
     ]
-    watched = case(
-        (WatchlistItem.product_id.isnot(None), 0),
-        else_=1,
-    )
+    watched = case((WatchlistItem.game_id.isnot(None), 0), else_=1)
+    image = func.min(Product.image_url).label("image_url")
+    listing = func.min(Product.id).label("product_id")
     stmt = (
-        select(Product, WatchlistItem.product_id.label("watched"))
-        .outerjoin(ProductOverride, Product.id == ProductOverride.product_id)
-        .outerjoin(WatchlistItem, Product.id == WatchlistItem.product_id)
+        select(Game, image, listing, WatchlistItem.game_id.label("watched"))
+        .join(Product, Product.game_id == Game.id)
+        .outerjoin(
+            WatchlistItem,
+            (WatchlistItem.game_id == Game.id) & (WatchlistItem.active == True),  # noqa: E712
+        )
         .where(*base_where)
-        .order_by(watched, Product.title)
+        .group_by(Game.id)
+        .order_by(watched, Game.title)
         .offset((page - 1) * limit)
         .limit(limit)
     )
     count_stmt = (
-        select(func.count())
-        .select_from(Product)
-        .outerjoin(ProductOverride, Product.id == ProductOverride.product_id)
+        select(func.count(func.distinct(Game.id)))
+        .select_from(Game)
+        .join(Product, Product.game_id == Game.id)
         .where(*base_where)
     )
     rows = session.exec(stmt).all()
-    total = session.exec(count_stmt).one()
     return {
-        "products": [
+        "games": [
             {
-                "id": p.id,
-                "title": p.title,
-                "image_url": p.image_url,
+                "id": g.id,
+                "product_id": pid,
+                "title": g.title,
+                "image_url": img,
                 "watched": w is not None,
             }
-            for p, w in rows
+            for g, img, pid, w in rows
         ],
-        "total": total,
+        "total": session.exec(count_stmt).one(),
         "page": page,
         "limit": limit,
     }
 
 
-@router.delete("/link/{product_id}")
-def unlink_bgg(
-    product_id: int,
-    session: Session = Depends(get_session),
-):
-    """Clear BGG link from product and its override (if set)."""
+def _game_of(product_id: int, session: Session) -> Game:
+    """BGG identity belongs to the game, so a listing id resolves to one."""
     product = session.get(Product, product_id)
     if not product:
         raise HTTPException(404, "Product not found")
-    product.bgg_id = None
-    product.updated_at = __import__("datetime").datetime.utcnow()
-    ov = session.get(ProductOverride, product_id)
-    if ov and ov.bgg_id is not None:
-        ov.bgg_id = None
-        ov.updated_at = __import__("datetime").datetime.utcnow()
-        session.add(ov)
-    session.add(product)
+    game = session.get(Game, product.game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    return game
+
+
+@router.delete("/link/{product_id}")
+def unlink_bgg(product_id: int, session: Session = Depends(get_session)):
+    game = _game_of(product_id, session)
+    game.bgg_id = None
+    session.add(game)
     session.commit()
-    return {"ok": True}
+    return {"ok": True, "game_id": game.id}
 
 
 @router.post("/game/{bgg_id}/link/{product_id}")
-def link_game_to_product(
+def link_bgg_to_game(
     bgg_id: int,
     product_id: int,
     session: Session = Depends(get_session),
 ):
-    product = session.get(Product, product_id)
-    if not product:
-        raise HTTPException(404, "Product not found")
-    product.bgg_id = bgg_id
-    product.updated_at = __import__("datetime").datetime.utcnow()
-    session.add(product)
+    game = _game_of(product_id, session)
+    game.bgg_id = bgg_id
+    session.add(game)
     session.commit()
-    return {"ok": True}
+    return {"ok": True, "game_id": game.id}

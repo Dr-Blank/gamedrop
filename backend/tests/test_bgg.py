@@ -1,22 +1,23 @@
+"""BGG linking. The link belongs to the game, so a listing id resolves to one."""
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import Product, ProductOverride, Store
+from app.models import Game, Product, Store
+
+from .factories import make_product, make_store
 
 
 def _store(session: Session) -> Store:
-    s = Store(id="s1", name="S1", type="shopify", base_url="https://s1.com")
-    session.add(s)
-    session.commit()
-    return s
+    return make_store(session)
 
 
 def _product(session: Session, title: str, bgg_id: int | None = None) -> Product:
-    p = Product(store_id="s1", external_id=title, title=title, bgg_id=bgg_id)
-    session.add(p)
-    session.commit()
-    session.refresh(p)
-    return p
+    return make_product(session, title=title, external_id=title, bgg_id=bgg_id)
+
+
+def _game(session: Session, product: Product) -> Game:
+    return session.get(Game, product.game_id)
 
 
 def test_unlinked_returns_only_unlinked(client: TestClient, session: Session):
@@ -28,42 +29,34 @@ def test_unlinked_returns_only_unlinked(client: TestClient, session: Session):
     assert r.status_code == 200
     data = r.json()
     assert data["total"] == 1
-    assert data["products"][0]["id"] == unlinked.id
-    assert data["products"][0]["title"] == "Catan"
-
-
-def test_unlinked_excludes_override_linked(client: TestClient, session: Session):
-    _store(session)
-    p = _product(session, "Pandemic")
-    session.add(ProductOverride(product_id=p.id, bgg_id=30549))
-    session.commit()
-
-    r = client.get("/api/bgg/unlinked")
-    assert r.status_code == 200
-    assert r.json()["total"] == 0
-
-
-def test_unlinked_includes_override_without_bgg(client: TestClient, session: Session):
-    _store(session)
-    p = _product(session, "Azul")
-    session.add(ProductOverride(product_id=p.id, title="Azul Fixed"))
-    session.commit()
-
-    r = client.get("/api/bgg/unlinked")
-    assert r.status_code == 200
-    assert r.json()["total"] == 1
+    assert data["games"][0]["id"] == unlinked.game_id
+    assert data["games"][0]["product_id"] == unlinked.id
+    assert data["games"][0]["title"] == "Catan"
 
 
 def test_unlinked_excludes_hidden(client: TestClient, session: Session):
     _store(session)
     p = _product(session, "Hidden Game")
-    p.hidden = True
-    session.add(p)
+    _game(session, p).hidden = True
     session.commit()
 
     r = client.get("/api/bgg/unlinked")
     assert r.status_code == 200
     assert r.json()["total"] == 0
+
+
+def test_unlinked_counts_a_merged_game_once(client: TestClient, session: Session):
+    _store(session)
+    make_store(session, "s2")
+    a = _product(session, "Azul")
+    b = make_product(session, store_id="s2", title="Azul", external_id="azul-2")
+    b.game_id = a.game_id
+    session.add(b)
+    session.commit()
+
+    data = client.get("/api/bgg/unlinked").json()
+    assert data["total"] == 1
+    assert len(data["games"]) == 1
 
 
 def test_unlinked_pagination(client: TestClient, session: Session):
@@ -71,31 +64,39 @@ def test_unlinked_pagination(client: TestClient, session: Session):
     for i in range(5):
         _product(session, f"Game {i}")
 
-    r = client.get("/api/bgg/unlinked?page=1&limit=3")
-    assert r.status_code == 200
-    data = r.json()
+    data = client.get("/api/bgg/unlinked?page=1&limit=3").json()
     assert data["total"] == 5
-    assert len(data["products"]) == 3
-
-    r2 = client.get("/api/bgg/unlinked?page=2&limit=3")
-    assert len(r2.json()["products"]) == 2
+    assert len(data["games"]) == 3
+    assert len(client.get("/api/bgg/unlinked?page=2&limit=3").json()["games"]) == 2
 
 
-def test_link_game_to_product(client: TestClient, session: Session):
+def test_link_bgg_via_listing_links_the_game(client: TestClient, session: Session):
     _store(session)
     p = _product(session, "Wingspan")
 
     r = client.post(f"/api/bgg/game/266192/link/{p.id}")
     assert r.status_code == 200
-    assert r.json() == {"ok": True}
+    assert r.json()["game_id"] == p.game_id
+    session.expire_all()
+    assert _game(session, p).bgg_id == 266192
 
-    session.refresh(p)
-    assert p.bgg_id == 266192
+
+def test_link_covers_every_listing_of_the_game(client: TestClient, session: Session):
+    _store(session)
+    make_store(session, "s2")
+    a = _product(session, "Catan")
+    b = make_product(session, store_id="s2", title="Catan", external_id="catan-2")
+    b.game_id = a.game_id
+    session.add(b)
+    session.commit()
+
+    client.post(f"/api/bgg/game/13/link/{a.id}")
+    session.expire_all()
+    assert _game(session, b).bgg_id == 13
 
 
-def test_link_game_product_not_found(client: TestClient):
-    r = client.post("/api/bgg/game/12345/link/99999")
-    assert r.status_code == 404
+def test_link_product_not_found(client: TestClient):
+    assert client.post("/api/bgg/game/12345/link/99999").status_code == 404
 
 
 def test_unlink_bgg(client: TestClient, session: Session):
@@ -104,28 +105,9 @@ def test_unlink_bgg(client: TestClient, session: Session):
 
     r = client.delete(f"/api/bgg/link/{p.id}")
     assert r.status_code == 200
-    assert r.json() == {"ok": True}
-
-    session.refresh(p)
-    assert p.bgg_id is None
-
-
-def test_unlink_bgg_clears_override_bgg_id(client: TestClient, session: Session):
-    _store(session)
-    p = _product(session, "Wingspan", bgg_id=266192)
-    session.add(ProductOverride(product_id=p.id, bgg_id=266192))
-    session.commit()
-
-    r = client.delete(f"/api/bgg/link/{p.id}")
-    assert r.status_code == 200
-
-    session.refresh(p)
-    assert p.bgg_id is None
-    ov = session.get(ProductOverride, p.id)
-    assert ov is not None
-    assert ov.bgg_id is None
+    session.expire_all()
+    assert _game(session, p).bgg_id is None
 
 
 def test_unlink_bgg_not_found(client: TestClient):
-    r = client.delete("/api/bgg/link/99999")
-    assert r.status_code == 404
+    assert client.delete("/api/bgg/link/99999").status_code == 404

@@ -12,6 +12,17 @@ New feature = new test. No exceptions.
 Migrations are sacred — never destructive, always idempotent.
 Use `alembic revision --autogenerate` to generate; never write migration files by hand.
 
+## Comments & docstrings
+
+Never put a specific site name, user detail, or anything from a chat session in
+code or comments. Code stays generic.
+
+Comment only what the code can't say itself. No narration, no restating the
+line below. Prefer clearer code over a comment.
+
+Docstrings: one short line. Add one more line only when a non-obvious
+architectural choice needs a reminder of *why*.
+
 ## API versioning
 
 App is in alpha. No backward compat needed for API or frontend — break freely.

@@ -7,9 +7,11 @@
 		LinearScale,
 		CategoryScale,
 		Filler,
+		Legend,
 		Tooltip
 	} from 'chart.js';
 	import { theme } from '$lib/theme.svelte.js';
+	import { alignSeries, formatDay } from '$lib/priceSeries.js';
 
 	Chart.register(
 		LineController,
@@ -18,12 +20,20 @@
 		LinearScale,
 		CategoryScale,
 		Filler,
+		Legend,
 		Tooltip
 	);
 
 	let {
-		history = /** @type {Array<{price:number, recorded_at:string, available:boolean}>} */ ([])
+		history = /** @type {Array<{price:number, recorded_at:string, available:boolean}>} */ ([]),
+		series = /** @type {Array<{label?:string, store_id?:string, history:Array<any>}>|null} */ (null)
 	} = $props();
+
+	// One store or many: everything downstream works on a list of series.
+	const sources = $derived(
+		series?.length ? series : [{ label: 'Price', history: history.slice().reverse() }]
+	);
+	const multi = $derived((series?.length ?? 0) > 1);
 
 	const ranges = [
 		{ key: '30', label: '30D', days: 30 },
@@ -32,38 +42,58 @@
 	];
 	let rangeKey = $state('90');
 
-	// chronological (oldest → newest)
-	const chrono = $derived(history.slice().reverse());
-
 	const windowed = $derived.by(() => {
 		const r = ranges.find((x) => x.key === rangeKey);
-		if (!r || r.days === Infinity) return chrono;
+		if (!r || r.days === Infinity) return sources;
 		const cutoff = Date.now() - r.days * 86400000;
-		const f = chrono.filter((h) => new Date(h.recorded_at).getTime() >= cutoff);
-		return f.length >= 2 ? f : chrono;
+		const clipped = sources.map((s) => ({
+			...s,
+			history: (s.history ?? []).filter((h) => new Date(h.recorded_at).getTime() >= cutoff)
+		}));
+		const points = clipped.reduce((n, s) => n + s.history.length, 0);
+		return points >= 2 ? clipped : sources;
 	});
 
+	const aligned = $derived(alignSeries(windowed));
+
 	const stats = $derived.by(() => {
-		const ps = windowed.map((h) => h.price);
-		if (!ps.length) return null;
-		const min = Math.min(...ps);
-		const max = Math.max(...ps);
-		const cur = ps[ps.length - 1];
-		const first = ps[0];
-		const avg = ps.reduce((a, b) => a + b, 0) / ps.length;
-		const change = cur - first;
-		const changePct = first ? (change / first) * 100 : 0;
-		return { min, max, cur, avg, change, changePct, atLow: cur <= min + 0.01 };
+		const all = windowed.flatMap((s) => (s.history ?? []).map((h) => h.price));
+		if (!all.length) return null;
+		const min = Math.min(...all);
+		const max = Math.max(...all);
+		const lasts = windowed
+			.map((s) => {
+				const h = s.history ?? [];
+				return h.length ? { label: s.label ?? s.store_id, price: h[h.length - 1].price } : null;
+			})
+			.filter(Boolean);
+		const best = lasts.length
+			? lasts.reduce((a, b) => (b.price < a.price ? b : a))
+			: { label: '', price: null };
+		const firsts = windowed.flatMap((s) => (s.history?.length ? [s.history[0].price] : []));
+		const first = firsts.length ? Math.min(...firsts) : null;
+		const change = first != null && best.price != null ? best.price - first : 0;
+		return {
+			min,
+			max,
+			best,
+			change,
+			changePct: first ? (change / first) * 100 : 0,
+			atLow: best.price != null && best.price <= min + 0.01
+		};
 	});
 
 	const fmt = (/** @type {number} */ n) =>
 		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
+	const PALETTE = ['#10b981', '#6366f1', '#f59e0b', '#ec4899', '#06b6d4', '#a855f7'];
+
 	let canvas = $state(/** @type {HTMLCanvasElement | null} */ (null));
 	let chart;
 
 	function build() {
-		if (!canvas || windowed.length < 2) {
+		const points = aligned.datasets.reduce((n, d) => n + d.data.filter((v) => v != null).length, 0);
+		if (!canvas || aligned.labels.length < 2 || points < 2) {
 			chart?.destroy();
 			chart = null;
 			return;
@@ -71,47 +101,49 @@
 		const css = getComputedStyle(document.documentElement);
 		const muted = css.getPropertyValue('--muted-foreground').trim() || '#888';
 		const border = theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
-		const accent = '#10b981';
-
-		const labels = windowed.map((h) =>
-			new Date(h.recorded_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-		);
-		const data = windowed.map((h) => h.price);
 
 		const ctx = canvas.getContext('2d');
 		const grad = ctx.createLinearGradient(0, 0, 0, 240);
 		grad.addColorStop(0, 'rgba(16,185,129,0.25)');
 		grad.addColorStop(1, 'rgba(16,185,129,0)');
 
+		const datasets = aligned.datasets.map((d, i) => {
+			const color = PALETTE[i % PALETTE.length];
+			return {
+				label: d.label,
+				data: d.data,
+				borderColor: color,
+				backgroundColor: multi ? color : grad,
+				fill: !multi,
+				spanGaps: true,
+				tension: 0.32,
+				borderWidth: 2,
+				pointRadius: aligned.labels.length > 40 ? 0 : 3,
+				pointHoverRadius: 5,
+				pointBackgroundColor: color
+			};
+		});
+
 		chart?.destroy();
 		chart = new Chart(canvas, {
 			type: 'line',
-			data: {
-				labels,
-				datasets: [
-					{
-						data,
-						borderColor: accent,
-						backgroundColor: grad,
-						fill: true,
-						tension: 0.32,
-						borderWidth: 2,
-						pointRadius: windowed.length > 40 ? 0 : 3,
-						pointHoverRadius: 5,
-						pointBackgroundColor: accent
-					}
-				]
-			},
+			data: { labels: aligned.labels.map(formatDay), datasets },
 			options: {
 				responsive: true,
 				maintainAspectRatio: false,
 				interaction: { mode: 'index', intersect: false },
 				plugins: {
-					legend: { display: false },
+					legend: {
+						display: multi,
+						position: 'bottom',
+						labels: { color: muted, boxWidth: 10, usePointStyle: true, font: { size: 11 } }
+					},
 					tooltip: {
-						callbacks: { label: (c) => fmt(c.parsed.y) },
+						callbacks: {
+							label: (c) => (multi ? `${c.dataset.label}: ${fmt(c.parsed.y)}` : fmt(c.parsed.y))
+						},
 						padding: 10,
-						displayColors: false
+						displayColors: multi
 					}
 				},
 				scales: {
@@ -131,7 +163,7 @@
 
 	$effect(() => {
 		// re-run on data/range/theme change
-		windowed;
+		aligned;
 		theme.isDark;
 		build();
 		return () => {
@@ -146,8 +178,13 @@
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div class="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
 				<div>
-					<div class="text-xs text-muted-foreground">Current</div>
-					<div class="text-lg font-bold tabular-nums">{fmt(stats.cur)}</div>
+					<div class="text-xs text-muted-foreground">{multi ? 'Best now' : 'Current'}</div>
+					<div class="text-lg font-bold tabular-nums">
+						{stats.best.price != null ? fmt(stats.best.price) : '—'}
+					</div>
+					{#if multi && stats.best.label}
+						<div class="text-[0.7rem] text-muted-foreground">{stats.best.label}</div>
+					{/if}
 				</div>
 				<div>
 					<div class="text-xs text-muted-foreground">Lowest</div>

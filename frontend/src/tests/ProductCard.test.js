@@ -3,7 +3,15 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import ProductCard from '$lib/components/ProductCard.svelte';
 
 const item = {
-	product: { id: 2, title: 'Catan', store_id: 'satyam', url: 'https://x/p', image_url: null },
+	product: {
+		id: 2,
+		game_id: 5,
+		title: 'Catan',
+		store_id: 'satyam',
+		url: 'https://x/p',
+		image_url: null
+	},
+	game: { id: 5, title: 'Catan', hidden: false, bgg_id: null, note: null },
 	latest_price: { price: 610, available: true, compare_at_price: 2000 },
 	bgg: null,
 	override: null,
@@ -40,13 +48,13 @@ describe('ProductCard (watchlist variant)', () => {
 describe('ProductCard tab/new-window support', () => {
 	it('wraps card in <a> with correct href (enables browser middle-click and right-click new tab)', () => {
 		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
-		const anchor = container.querySelector('a[href="/prices/2"]');
+		const anchor = container.querySelector('a[href="/games/5?store=satyam"]');
 		expect(anchor).toBeInTheDocument();
 	});
 
 	it('watchlist variant also has correct href anchor', () => {
 		const { container } = render(ProductCard, { props: { item, variant: 'watchlist' } });
-		const anchor = container.querySelector('a[href="/prices/2"]');
+		const anchor = container.querySelector('a[href="/games/5?store=satyam"]');
 		expect(anchor).toBeInTheDocument();
 	});
 
@@ -54,7 +62,7 @@ describe('ProductCard tab/new-window support', () => {
 		const { container } = render(ProductCard, {
 			props: { item: { ...item, bgg: null }, variant: 'hidden' }
 		});
-		const anchor = container.querySelector('a[href="/prices/2"]');
+		const anchor = container.querySelector('a[href="/games/5?store=satyam"]');
 		expect(anchor).toBeInTheDocument();
 	});
 
@@ -62,7 +70,7 @@ describe('ProductCard tab/new-window support', () => {
 		const onremove = vi.fn();
 		const { container } = render(ProductCard, { props: { item, variant: 'watchlist', onremove } });
 		let anchorEvent;
-		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => {
+		container.querySelector('a[href="/games/5?store=satyam"]').addEventListener('click', (e) => {
 			anchorEvent = e;
 		});
 		await fireEvent.click(screen.getByTitle('Remove from watchlist'));
@@ -73,7 +81,7 @@ describe('ProductCard tab/new-window support', () => {
 	it('clicking hide button prevents card anchor from navigating', async () => {
 		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
 		let anchorEvent;
-		container.querySelector('a[href="/prices/2"]').addEventListener('click', (e) => {
+		container.querySelector('a[href="/games/5?store=satyam"]').addEventListener('click', (e) => {
 			anchorEvent = e;
 		});
 		await fireEvent.click(screen.getByTitle('Hide this game permanently'));

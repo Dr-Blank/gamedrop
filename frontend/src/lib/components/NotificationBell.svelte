@@ -89,9 +89,9 @@
 				n.id === item.id ? { ...n, read_at: new Date().toISOString() } : n
 			);
 		}
-		if (item.product_id) {
+		if (item.game_id || item.product_id) {
 			open = false;
-			goto(`/prices/${item.product_id}`);
+			goto(item.game_id ? `/games/${item.game_id}` : `/prices/${item.product_id}`);
 		}
 	}
 

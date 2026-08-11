@@ -14,14 +14,16 @@ class DatabaseChannel:
         title: str,
         message: str,
         product_id: int | None,
-        url: str | None,
-        tags: list[str],
+        game_id: int | None = None,
+        url: str | None = None,
+        tags: list[str] | None = None,
         recorded_at: datetime | None = None,
     ) -> None:
         with Session(_db.engine) as session:
             session.add(
                 NotificationLog(
                     product_id=product_id,
+                    game_id=game_id,
                     kind=kind,
                     title=title,
                     message=message,

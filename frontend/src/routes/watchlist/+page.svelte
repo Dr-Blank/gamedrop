@@ -38,8 +38,8 @@
 
 	let sortedWatchlist = $derived(
 		[...watchlist].sort((a, b) => {
-			if (sortBy === 'name_asc') return a.product.title.localeCompare(b.product.title);
-			if (sortBy === 'name_desc') return b.product.title.localeCompare(a.product.title);
+			if (sortBy === 'name_asc') return a.game.title.localeCompare(b.game.title);
+			if (sortBy === 'name_desc') return b.game.title.localeCompare(a.game.title);
 			if (sortBy === 'price_asc')
 				return (a.latest_price?.price ?? Infinity) - (b.latest_price?.price ?? Infinity);
 			if (sortBy === 'price_desc')
@@ -74,18 +74,14 @@
 
 	async function remove(item) {
 		await removeWatchlist(item.watchlist.id);
-		toast.success(`Removed ${item.product.title}`);
+		toast.success(`Removed ${item.game.title}`);
 		await Promise.all([load(), watchStore.load()]);
 	}
 
 	async function setTarget(item) {
 		const val = prompt('Target price (₹) — blank for any drop:', item.watchlist.target_price ?? '');
 		if (val === null) return;
-		await updateWatchlist(
-			item.watchlist.id,
-			item.watchlist.product_id,
-			val ? parseFloat(val) : null
-		);
+		await updateWatchlist(item.watchlist.id, val ? parseFloat(val) : null);
 		toast.success('Target updated');
 		await load();
 	}
@@ -103,7 +99,7 @@
 	}
 
 	async function addToWatchlist(product) {
-		await addWatchlist(product.id, targetPrice ? parseFloat(targetPrice) : null);
+		await addWatchlist(product.game_id, targetPrice ? parseFloat(targetPrice) : null);
 		toast.success(`Watching ${product.title}`);
 		searchQuery = '';
 		searchResults = [];

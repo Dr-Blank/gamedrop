@@ -10,7 +10,15 @@ vi.mock('$lib/watchlist.svelte.js', () => ({
 import ProductCard from '$lib/components/ProductCard.svelte';
 
 const item = {
-	product: { id: 2, title: 'Catan', store_id: 'satyam', url: 'https://x/p', image_url: null },
+	product: {
+		id: 2,
+		game_id: 5,
+		title: 'Catan',
+		store_id: 'satyam',
+		url: 'https://x/p',
+		image_url: null
+	},
+	game: { id: 5, title: 'Catan', hidden: false, bgg_id: null, note: null },
 	latest_price: { price: 610, available: true, compare_at_price: 2000 },
 	bgg: null,
 	override: null,

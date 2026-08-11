@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Product, Store
+from app.models import PriceSnapshot, Store
+
+from .factories import make_product
 
 
 def _seed(session: Session):
@@ -12,15 +14,10 @@ def _seed(session: Session):
     session.commit()
 
     products = [
-        Product(store_id="s1", external_id="e1", title="Catan"),
-        Product(store_id="s1", external_id="e2", title="Pandemic"),
-        Product(store_id="s2", external_id="e3", title="Azul"),
+        make_product(session, store_id="s1", external_id="e1", title="Catan"),
+        make_product(session, store_id="s1", external_id="e2", title="Pandemic"),
+        make_product(session, store_id="s2", external_id="e3", title="Azul"),
     ]
-    for p in products:
-        session.add(p)
-    session.commit()
-    for p in products:
-        session.refresh(p)
 
     prices = [
         (products[0].id, 30.0, True),

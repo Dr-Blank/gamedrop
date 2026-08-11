@@ -29,6 +29,89 @@ TOKEN_CUTOFF = 72
 MIN_FUZZY_QUERY_LEN = 3
 
 
+#: Marketing tail separator: everything past it is SEO copy, not the game name.
+#: A bare colon is excluded — "Catan: Seafarers" names a real expansion. Dashes
+#: only count when spaced, so a player range ("5–6") doesn't truncate the name.
+_TAIL_RE = re.compile(r"(?:\s*[|,(\[]|\s+[-–—]\s+).*$")
+
+#: Filler words shared by much of a toy catalog. Edition-ish words stay in, so
+#: "deluxe" can't be merged away without a human looking.
+_NOISE_WORDS = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "and",
+        "with",
+        "for",
+        "of",
+        "in",
+        "by",
+        "on",
+        "to",
+        "board",
+        "boardgame",
+        "game",
+        "games",
+        "card",
+        "cards",
+        "dice",
+        "tile",
+        "tabletop",
+        "family",
+        "friends",
+        "kids",
+        "kid",
+        "children",
+        "adults",
+        "adult",
+        "player",
+        "players",
+        "people",
+        "age",
+        "ages",
+        "year",
+        "years",
+        "yr",
+        "yrs",
+        "old",
+        "plus",
+        "fun",
+        "best",
+        "top",
+        "premium",
+        "new",
+        "official",
+        "original",
+        "genuine",
+        "multicolor",
+        "multicolour",
+        "toy",
+        "toys",
+        "gift",
+        "gifts",
+        "set",
+        "pack",
+        "piece",
+        "pieces",
+        "pcs",
+        "pc",
+        "combo",
+        "indoor",
+        "outdoor",
+        "party",
+        "travel",
+    ]
+)
+
+#: Quantity/spec tokens: "500pcs", "18cm".
+_MEASURE_RE = re.compile(r"^\d+(?:cm|mm|inch|in|pcs?|pc|players?|x\d+)?$")
+
+#: Minimum `similarity` for a merge suggestion. Deliberately loose — a wrong
+#: suggestion costs one click, a missed one costs a price comparison.
+MERGE_CUTOFF = 78.0
+
+
 def tokenize(text: str) -> list[str]:
     """Lowercase alphanumeric runs. Punctuation and spacing are dropped, so
     "Catan: Seafarers (2nd Ed.)" and "catan seafarers 2nd ed" agree."""
@@ -156,6 +239,42 @@ def _token_score(qt: str, tt: str) -> float:
     if tt.startswith(qt):
         return 100.0
     return fuzz.ratio(qt, tt)
+
+
+def match_key(title: str) -> str:
+    """Strip a store title down to the words that identify the game.
+
+    Cross-store matching only; in the search bar the user's own filler words are
+    signal. Falls back to the normalized title if stripping leaves nothing.
+    """
+    head = _TAIL_RE.sub("", title or "")
+    tokens = [
+        t for t in tokenize(head) if t not in _NOISE_WORDS and not _MEASURE_RE.match(t)
+    ]
+    return " ".join(tokens) or normalize(head) or normalize(title or "")
+
+
+def _containment_score(nq: str, nt: str) -> float:
+    """Substring tiers only.
+
+    Fuzzy scoring on raw titles rewards shared filler ("board game"), which
+    scores unrelated games as matches.
+    """
+    score = score_title(nq, nt)
+    return score if score >= 120.0 else 0.0
+
+
+def similarity(title_a: str, title_b: str) -> float:
+    """Symmetric same-game score. `score_title` is query-vs-title, so both
+    directions are tried."""
+    na, nb = normalize(title_a), normalize(title_b)
+    ka, kb = match_key(title_a), match_key(title_b)
+    return max(
+        _containment_score(na, nb),
+        _containment_score(nb, na),
+        score_title(ka, kb),
+        score_title(kb, ka),
+    )
 
 
 def rank_titles[K](

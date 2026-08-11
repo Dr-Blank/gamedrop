@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, desc, select
 
 from ..db import get_session
-from ..models import PriceSnapshot, Product, ProductOverride, WatchlistItem
+from ..models import Game, PriceSnapshot, Product, ProductOverride, WatchlistItem
 from ..text_search import rank_titles
 
 router = APIRouter(prefix="/prices", tags=["prices"])
@@ -23,17 +23,17 @@ def price_history(
         .order_by(desc(PriceSnapshot.recorded_at))
         .limit(limit)
     ).all()
-    override = session.get(ProductOverride, product_id)
     watchlist_item = session.exec(
         select(WatchlistItem).where(
-            WatchlistItem.product_id == product_id,
+            WatchlistItem.game_id == product.game_id,
             WatchlistItem.active == True,  # noqa: E712
         )
     ).first()
     return {
         "product": product,
+        "game": session.get(Game, product.game_id),
         "history": snapshots,
-        "override": override,
+        "override": session.get(ProductOverride, product_id),
         "watchlist_item": watchlist_item,
     }
 
@@ -44,13 +44,13 @@ def search_by_name(
     store_id: str | None = None,
     session: Session = Depends(get_session),
 ):
-    """Search products by name, return with latest price snapshot."""
-    query = select(Product)
+    """Search listings by game name, return with latest price snapshot."""
+    query = select(Product, Game).join(Game, Product.game_id == Game.id)
     if store_id:
         query = query.where(Product.store_id == store_id)
-    products = session.exec(query).all()
-    by_id = {p.id: p for p in products}
-    ranked = rank_titles(q, [(p.id, p.title) for p in products])
+    rows = session.exec(query).all()
+    by_id = {p.id: p for p, _ in rows}
+    ranked = rank_titles(q, [(p.id, g.title) for p, g in rows])
     matched = [by_id[pid] for pid, _ in ranked]
 
     results = []
