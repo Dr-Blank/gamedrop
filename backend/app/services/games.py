@@ -199,13 +199,66 @@ def suggestion_queue(
     return {"items": items, "total": total}
 
 
-def decide_many(session: Session, merges, rejects) -> dict:
+def rejected_queue(session: Session, limit: int = 50, min_score: float = 0.0) -> dict:
+    """Previously rejected pairs, best match first — for second-guessing a no.
+
+    Pairs that have since ended up on one game are dropped: the rejection was
+    already overruled, so there is nothing left to reconsider.
+    """
+    rows = session.exec(select(MergeRejection)).all()
+    if not rows:
+        return {"items": [], "total": 0}
+
+    ids = {r.product_a_id for r in rows} | {r.product_b_id for r in rows}
+    listings = {
+        pid: (title, game_id)
+        for pid, title, game_id in session.exec(
+            select(Product.id, Game.title, Product.game_id)
+            .join(Game, Product.game_id == Game.id)
+            .where(Product.id.in_(ids))
+        )
+    }
+
+    scored: list[tuple[tuple[int, int], float]] = []
+    for row in rows:
+        a, b = row.product_a_id, row.product_b_id
+        if a not in listings or b not in listings:
+            continue
+        if listings[a][1] == listings[b][1]:
+            continue
+        score = similarity(listings[a][0], listings[b][0])
+        if score >= min_score:
+            scored.append(((a, b), score))
+
+    scored.sort(key=lambda kv: -kv[1])
+    total = len(scored)
+    top = scored[:limit]
+    card_ids = sorted({pid for pair, _ in top for pid in pair})
+    cards = {c["product"].id: c for c in repo.cards_by_ids(session, card_ids)}
+    items = [
+        {"score": round(score, 1), "left": cards[pair[0]], "right": cards[pair[1]]}
+        for pair, score in top
+        if pair[0] in cards and pair[1] in cards
+    ]
+    return {"items": items, "total": total}
+
+
+def unreject(session: Session, product_id: int, other_id: int) -> None:
+    """Forget that two listings were called different games."""
+    row = session.get(MergeRejection, _pair(product_id, other_id))
+    if row is None:
+        return
+    session.delete(row)
+    session.commit()
+
+
+def decide_many(session: Session, merges, rejects, unrejects=()) -> dict:
     """Apply a batch of merge/reject decisions, skipping ones that no longer hold.
 
     A pair can go stale mid-batch — an earlier merge in the same batch may have
     already put both listings on one game — so a failure is counted, not raised.
     """
-    applied = {"merged": 0, "rejected": 0, "skipped": 0}
+    applied = {"merged": 0, "rejected": 0, "unrejected": 0, "skipped": 0}
     for a, b in merges:
         try:
             merge(session, a, b)
@@ -220,6 +273,9 @@ def decide_many(session: Session, merges, rejects) -> dict:
         except (LookupError, ValueError):
             session.rollback()
             applied["skipped"] += 1
+    for a, b in unrejects:
+        unreject(session, a, b)
+        applied["unrejected"] += 1
     return applied
 
 

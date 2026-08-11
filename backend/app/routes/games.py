@@ -25,6 +25,7 @@ class GamePatch(BaseModel):
 class DecisionBatch(BaseModel):
     merges: list[tuple[int, int]] = []
     rejects: list[tuple[int, int]] = []
+    unrejects: list[tuple[int, int]] = []
 
 
 # Declared before /{game_id} so the literal path isn't swallowed by it.
@@ -38,12 +39,22 @@ def merge_queue(
     return service.suggestion_queue(session, limit=limit, min_score=min_score)
 
 
+@router.get("/suggestions/rejected")
+def rejected_queue(
+    limit: int = 50,
+    min_score: float = 0.0,
+    session: Session = Depends(get_session),
+):
+    """Pairs already turned down, for a second look."""
+    return service.rejected_queue(session, limit=limit, min_score=min_score)
+
+
 @router.post("/suggestions/decide")
 def decide_suggestions(
     body: DecisionBatch, session: Session = Depends(get_session)
 ) -> dict:
     """Apply a screenful of merge/reject decisions in one request."""
-    return service.decide_many(session, body.merges, body.rejects)
+    return service.decide_many(session, body.merges, body.rejects, body.unrejects)
 
 
 @router.get("/for-listing/{product_id}")

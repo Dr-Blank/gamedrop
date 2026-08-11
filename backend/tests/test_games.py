@@ -231,9 +231,67 @@ def test_decide_applies_merges_and_rejections_in_one_call(
         "/api/games/suggestions/decide",
         json={"merges": [[a.id, b.id]], "rejects": [[c.id, d.id]]},
     )
-    assert r.json() == {"merged": 1, "rejected": 1, "skipped": 0}
+    assert r.json() == {"merged": 1, "rejected": 1, "unrejected": 0, "skipped": 0}
     assert _game(session, a).id == _game(session, b).id
     assert session.get(MergeRejection, (min(c.id, d.id), max(c.id, d.id))) is not None
+
+
+def test_rejected_queue_lists_turned_down_pairs(client: TestClient, session: Session):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Board Game", price=1900)
+    client.post(f"/api/products/{a.id}/reject-merge", json={"other_product_id": b.id})
+
+    body = client.get("/api/games/suggestions/rejected").json()
+    assert body["total"] == 1
+    pair = {
+        body["items"][0]["left"]["product"]["id"],
+        body["items"][0]["right"]["product"]["id"],
+    }
+    assert pair == {a.id, b.id}
+
+
+def test_rejected_queue_honours_a_score_floor(client: TestClient, session: Session):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Summer Pavilion", price=1900)
+    client.post(f"/api/products/{a.id}/reject-merge", json={"other_product_id": b.id})
+
+    assert client.get("/api/games/suggestions/rejected").json()["total"] == 1
+    assert (
+        client.get("/api/games/suggestions/rejected?min_score=180").json()["total"] == 0
+    )
+
+
+def test_rejected_queue_drops_pairs_already_on_one_game(
+    client: TestClient, session: Session
+):
+    """Merging overrules the rejection, so there is nothing to reconsider."""
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Board Game", price=1900)
+    session.add(
+        MergeRejection(product_a_id=min(a.id, b.id), product_b_id=max(a.id, b.id))
+    )
+    session.commit()
+    service.merge(session, a.id, b.id)
+
+    assert client.get("/api/games/suggestions/rejected").json()["items"] == []
+
+
+def test_unrejecting_puts_the_pair_back_in_the_queue(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Board Game", price=1900)
+    client.post(f"/api/products/{a.id}/reject-merge", json={"other_product_id": b.id})
+    assert client.get("/api/games/suggestions").json()["total"] == 0
+
+    r = client.post("/api/games/suggestions/decide", json={"unrejects": [[a.id, b.id]]})
+    assert r.json()["unrejected"] == 1
+    assert client.get("/api/games/suggestions/rejected").json()["total"] == 0
+    assert client.get("/api/games/suggestions").json()["total"] == 1
 
 
 def test_decide_skips_a_pair_that_no_longer_applies(
