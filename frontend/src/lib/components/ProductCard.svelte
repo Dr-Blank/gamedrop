@@ -79,6 +79,13 @@
 			.map((o) => o.store_id)
 	);
 
+	// MRP is reference, not news — it stays, but out of the price line.
+	const mrpPct = $derived.by(() => {
+		if (pricing) return null;
+		const pct = item.discount_pct;
+		return pct ? Math.round(pct) : null;
+	});
+
 	// price-range glance from history
 	const range = $derived.by(() => {
 		const ps = (trendHistory ?? []).map((h) => h.price).filter((n) => typeof n === 'number');
@@ -91,6 +98,22 @@
 
 	const fmt = (/** @type {number} */ n) =>
 		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+	// The line under the price answers "is this a good price?" — against the
+	// other shops when there are any, against its own history when there aren't.
+	const standing = $derived.by(() => {
+		const offers = (item.compare?.offers ?? []).filter((o) => o.price != null);
+		if (pricing && offers.length > 1) {
+			const worst = offers.reduce((a, b) => (b.price > a.price ? b : a));
+			const saved = worst.price - price;
+			return saved > 0
+				? { text: `${fmt(saved)} less than ${worst.store_id}`, store: worst.store_id, good: true }
+				: { text: 'same price at every shop', store: null, good: false };
+		}
+		if (!range || price == null) return null;
+		if (range.atLow) return { text: 'cheapest it has been', store: null, good: true };
+		return { text: `${fmt(price - range.min)} above its low`, store: null, good: false };
+	});
 
 	function open() {
 		goto(href);
@@ -234,7 +257,7 @@
 				<h3 class="line-clamp-2 text-sm leading-tight font-semibold" {title}>{title}</h3>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<PriceTag {price} {compareAt} discountPct={pricing ? null : item.discount_pct} />
+					<PriceTag {price} />
 					<span
 						class="inline-flex items-center gap-1 text-[0.7rem] text-muted-foreground"
 						title={pricing ? `Cheapest in stock: ${quotedStore}` : quotedStore}
@@ -244,6 +267,23 @@
 						at {quotedStore}
 					</span>
 				</div>
+
+				{#if standing}
+					<p
+						class="flex items-center gap-1 text-[0.7rem] {standing.good
+							? 'text-green-600 dark:text-green-400'
+							: 'text-muted-foreground'}"
+					>
+						{#if standing.store}
+							<span
+								class="size-1.5 shrink-0 rounded-full"
+								style="background:{storeColors.of(standing.store)}"
+								aria-hidden="true"
+							></span>
+						{/if}
+						{standing.text}
+					</p>
+				{/if}
 
 				{#if pricing?.blocked}
 					<p
@@ -264,6 +304,11 @@
 
 				<div class="flex items-center gap-2">
 					<StockBadge {available} size="sm" />
+					{#if mrpPct}
+						<span class="text-[0.7rem] text-muted-foreground" title={`MRP ${fmt(compareAt)}`}>
+							−{mrpPct}% off MRP
+						</span>
+					{/if}
 					{#if variant === 'watchlist'}
 						<button
 							onclick={(e) => act(e, ontarget)}

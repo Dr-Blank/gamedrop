@@ -88,3 +88,36 @@ describe('ProductCard tab/new-window support', () => {
 		expect(anchorEvent?.defaultPrevented).toBe(true);
 	});
 });
+
+describe('ProductCard price line', () => {
+	const history = [{ price: 610 }, { price: 900 }, { price: 800 }];
+
+	it('keeps the struck-through MRP out of the price line', () => {
+		render(ProductCard, { props: { item, variant: 'browse', history } });
+		expect(screen.queryByText('₹2,000')).not.toBeInTheDocument();
+		expect(screen.getByText(/off MRP/)).toBeInTheDocument();
+	});
+
+	it('says how far the price sits above its own low', () => {
+		render(ProductCard, { props: { item, variant: 'browse', history } });
+		expect(screen.getByText('cheapest it has been')).toBeInTheDocument();
+	});
+
+	it('quotes the saving against the dearest shop when several sell it', () => {
+		const multi = {
+			...item,
+			compare: {
+				listing_count: 2,
+				store_ids: ['satyam', 'other'],
+				cheapest: { product_id: 2, store_id: 'satyam', price: 610, available: true },
+				cheapest_in_stock: { product_id: 2, store_id: 'satyam', price: 610, available: true },
+				offers: [
+					{ product_id: 2, store_id: 'satyam', price: 610, available: true },
+					{ product_id: 3, store_id: 'other', price: 990, available: true }
+				]
+			}
+		};
+		render(ProductCard, { props: { item: multi, variant: 'browse' } });
+		expect(screen.getByText('₹380 less than other')).toBeInTheDocument();
+	});
+});
