@@ -28,6 +28,7 @@ export function alignSeries(series) {
 		return {
 			label: s.label ?? s.store_id ?? 'Price',
 			productId: s.product_id ?? null,
+			storeId: s.store_id ?? null,
 			data
 		};
 	});

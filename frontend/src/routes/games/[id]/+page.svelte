@@ -30,6 +30,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import GameGallery from '$lib/components/GameGallery.svelte';
 	import StoreOffers from '$lib/components/StoreOffers.svelte';
+	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
 	import {
@@ -127,7 +128,11 @@
 	});
 
 	const chartSeries = $derived(
-		(data?.series ?? []).map((s) => ({ label: s.store_id, history: s.history }))
+		(data?.series ?? []).map((s) => ({
+			label: s.store_id,
+			store_id: s.store_id,
+			history: s.history
+		}))
 	);
 
 	async function loadGame({ keepSelection = false } = {}) {
@@ -450,10 +455,14 @@
 						{#each offers as offer (offer.product_id)}
 							<button
 								onclick={() => selectListing(offer.product_id)}
-								class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors {offer.product_id ===
+								class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {offer.product_id ===
 								selectedId
 									? 'bg-background text-foreground shadow-sm'
 									: 'text-muted-foreground hover:text-foreground'}"
+								style="box-shadow: inset 0 -2px 0 0 {tint(
+									storeColors.of(offer.store_id),
+									offer.product_id === selectedId ? 0.9 : 0.25
+								)}"
 								aria-current={offer.product_id === selectedId}
 							>
 								{offer.store_id}
@@ -778,7 +787,7 @@
 					<Card.Root>
 						<Card.Header><Card.Title>Price history</Card.Title></Card.Header>
 						<Card.Content>
-							<PriceChart {history} />
+							<PriceChart {history} storeId={selected?.store_id} />
 						</Card.Content>
 					</Card.Root>
 				{:else}

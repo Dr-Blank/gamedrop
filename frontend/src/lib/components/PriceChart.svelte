@@ -12,6 +12,7 @@
 	} from 'chart.js';
 	import { theme } from '$lib/theme.svelte.js';
 	import { alignSeries, formatDay } from '$lib/priceSeries.js';
+	import { storeColors, DEFAULT_PALETTE, tint } from '$lib/storeColors.svelte.js';
 
 	Chart.register(
 		LineController,
@@ -26,12 +27,17 @@
 
 	let {
 		history = /** @type {Array<{price:number, recorded_at:string, available:boolean}>} */ ([]),
-		series = /** @type {Array<{label?:string, store_id?:string, history:Array<any>}>|null} */ (null)
+		series = /** @type {Array<{label?:string, store_id?:string, history:Array<any>}>|null} */ (
+			null
+		),
+		storeId = /** @type {string|null} */ (null)
 	} = $props();
 
 	// One store or many: everything downstream works on a list of series.
 	const sources = $derived(
-		series?.length ? series : [{ label: 'Price', history: history.slice().reverse() }]
+		series?.length
+			? series
+			: [{ label: 'Price', store_id: storeId, history: history.slice().reverse() }]
 	);
 	const multi = $derived((series?.length ?? 0) > 1);
 
@@ -86,8 +92,6 @@
 	const fmt = (/** @type {number} */ n) =>
 		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-	const PALETTE = ['#10b981', '#6366f1', '#f59e0b', '#ec4899', '#06b6d4', '#a855f7'];
-
 	let canvas = $state(/** @type {HTMLCanvasElement | null} */ (null));
 	let chart;
 
@@ -103,12 +107,17 @@
 		const border = theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
 
 		const ctx = canvas.getContext('2d');
+		const soloColor = aligned.datasets[0]?.storeId
+			? storeColors.of(aligned.datasets[0].storeId)
+			: DEFAULT_PALETTE[0];
 		const grad = ctx.createLinearGradient(0, 0, 0, 240);
-		grad.addColorStop(0, 'rgba(16,185,129,0.25)');
-		grad.addColorStop(1, 'rgba(16,185,129,0)');
+		grad.addColorStop(0, tint(soloColor, 0.25));
+		grad.addColorStop(1, tint(soloColor, 0));
 
 		const datasets = aligned.datasets.map((d, i) => {
-			const color = PALETTE[i % PALETTE.length];
+			const color = d.storeId
+				? storeColors.of(d.storeId)
+				: DEFAULT_PALETTE[i % DEFAULT_PALETTE.length];
 			return {
 				label: d.label,
 				data: d.data,
@@ -162,9 +171,10 @@
 	}
 
 	$effect(() => {
-		// re-run on data/range/theme change
+		// re-run on data/range/theme/palette change
 		aligned;
 		theme.isDark;
+		storeColors.saved;
 		build();
 		return () => {
 			chart?.destroy();

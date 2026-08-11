@@ -15,6 +15,7 @@
 		ScrollText,
 		EyeOff,
 		Link2,
+		Merge,
 		Menu,
 		X,
 		Search,
@@ -30,6 +31,7 @@
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 	import { notifications } from '$lib/notifications.svelte.js';
+	import { storeColors } from '$lib/storeColors.svelte.js';
 
 	let { children } = $props();
 
@@ -41,6 +43,7 @@
 		{ href: '/watchlist', label: 'Watchlist', icon: Heart }
 	];
 	const more = [
+		{ href: '/merges', label: 'Merges', icon: Merge },
 		{ href: '/stores', label: 'Stores', icon: Store },
 		{ href: '/notifications', label: 'Notifications', icon: null },
 		{ href: '/hidden', label: 'Hidden', icon: EyeOff },
@@ -116,6 +119,7 @@
 		watchlist.load();
 		hidden.load();
 		notifications.load();
+		storeColors.load();
 	});
 </script>
 

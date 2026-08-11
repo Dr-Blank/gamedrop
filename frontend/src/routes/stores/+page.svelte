@@ -14,6 +14,8 @@
 	} from '$lib/api.js';
 	import { Check, Search, TriangleAlert } from '@lucide/svelte';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
+	import { storeColors } from '$lib/storeColors.svelte.js';
+	import { toast } from '$lib/toast.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
@@ -167,6 +169,18 @@
 			cancelEditBasic(store.id);
 		} finally {
 			savingBasic[store.id] = false;
+		}
+	}
+
+	/** @param {string|null} hex null restores the colour derived from the store id */
+	async function saveColor(store, hex) {
+		storeColors.set(store.id, hex); // paint now; the reload only confirms
+		try {
+			await patchStore(store.id, { color: hex });
+			await load();
+		} catch (e) {
+			storeColors.set(store.id, store.color ?? null);
+			toast.error(e.message);
 		}
 	}
 
@@ -333,14 +347,38 @@
 					{#each stores as store}
 						<Table.Row>
 							<Table.Cell class="font-medium">
-								{#if editingBasic[store.id]}
-									<Input bind:value={editingBasic[store.id].name} class="h-7 w-40 text-xs" />
-								{:else}
-									{store.name}
-									{#if !store.enabled}
-										<Badge variant="secondary" class="ml-1 text-xs">disabled</Badge>
-									{/if}
-								{/if}
+								<div class="flex items-center gap-2">
+									<label
+										class="relative size-5 shrink-0 cursor-pointer rounded-full ring-1 ring-border"
+										style="background:{storeColors.of(store.id)}"
+										title="Accent colour for {store.name}"
+									>
+										<input
+											type="color"
+											value={storeColors.of(store.id)}
+											onchange={(e) => saveColor(store, e.currentTarget.value)}
+											class="absolute inset-0 cursor-pointer opacity-0"
+										/>
+									</label>
+									<div>
+										{#if editingBasic[store.id]}
+											<Input bind:value={editingBasic[store.id].name} class="h-7 w-40 text-xs" />
+										{:else}
+											{store.name}
+											{#if !store.enabled}
+												<Badge variant="secondary" class="ml-1 text-xs">disabled</Badge>
+											{/if}
+										{/if}
+										{#if store.color}
+											<button
+												onclick={() => saveColor(store, null)}
+												class="block text-[0.65rem] text-muted-foreground hover:text-foreground"
+											>
+												reset colour
+											</button>
+										{/if}
+									</div>
+								</div>
 							</Table.Cell>
 							<Table.Cell><Badge variant="outline">{store.type}</Badge></Table.Cell>
 							<Table.Cell class="text-sm">

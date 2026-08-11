@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import Sparkline from './Sparkline.svelte';
 	import { inr } from '$lib/gamePricing.js';
+	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { ExternalLink, Check, Unlink, TrendingDown } from '@lucide/svelte';
 
 	let {
@@ -53,9 +54,14 @@
 					>
 						<td class="px-3 py-2">
 							<button
-								class="text-left hover:underline"
+								class="flex items-center gap-1.5 text-left hover:underline"
 								onclick={() => onselect?.(offer.product_id)}
 							>
+								<span
+									class="size-2 shrink-0 rounded-full"
+									style="background:{storeColors.of(offer.store_id)}"
+									aria-hidden="true"
+								></span>
 								{offer.store_id}
 							</button>
 							{#if offer.product_id === currentProductId}
