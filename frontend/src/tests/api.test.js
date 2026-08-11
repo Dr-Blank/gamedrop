@@ -23,22 +23,36 @@ describe('api client', () => {
 		expect(res).toEqual([{ watchlist: { id: 1 } }]);
 	});
 
-	it('addWatchlist POSTs product_id + target_price', async () => {
+	it('addWatchlist POSTs game_id + target_price', async () => {
 		mockJson({ id: 9 });
 		await api.addWatchlist(42, 1500);
 		const [url, opts] = fetch.mock.calls[0];
 		expect(url).toBe('/api/watchlist/');
 		expect(opts.method).toBe('POST');
-		expect(JSON.parse(opts.body)).toEqual({ product_id: 42, target_price: 1500 });
+		expect(JSON.parse(opts.body)).toEqual({ game_id: 42, target_price: 1500 });
 	});
 
 	it('addWatchlist sends null target when blank', async () => {
 		mockJson({ id: 9 });
 		await api.addWatchlist(42, '');
 		expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
-			product_id: 42,
+			game_id: 42,
 			target_price: null
 		});
+	});
+
+	it('getGame reads the game payload', async () => {
+		mockJson({ game: { id: 3 } });
+		await api.getGame(3);
+		expect(fetch).toHaveBeenCalledWith('/api/games/3', expect.any(Object));
+	});
+
+	it('mergeCandidates encodes the manual search query', async () => {
+		mockJson({ items: [] });
+		await api.mergeCandidates(5, 'cat in the box');
+		expect(fetch.mock.calls[0][0]).toBe(
+			'/api/products/5/merge-candidates?q=cat%20in%20the%20box&limit=12'
+		);
 	});
 
 	it('throws with status + body on non-ok response', async () => {

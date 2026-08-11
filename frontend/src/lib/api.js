@@ -11,6 +11,9 @@ async function req(path, options = {}) {
 
 // Stores
 export const getStores = () => req('/stores/');
+export const getStoreTypes = () => req('/stores/types');
+export const detectStore = (baseUrl) =>
+	req('/stores/detect', { method: 'POST', body: JSON.stringify({ base_url: baseUrl }) });
 export const addStore = (body) => req('/stores/', { method: 'POST', body: JSON.stringify(body) });
 export const patchStore = (id, body) =>
 	req(`/stores/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -38,16 +41,16 @@ export const priceHistory = (productId) => req(`/prices/product/${productId}`);
 
 // Watchlist
 export const getWatchlist = () => req('/watchlist/');
-export const addWatchlist = (productId, targetPrice) =>
+export const addWatchlist = (gameId, targetPrice) =>
 	req('/watchlist/', {
 		method: 'POST',
-		body: JSON.stringify({ product_id: productId, target_price: targetPrice || null })
+		body: JSON.stringify({ game_id: gameId, target_price: targetPrice || null })
 	});
 export const removeWatchlist = (id) => req(`/watchlist/${id}`, { method: 'DELETE' });
-export const updateWatchlist = (id, productId, targetPrice) =>
+export const updateWatchlist = (id, targetPrice) =>
 	req(`/watchlist/${id}`, {
 		method: 'PATCH',
-		body: JSON.stringify({ product_id: productId, target_price: targetPrice || null })
+		body: JSON.stringify({ target_price: targetPrice || null })
 	});
 export const patchWatchlistItem = (id, body) =>
 	req(`/watchlist/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -94,7 +97,7 @@ export const setOverride = (productId, body) =>
 export const clearOverride = (productId) =>
 	req(`/products/${productId}/override`, { method: 'DELETE' });
 
-// Hide / unhide
+// Hide / unhide — hiding is a decision about the game, applied via a listing
 export const getHidden = (page = 1, limit = 48) =>
 	req(`/products/hidden?page=${page}&limit=${limit}`);
 export const hideProduct = (productId) => req(`/products/${productId}/hide`, { method: 'PUT' });
@@ -104,6 +107,33 @@ export const unhideProduct = (productId) =>
 // On-demand image fetch (when a product has no stored image yet)
 export const fetchProductImage = (productId) =>
 	req(`/products/${productId}/image`, { method: 'POST' });
+
+// Games (a game = one or more shop listings) and merging
+export const getGame = (gameId) => req(`/games/${gameId}`);
+export const patchGame = (gameId, body) =>
+	req(`/games/${gameId}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const gameForListing = (productId) => req(`/games/for-listing/${productId}`);
+export const listingDetail = (gameId, productId) => req(`/games/${gameId}/listing/${productId}`);
+export const mergeSuggestions = (productId, limit = 6) =>
+	req(`/products/${productId}/merge-suggestions?limit=${limit}`);
+export const mergeCandidates = (productId, q, limit = 12) =>
+	req(`/products/${productId}/merge-candidates?q=${encodeURIComponent(q)}&limit=${limit}`);
+export const mergeProducts = (productId, otherProductId) =>
+	req(`/products/${productId}/merge`, {
+		method: 'POST',
+		body: JSON.stringify({ other_product_id: otherProductId })
+	});
+export const rejectMerge = (productId, otherProductId) =>
+	req(`/products/${productId}/reject-merge`, {
+		method: 'POST',
+		body: JSON.stringify({ other_product_id: otherProductId })
+	});
+export const unmergeProduct = (productId) =>
+	req(`/products/${productId}/group`, { method: 'DELETE' });
+export const getGroup = (groupId) => req(`/groups/${groupId}`);
+export const patchGroup = (groupId, body) =>
+	req(`/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const mergeQueue = (limit = 20) => req(`/games/suggestions?limit=${limit}`);
 
 // App logs
 export const getAppLogs = (level, limit = 200) => req(`/logs/?level=${level ?? ''}&limit=${limit}`);

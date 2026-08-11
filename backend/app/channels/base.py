@@ -11,7 +11,8 @@ class NotificationChannel(Protocol):
         title: str,
         message: str,
         product_id: int | None,
-        url: str | None,
-        tags: list[str],
+        game_id: int | None = None,
+        url: str | None = None,
+        tags: list[str] | None = None,
         recorded_at: datetime | None = None,
     ) -> None: ...

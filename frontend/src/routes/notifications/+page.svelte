@@ -159,7 +159,9 @@
 			unread = Math.max(0, unread - 1);
 			notifStore.unread = Math.max(0, notifStore.unread - 1);
 		}
-		if (item.product_id) {
+		if (item.game_id) {
+			goto(`/games/${item.game_id}`);
+		} else if (item.product_id) {
 			goto(`/prices/${item.product_id}`);
 		}
 	}

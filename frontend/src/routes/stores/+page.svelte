@@ -8,8 +8,11 @@
 		syncStore,
 		syncAllStores,
 		getStoreLogs,
-		searchProducts
+		searchProducts,
+		getStoreTypes,
+		detectStore
 	} from '$lib/api.js';
+	import { Check, Search, TriangleAlert } from '@lucide/svelte';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
@@ -28,7 +31,16 @@
 	let logsData = $state({});
 	let logsLoading = $state({});
 
-	// add store form
+	// add store form — URL first, everything else derived from what we detect
+	const PLATFORM_LABELS = { shopify: 'Shopify', woocommerce: 'WooCommerce' };
+	let storeTypes = $state([
+		{ type: 'shopify', default_collection_path: '/collections/board-games' }
+	]);
+	let urlInput = $state('');
+	let urlError = $state('');
+	let detecting = $state(false);
+	let detected = $state(null);
+	let adding = $state(false);
 	let newStore = $state({
 		id: '',
 		name: '',
@@ -36,6 +48,58 @@
 		base_url: '',
 		collection_path: '/collections/board-games'
 	});
+
+	function defaultPathFor(type) {
+		return storeTypes.find((t) => t.type === type)?.default_collection_path ?? '/';
+	}
+
+	function normalizeUrl(raw) {
+		const trimmed = raw.trim();
+		if (!trimmed) return null;
+		const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+		try {
+			return new URL(withScheme);
+		} catch {
+			return null;
+		}
+	}
+
+	async function runDetect() {
+		const url = normalizeUrl(urlInput);
+		if (!url || !url.hostname.includes('.')) {
+			urlError = 'Enter a full shop URL, e.g. https://example-shop.com';
+			return;
+		}
+		urlError = '';
+		addError = '';
+		detecting = true;
+		try {
+			const result = await detectStore(url.origin);
+			detected = result;
+			// A pasted category URL already says which listings to sync.
+			const pastedPath = url.pathname.length > 1 ? url.pathname : '';
+			newStore = {
+				id: '',
+				name: '',
+				type: result.type ?? newStore.type,
+				base_url: url.origin,
+				collection_path:
+					pastedPath || result.collection_path || defaultPathFor(result.type ?? newStore.type)
+			};
+		} catch (e) {
+			urlError = e.message;
+			detected = null;
+		} finally {
+			detecting = false;
+		}
+	}
+
+	function resetAdd() {
+		detected = null;
+		urlInput = '';
+		urlError = '';
+		addError = '';
+	}
 
 	// scrape config editing — keyed by store id
 	let editingConfig = $state({}); // store_id → { timeout_sec, request_delay_sec, sync_interval_hours }
@@ -54,6 +118,11 @@
 	async function load() {
 		stores = await getStores();
 		loading = false;
+		try {
+			storeTypes = await getStoreTypes();
+		} catch {
+			// Keep the built-in default list; the form still works.
+		}
 	}
 
 	function parseCfg(store) {
@@ -114,18 +183,26 @@
 
 	async function submitAdd() {
 		addError = '';
+		const path = newStore.collection_path.trim();
+		if (path && !path.startsWith('/')) {
+			addError = 'Category path must start with /';
+			return;
+		}
+		adding = true;
 		try {
-			await addStore(newStore);
-			newStore = {
-				id: '',
-				name: '',
-				type: 'shopify',
-				base_url: '',
-				collection_path: '/collections/board-games'
-			};
+			// Blank name/id are filled in from the URL server-side.
+			await addStore({
+				...newStore,
+				id: newStore.id.trim(),
+				name: newStore.name.trim(),
+				collection_path: path || '/'
+			});
+			resetAdd();
 			await load();
 		} catch (e) {
 			addError = e.message;
+		} finally {
+			adding = false;
 		}
 	}
 
@@ -476,21 +553,144 @@
 
 	<!-- Add store -->
 	<Card.Root>
-		<Card.Header><Card.Title>Add store</Card.Title></Card.Header>
-		<Card.Content class="space-y-3">
-			<div class="grid grid-cols-2 gap-3">
-				<Input bind:value={newStore.id} placeholder="ID (e.g. my-store)" />
-				<Input bind:value={newStore.name} placeholder="Display name" />
-				<Input bind:value={newStore.base_url} placeholder="https://store.com" />
-				<Input bind:value={newStore.collection_path} placeholder="/collections/board-games" />
+		<Card.Header class="pb-3">
+			<Card.Title>Add store</Card.Title>
+			<Card.Description>
+				Paste the shop URL — or a category page URL — and the platform is detected for you.
+			</Card.Description>
+		</Card.Header>
+		<Card.Content class="space-y-4">
+			<div class="space-y-1.5">
+				<label for="add-url" class="text-xs font-medium text-muted-foreground">Shop URL</label>
+				<div class="flex gap-2">
+					<Input
+						id="add-url"
+						bind:value={urlInput}
+						placeholder="https://example-shop.com/product-category/board-games/"
+						oninput={() => {
+							detected = null;
+							addError = '';
+						}}
+						onkeydown={(e) => e.key === 'Enter' && runDetect()}
+						aria-invalid={!!urlError}
+					/>
+					<Button variant="outline" onclick={runDetect} disabled={detecting || !urlInput.trim()}>
+						<Search class="size-4 {detecting ? 'animate-pulse' : ''}" />
+						{detecting ? 'Checking…' : 'Check'}
+					</Button>
+				</div>
+				{#if urlError}
+					<p class="flex items-center gap-1 text-xs text-destructive">
+						<TriangleAlert class="size-3.5" />
+						{urlError}
+					</p>
+				{/if}
 			</div>
-			<div class="flex items-center gap-2">
-				<select bind:value={newStore.type} class="rounded border bg-background px-3 py-2 text-sm">
-					<option value="shopify">Shopify</option>
-				</select>
-				<Button onclick={submitAdd}>Add store</Button>
-			</div>
-			{#if addError}<p class="text-sm text-destructive">{addError}</p>{/if}
+
+			{#if detected}
+				<div
+					class="space-y-2 rounded-lg border p-3 {detected.type
+						? 'border-green-500/30 bg-green-500/5'
+						: 'border-amber-500/30 bg-amber-500/5'}"
+				>
+					{#if detected.type}
+						<p
+							class="flex items-center gap-1.5 text-sm font-medium text-green-600 dark:text-green-400"
+						>
+							<Check class="size-4" />
+							{PLATFORM_LABELS[detected.type] ?? detected.type} detected
+						</p>
+						{#if detected.sample_titles?.length}
+							<ul class="space-y-0.5 text-xs text-muted-foreground">
+								{#each detected.sample_titles.slice(0, 3) as t}
+									<li class="truncate">· {t}</li>
+								{/each}
+							</ul>
+						{/if}
+					{:else}
+						<p class="flex items-center gap-1.5 text-sm font-medium text-amber-600">
+							<TriangleAlert class="size-4" /> Couldn't detect the platform
+						</p>
+						<p class="text-xs text-muted-foreground">{detected.detail}</p>
+						<p class="text-xs text-muted-foreground">
+							Pick a platform below and try a sync — it may just be blocking automated checks.
+						</p>
+					{/if}
+					{#if detected.id_taken}
+						<p class="flex items-center gap-1.5 text-xs text-amber-600">
+							<TriangleAlert class="size-3.5" /> A store with id
+							<code class="rounded bg-muted px-1">{detected.id}</code> already exists — change the id
+							below.
+						</p>
+					{/if}
+				</div>
+
+				<div class="grid gap-3 sm:grid-cols-2">
+					<div class="space-y-1.5">
+						<label for="add-name" class="text-xs font-medium text-muted-foreground">
+							Display name
+						</label>
+						<Input
+							id="add-name"
+							bind:value={newStore.name}
+							placeholder={detected.name || 'Shop name'}
+						/>
+						<p class="text-[0.7rem] text-muted-foreground">
+							Blank uses <span class="font-medium">{detected.name}</span>.
+						</p>
+					</div>
+					<div class="space-y-1.5">
+						<label for="add-id" class="text-xs font-medium text-muted-foreground">Store id</label>
+						<Input id="add-id" bind:value={newStore.id} placeholder={detected.id || 'my-shop'} />
+						<p class="text-[0.7rem] text-muted-foreground">
+							Lowercase letters, numbers, dashes. Can't be changed later.
+						</p>
+					</div>
+					<div class="space-y-1.5">
+						<label for="add-type" class="text-xs font-medium text-muted-foreground">Platform</label>
+						<select
+							id="add-type"
+							bind:value={newStore.type}
+							onchange={() => (newStore.collection_path = defaultPathFor(newStore.type))}
+							class="h-9 w-full rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
+						>
+							{#each storeTypes as t}
+								<option value={t.type}>{PLATFORM_LABELS[t.type] ?? t.type}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="space-y-1.5">
+						<label for="add-path" class="text-xs font-medium text-muted-foreground">
+							Category path
+						</label>
+						<Input
+							id="add-path"
+							bind:value={newStore.collection_path}
+							placeholder={defaultPathFor(newStore.type)}
+						/>
+						<p class="text-[0.7rem] text-muted-foreground">
+							Leave <code class="rounded bg-muted px-1">/</code> to sync the whole catalog.
+						</p>
+					</div>
+				</div>
+
+				<div class="flex flex-wrap items-center gap-2 border-t pt-3">
+					<Button onclick={submitAdd} disabled={adding}>
+						{adding ? 'Adding…' : 'Add store'}
+					</Button>
+					<Button variant="ghost" onclick={resetAdd} disabled={adding}>Cancel</Button>
+					<span class="text-xs text-muted-foreground">
+						Nothing is fetched until you run a sync.
+					</span>
+				</div>
+			{/if}
+
+			{#if addError}
+				<p class="flex items-center gap-1 text-sm text-destructive">
+					<TriangleAlert class="size-4" />
+					{addError}
+				</p>
+			{/if}
 		</Card.Content>
 	</Card.Root>
 
@@ -521,7 +721,7 @@
 								<a href={p.url} target="_blank" class="font-medium hover:underline">{p.title}</a>
 							</div>
 							<div class="flex items-center gap-3">
-								<Button size="sm" variant="outline" href="/prices/{p.id}">History</Button>
+								<Button size="sm" variant="outline" href="/games/{p.game_id}">History</Button>
 								<Button
 									size="sm"
 									variant={watchStore.has(p.id) ? 'secondary' : 'default'}

@@ -134,17 +134,16 @@ def build_field_registry(
     watchlist_subq: Any | None = None,
 ) -> dict[str, FieldDef]:
     """Build the full field registry for a single query execution."""
-    from .models import PriceSnapshot, Product
+    from .models import Game, PriceSnapshot, Product
 
     reg: dict[str, FieldDef] = {}
 
-    # Auto: Product fields
-    reg.update(
-        auto_register_model(
-            Product,
-            skip={"id"},  # PK not useful to filter by name
-        )
-    )
+    # Auto: listing fields. `title` is skipped so the game's name wins below —
+    # filtering on one shop's marketing title is never what's wanted.
+    reg.update(auto_register_model(Product, skip={"id", "title"}))
+
+    # Auto: game fields (title, bgg_id, hidden, note)
+    reg.update(auto_register_model(Game, skip={"id", "created_at"}))
 
     # Auto: PriceSnapshot (latest) fields
     reg.update(
@@ -265,10 +264,10 @@ def build_field_registry(
             label="Back in Stock",
         )
 
-    # is_watched: true if product is in watchlist
+    # is_watched: true if the listing's game is watched
     if watchlist_subq is not None:
         is_watched = case(
-            (watchlist_subq.c.product_id.is_not(None), True),
+            (watchlist_subq.c.game_id.is_not(None), True),
             else_=False,
         )
         reg["is_watched"] = FieldDef(

@@ -2,20 +2,19 @@ import { getHidden, hideProduct, unhideProduct } from './api.js';
 import { toast } from './toast.svelte.js';
 
 /**
- * App-wide "hidden games" state. A game the user hides should vanish from every
- * view (browse, drops, new, search, home) and only resurface on the Hidden page,
- * where it can be unhidden. Backend already excludes hidden games from feeds; this
- * store lets already-rendered cards disappear immediately without a refetch.
+ * App-wide "hidden games" state, keyed on the game — hiding covers every shop
+ * that sells it. The backend already excludes hidden games from feeds; this
+ * store lets rendered cards disappear immediately without a refetch.
  */
 class HiddenState {
 	ready = $state(false);
-	/** product ids the user has hidden @type {Set<number>} */
+	/** game ids the user has hidden @type {Set<number>} */
 	ids = $state(new Set());
 
 	async load() {
 		try {
 			const res = await getHidden(1, 500);
-			this.ids = new Set(res.items.map((c) => c.product.id));
+			this.ids = new Set(res.items.map((c) => c.game.id));
 		} catch {
 			// Non-fatal: nothing gets hidden client-side until next load.
 		} finally {
@@ -23,32 +22,35 @@ class HiddenState {
 		}
 	}
 
-	/** @param {number} productId */
-	has(productId) {
-		return this.ids.has(productId);
+	/** @param {number|null|undefined} gameId */
+	has(gameId) {
+		return gameId != null && this.ids.has(gameId);
 	}
 
-	/** @param {any} item a product card ({ product, override, ... }) */
+	/** @param {any} item a card ({ product, game, ... }) */
 	async hide(item) {
-		const pid = item.product.id;
-		const title = item.override?.title || item.product.title;
+		const gameId = item.game?.id ?? item.product?.game_id;
+		if (gameId == null) return;
 		const next = new Set(this.ids);
 		try {
-			await hideProduct(pid);
-			next.add(pid);
+			// Hiding goes through a listing; the backend applies it to the game.
+			await hideProduct(item.product.id);
+			next.add(gameId);
 			this.ids = next;
-			toast.success(`Hidden ${title}`);
+			toast.success(`Hidden ${item.game?.title || item.product.title}`);
 		} catch (e) {
 			toast.error(e.message);
 		}
 	}
 
-	/** @param {number} productId */
-	async unhide(productId) {
+	/** @param {any} item a card, or a listing id for the hidden page */
+	async unhide(item) {
+		const productId = typeof item === 'number' ? item : item.product.id;
+		const gameId = typeof item === 'number' ? null : (item.game?.id ?? null);
 		const next = new Set(this.ids);
 		try {
-			await unhideProduct(productId);
-			next.delete(productId);
+			const res = await unhideProduct(productId);
+			next.delete(gameId ?? res.game_id);
 			this.ids = next;
 			toast.success('Unhidden');
 		} catch (e) {

@@ -1,18 +1,8 @@
 import asyncio
-import json
 
 import httpx
 
-from .base import StoreAdapter
-
-_DEFAULTS = {"timeout_sec": 30, "request_delay_sec": 1, "sync_interval_hours": 6}
-
-
-def _cfg(store, key):
-    try:
-        return json.loads(store.scrape_config).get(key, _DEFAULTS[key])
-    except Exception:
-        return _DEFAULTS[key]
+from .base import StoreAdapter, store_cfg
 
 
 class ShopifyAdapter(StoreAdapter):
@@ -21,8 +11,8 @@ class ShopifyAdapter(StoreAdapter):
         page = 1
         base = self.store.base_url.rstrip("/")
         collection = self.store.collection_path.rstrip("/")
-        timeout = _cfg(self.store, "timeout_sec")
-        delay = _cfg(self.store, "request_delay_sec")
+        timeout = store_cfg(self.store, "timeout_sec")
+        delay = store_cfg(self.store, "request_delay_sec")
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             while True:
@@ -75,7 +65,7 @@ class ShopifyAdapter(StoreAdapter):
         if not product.handle:
             return None
         base = self.store.base_url.rstrip("/")
-        timeout = _cfg(self.store, "timeout_sec")
+        timeout = store_cfg(self.store, "timeout_sec")
         url = f"{base}/products/{product.handle}.json"
         headers = {"User-Agent": "board-game-tracker/1.0"}
         async with httpx.AsyncClient(timeout=timeout) as client:

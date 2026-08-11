@@ -6,8 +6,17 @@ from sqlmodel import Session, desc, select
 
 from . import db as _db
 from .adapters.shopify import ShopifyAdapter
+from .adapters.woocommerce import WooCommerceAdapter
 from .logger import get_logger
-from .models import PriceSnapshot, Product, Store, SyncLog, WatchlistItem
+from .models import (
+    Game,
+    PriceSnapshot,
+    Product,
+    Store,
+    SyncLog,
+    WatchListingState,
+    WatchlistItem,
+)
 from .notifier import (
     notify_back_in_stock,
     notify_out_of_stock,
@@ -19,10 +28,17 @@ from .notifier import (
 log = get_logger(__name__)
 
 
+ADAPTERS = {
+    "shopify": ShopifyAdapter,
+    "woocommerce": WooCommerceAdapter,
+}
+
+
 def get_adapter(store: Store):
-    if store.type == "shopify":
-        return ShopifyAdapter(store)
-    raise ValueError(f"Unknown store type: {store.type}")
+    adapter = ADAPTERS.get(store.type)
+    if adapter is None:
+        raise ValueError(f"Unknown store type: {store.type}")
+    return adapter(store)
 
 
 # A queued notification: (function, args, kwargs), dispatched after commit.
@@ -38,6 +54,12 @@ def dispatch_pending(pending: list[PendingNotification]) -> None:
     pending.clear()
 
 
+def _remember(session: Session, state: WatchListingState, price: float | None) -> None:
+    state.last_notified_price = price
+    state.updated_at = datetime.utcnow()
+    session.add(state)
+
+
 def _check_watchlist(
     session: Session,
     product: Product,
@@ -46,6 +68,10 @@ def _check_watchlist(
     pending: list[PendingNotification] | None = None,
 ):
     """Queue notifications for a price change onto `pending`.
+
+    The watch belongs to the game, but alerts are per listing — every shop's
+    move is reported, so `WatchListingState` remembers what each shop was last
+    announced at.
 
     With no `pending` list the notifications fire immediately — only safe when
     the caller holds no open write transaction.
@@ -59,11 +85,17 @@ def _check_watchlist(
 
     item = session.exec(
         select(WatchlistItem).where(
-            WatchlistItem.product_id == product.id, WatchlistItem.active
+            WatchlistItem.game_id == product.game_id, WatchlistItem.active
         )
     ).first()
     if not item:
         return
+
+    game = session.get(Game, product.game_id)
+    title = game.title if game else product.title
+    state = session.get(WatchListingState, (item.id, product.id))
+    if state is None:
+        state = WatchListingState(watch_id=item.id, product_id=product.id)
 
     ts = new_snap.recorded_at
 
@@ -72,84 +104,83 @@ def _check_watchlist(
         if item.notify_back_in_stock:
             emit(
                 notify_back_in_stock,
-                product.title,
+                title,
                 new_snap.price,
                 product.url,
                 product.store_id,
                 product_id=product.id,
+                game_id=product.game_id,
                 recorded_at=ts,
             )
-            item.last_notified_price = new_snap.price
-            session.add(item)
+            _remember(session, state, new_snap.price)
         return
 
     if not new_snap.available:
         if old_snap and old_snap.available and item.notify_out_of_stock:
             emit(
                 notify_out_of_stock,
-                product.title,
+                title,
                 old_snap.price,
                 product.url,
                 product.store_id,
                 product_id=product.id,
+                game_id=product.game_id,
                 recorded_at=ts,
             )
-            session.add(item)
+            _remember(session, state, None)
         return
 
     old_price = old_snap.price if old_snap else None
     if old_price is None:
         return
 
+    already_told = state.last_notified_price == new_snap.price
+
     if item.target_price is not None:
         if (
             new_snap.price <= item.target_price
-            and item.last_notified_price != new_snap.price
+            and not already_told
             and item.notify_target_reached
         ):
             emit(
                 notify_target_reached,
-                product.title,
+                title,
                 item.target_price,
                 new_snap.price,
                 product.url,
                 product.store_id,
                 product_id=product.id,
+                game_id=product.game_id,
                 recorded_at=ts,
             )
-            item.last_notified_price = new_snap.price
-            session.add(item)
+            _remember(session, state, new_snap.price)
     elif new_snap.price < old_price:
-        if item.notify_price_drop and item.last_notified_price != new_snap.price:
+        if item.notify_price_drop and not already_told:
             emit(
                 notify_price_drop,
-                product.title,
+                title,
                 old_price,
                 new_snap.price,
                 product.url,
                 product.store_id,
                 product_id=product.id,
+                game_id=product.game_id,
                 recorded_at=ts,
             )
-            item.last_notified_price = new_snap.price
-            session.add(item)
-    elif (
-        new_snap.price > old_price
-        and item.notify_price_increase
-        and item.last_notified_price != new_snap.price
-    ):
+            _remember(session, state, new_snap.price)
+    elif new_snap.price > old_price and item.notify_price_increase and not already_told:
         emit(
             notify_price_increase,
-            product.title,
+            title,
             old_price,
             new_snap.price,
             product.url,
             product.store_id,
             product_id=product.id,
+            game_id=product.game_id,
             recorded_at=ts,
         )
-        item.last_notified_price = new_snap.price
-        session.add(item)
+        _remember(session, state, new_snap.price)
 
 
 def _write_sync_result(
@@ -221,8 +252,12 @@ async def sync_store(store: Store) -> dict:
                     product = existing
                     updated_products += 1
                 else:
+                    game = Game(title=p["title"])
+                    session.add(game)
+                    session.flush()
                     product = Product(
                         store_id=store.id,
+                        game_id=game.id,
                         external_id=p["external_id"],
                         title=p["title"],
                         handle=p.get("handle"),

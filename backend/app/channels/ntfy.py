@@ -28,8 +28,9 @@ class NtfyChannel:
         title: str,
         message: str,
         product_id: int | None,
-        url: str | None,
-        tags: list[str],
+        game_id: int | None = None,
+        url: str | None = None,
+        tags: list[str] | None = None,
         recorded_at: datetime | None = None,
     ) -> None:
         priority = (
@@ -38,6 +39,7 @@ class NtfyChannel:
             else MessagePriority.DEFAULT
         )
         actions = [ViewAction(label="View on store", url=url)] if url else None
+        tags = tags or []
         self._client().send(
             title=_latin1_safe(title),
             message=message,

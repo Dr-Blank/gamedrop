@@ -3,8 +3,10 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import Product, Store
+from app.models import Game, Store
 from app.text_search import FUZZY_CUTOFF, normalize, rank_titles, score_title
+
+from .factories import make_product
 
 TITLES = [
     "Catan",
@@ -23,14 +25,11 @@ def _seed(session: Session, titles=TITLES, hidden: set[str] | None = None):
     )
     session.commit()
     for i, title in enumerate(titles):
-        session.add(
-            Product(
-                store_id="s1",
-                external_id=f"e{i}",
-                title=title,
-                hidden=title in (hidden or set()),
-            )
-        )
+        product = make_product(session, external_id=f"e{i}", title=title)
+        if title in (hidden or set()):
+            game = session.get(Game, product.game_id)
+            game.hidden = True
+            session.add(game)
     session.commit()
 
 

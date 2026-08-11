@@ -5,7 +5,9 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Product, Store, WatchlistItem
+from app.models import PriceSnapshot, Store, WatchlistItem
+
+from .factories import make_product
 
 
 def _seed(session: Session):
@@ -15,9 +17,9 @@ def _seed(session: Session):
     session.commit()
 
     products = [
-        Product(store_id="s1", external_id="e1", title="Catan"),
-        Product(store_id="s1", external_id="e2", title="Pandemic"),
-        Product(store_id="s1", external_id="e3", title="Azul"),
+        make_product(session, external_id="e1", title="Catan"),
+        make_product(session, external_id="e2", title="Pandemic"),
+        make_product(session, external_id="e3", title="Azul"),
     ]
     for p in products:
         session.add(p)
@@ -108,7 +110,7 @@ def test_search_blank_returns_empty(client: TestClient, session: Session):
 
 def test_home_has_all_shelves(client: TestClient, session: Session):
     products = _seed(session)
-    session.add(WatchlistItem(product_id=products[0].id))
+    session.add(WatchlistItem(game_id=products[0].game_id))
     session.commit()
 
     data = client.get("/api/home").json()

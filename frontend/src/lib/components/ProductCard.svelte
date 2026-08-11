@@ -10,6 +10,7 @@
 	import Sparkline from './Sparkline.svelte';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
+	import { gamePricing, inr } from '$lib/gamePricing.js';
 	import {
 		Heart,
 		Pencil,
@@ -19,7 +20,9 @@
 		TrendingDown,
 		TrendingUp,
 		EyeOff,
-		RotateCcw
+		RotateCcw,
+		Store,
+		XCircle
 	} from '@lucide/svelte';
 
 	let {
@@ -32,26 +35,42 @@
 		ontarget = /** @type {(()=>void)|null} */ (null)
 	} = $props();
 
-	const watched = $derived(watchlist.has(item.product.id));
-	const isHidden = $derived(hidden.has(item.product.id));
+	const gameId = $derived(item.game?.id ?? item.product.game_id);
+	const watched = $derived(watchlist.has(gameId));
+	const isHidden = $derived(hidden.has(gameId));
 
-	const title = $derived(item.override?.title || item.product.title);
-	const price = $derived(
+	// The name is the game's; the shop's own title stays on the listing.
+	const title = $derived(item.game?.title || item.product.title);
+	const ownPrice = $derived(
 		item.override?.override_price != null
 			? item.override.override_price
 			: (item.latest_price?.price ?? null)
 	);
-	const available = $derived(
+	const ownAvailable = $derived(
 		item.override?.override_available != null
 			? item.override.override_available
 			: (item.latest_price?.available ?? false)
 	);
+
+	// A game sold by several shops quotes the cheapest price that can actually
+	// be bought, with a cheaper out-of-stock offer flagged below it.
+	const pricing = $derived(gamePricing(item.compare));
+	const price = $derived(pricing ? pricing.primary.price : ownPrice);
+	const available = $derived(pricing ? pricing.primary.available : ownAvailable);
+	const compareAt = $derived(
+		pricing ? pricing.primary.compare_at_price : item.latest_price?.compare_at_price
+	);
 	const imgSrc = $derived(item.bgg?.thumbnail || item.product.image_url || '');
-	const href = $derived(`/prices/${item.product.id}`);
+	// The game is the destination; the shop is a facet of it.
+	const href = $derived(`/games/${gameId}?store=${encodeURIComponent(item.product.store_id)}`);
+	const storeUrl = $derived(pricing?.primary.url || item.override?.url || item.product.url || '');
+
+	// Hover trend follows whichever offer the card is quoting.
+	const trendHistory = $derived(pricing ? (pricing.primary.price_history ?? []) : (history ?? []));
 
 	// price-range glance from history
 	const range = $derived.by(() => {
-		const ps = (history ?? []).map((h) => h.price).filter((n) => typeof n === 'number');
+		const ps = (trendHistory ?? []).map((h) => h.price).filter((n) => typeof n === 'number');
 		if (ps.length < 2) return null;
 		const min = Math.min(...ps);
 		const max = Math.max(...ps);
@@ -95,10 +114,7 @@
 			class="group relative flex cursor-pointer flex-col overflow-hidden p-0 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg hover:shadow-black/5"
 		>
 			<!-- Image -->
-			<div
-				class="relative aspect-[4/3] w-full"
-				style="view-transition-name: product-{item.product.id}"
-			>
+			<div class="relative aspect-[4/3] w-full" style="view-transition-name: game-{gameId}">
 				<ProductImage src={imgSrc} productId={item.product.id} alt={title} class="h-full w-full" />
 
 				<!-- permanent bottom fade: masks hard image edge, reveals more on hover -->
@@ -108,6 +124,16 @@
 
 				<!-- top-left flags -->
 				<div class="absolute top-2 left-2 flex flex-col gap-1">
+					{#if pricing}
+						<Badge
+							variant="outline"
+							class="gap-1 bg-background/80 text-[0.7rem] backdrop-blur"
+							title="Compared across {pricing.listingCount} listings"
+						>
+							<Store class="size-3" />
+							{pricing.storeCount} stores
+						</Badge>
+					{/if}
 					{#if range?.atLow}
 						<Badge
 							class="gap-1 border-green-500/30 bg-green-500/90 text-[0.7rem] text-white shadow-sm"
@@ -157,7 +183,7 @@
 					<div
 						class="pointer-events-none absolute inset-x-0 bottom-0 translate-y-1 bg-gradient-to-t from-background via-background/90 to-transparent px-3 pt-6 pb-2 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100"
 					>
-						<Sparkline {history} width={200} height={34} class="w-full" />
+						<Sparkline history={trendHistory} width={200} height={34} class="w-full" />
 						<div
 							class="mt-0.5 flex items-center justify-between text-[0.7rem] text-muted-foreground"
 						>
@@ -185,12 +211,24 @@
 				<h3 class="line-clamp-2 text-sm leading-tight font-semibold" {title}>{title}</h3>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<PriceTag
-						{price}
-						compareAt={item.latest_price?.compare_at_price}
-						discountPct={item.discount_pct}
-					/>
+					<PriceTag {price} {compareAt} discountPct={pricing ? null : item.discount_pct} />
+					{#if pricing}
+						<span class="text-[0.7rem] text-muted-foreground">
+							at {pricing.primary.store_id}
+						</span>
+					{/if}
 				</div>
+
+				{#if pricing?.blocked}
+					<p
+						class="flex items-center gap-1 text-[0.7rem] text-muted-foreground"
+						title="Cheaper elsewhere but out of stock"
+					>
+						<XCircle class="size-3 text-rose-500" />
+						<span class="line-through">{inr(pricing.blocked.price)}</span>
+						at {pricing.blocked.store_id} — out of stock
+					</p>
+				{/if}
 
 				<div class="flex items-center gap-2">
 					<StockBadge {available} size="sm" />
@@ -215,7 +253,7 @@
 							size="sm"
 							variant="outline"
 							class="flex-1"
-							onclick={(e) => act(e, () => hidden.unhide(item.product.id))}
+							onclick={(e) => act(e, () => hidden.unhide(item))}
 						>
 							<RotateCcw class="size-3.5" /> Unhide
 						</Button>
@@ -230,16 +268,17 @@
 								<Pencil class="size-3.5" />
 							</Button>
 						{/if}
-						{#if item.product.url || item.override?.url}
+						{#if storeUrl}
 							<Button
 								size="sm"
 								variant="outline"
-								href={item.override?.url || item.product.url}
+								href={storeUrl}
 								target="_blank"
 								class="flex-1"
 								onclick={(e) => e.stopPropagation()}
 							>
-								<ExternalLink class="size-3.5" /> Store
+								<ExternalLink class="size-3.5" />
+								{pricing ? 'Best store' : 'Store'}
 							</Button>
 						{/if}
 					{:else}

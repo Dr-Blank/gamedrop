@@ -17,6 +17,8 @@ from app.models import (
     WatchlistItem,
 )
 
+from .factories import make_product
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -30,13 +32,7 @@ def store(session: Session) -> Store:
 
 @pytest.fixture()
 def product(session: Session, store: Store) -> Product:
-    p = Product(
-        store_id="s1", external_id="e1", title="Catan", url="https://s1.com/catan"
-    )
-    session.add(p)
-    session.commit()
-    session.refresh(p)
-    return p
+    return make_product(session, url="https://s1.com/catan")
 
 
 # ── Protocol conformance ──────────────────────────────────────────────────────
@@ -199,7 +195,7 @@ def test_mark_all_read(client: TestClient, session: Session, product: Product):
 def test_backfill_inserts_price_drop(
     client: TestClient, session: Session, product: Product
 ):
-    item = WatchlistItem(product_id=product.id, active=True)
+    item = WatchlistItem(game_id=product.game_id, active=True)
     session.add(item)
     t0 = datetime.utcnow() - timedelta(days=2)
     t1 = datetime.utcnow() - timedelta(days=1)
@@ -218,7 +214,7 @@ def test_backfill_inserts_price_drop(
 
 
 def test_backfill_is_idempotent(client: TestClient, session: Session, product: Product):
-    item = WatchlistItem(product_id=product.id, active=True)
+    item = WatchlistItem(game_id=product.game_id, active=True)
     session.add(item)
     t0 = datetime.utcnow() - timedelta(days=2)
     t1 = datetime.utcnow() - timedelta(days=1)
@@ -234,7 +230,7 @@ def test_backfill_is_idempotent(client: TestClient, session: Session, product: P
 
 
 def test_backfill_skips_ntfy(client: TestClient, session: Session, product: Product):
-    item = WatchlistItem(product_id=product.id, active=True)
+    item = WatchlistItem(game_id=product.game_id, active=True)
     session.add(item)
     t0 = datetime.utcnow() - timedelta(days=2)
     t1 = datetime.utcnow() - timedelta(days=1)

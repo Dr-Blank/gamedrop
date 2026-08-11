@@ -32,12 +32,14 @@ from app.filter_engine import (
     build_field_registry,
     describe_fields,
 )
-from app.models import BggCache, PriceSnapshot, Product, Store, WatchlistItem
+from app.models import BggCache, Game, PriceSnapshot, Product, Store, WatchlistItem
 from app.repositories.catalog import (
     count_products,
     get_field_registry,
     query_products,
 )
+
+from .factories import make_product
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -61,17 +63,19 @@ def _product(
     updated_at: datetime | None = None,
     hidden: bool = False,
 ) -> Product:
-    p = Product(
+    p = make_product(
+        session,
         store_id=sid,
         external_id=title,
         title=title,
         bgg_id=bgg_id,
-        hidden=hidden,
         updated_at=updated_at or datetime.utcnow(),
     )
-    session.add(p)
-    session.commit()
-    session.refresh(p)
+    if hidden:
+        game = session.get(Game, p.game_id)
+        game.hidden = True
+        session.add(game)
+        session.commit()
     session.add(
         PriceSnapshot(
             product_id=p.id,
@@ -137,13 +141,18 @@ def test_infer_type_bool_not_int():
 
 def test_auto_register_product_fields():
     fields = auto_register_model(Product)
-    assert "title" in fields
     assert "store_id" in fields
-    assert "hidden" in fields
+    assert "game_id" in fields
     assert "updated_at" in fields
+    assert fields["updated_at"].type == "datetime"
+
+
+def test_auto_register_game_fields():
+    """Name, BGG link and hidden are the game's, so they register from Game."""
+    fields = auto_register_model(Game)
     assert fields["title"].type == "str"
     assert fields["hidden"].type == "bool"
-    assert fields["updated_at"].type == "datetime"
+    assert fields["bgg_id"].type == "int"
 
 
 def test_auto_register_pricesnap_fields():
@@ -212,7 +221,7 @@ def test_describe_fields_shape():
 def _exec(session: Session, filter_node, **kwargs):
     """Run query_products with a single filter node."""
     rows = query_products(session, filter_node=filter_node, **kwargs)
-    return [p.title for p, _ in rows]
+    return [g.title for _, _, g in rows]
 
 
 def test_filter_eq_str(session: Session):
@@ -546,7 +555,7 @@ def test_sort_single_price_asc(session: Session):
     _product(session, "A", 10.0)
     _product(session, "B", 20.0)
     rows = query_products(session, sorts=[SortSpec(field="price", dir="asc")])
-    prices = [s.price for _, s in rows]
+    prices = [s.price for _, s, _ in rows]
     assert prices == sorted(prices)
 
 
@@ -556,7 +565,7 @@ def test_sort_single_price_desc(session: Session):
     _product(session, "A", 10.0)
     _product(session, "B", 20.0)
     rows = query_products(session, sorts=[SortSpec(field="price", dir="desc")])
-    prices = [s.price for _, s in rows]
+    prices = [s.price for _, s, _ in rows]
     assert prices == sorted(prices, reverse=True)
 
 
@@ -575,7 +584,7 @@ def test_sort_multi_available_then_price(session: Session):
             SortSpec(field="price", dir="asc"),
         ],
     )
-    titles = [p.title for p, _ in rows]
+    titles = [g.title for _, _, g in rows]
     # InStock first, cheapest among each group first
     in_stock = [t for t in titles if t.startswith("In")]
     out_stock = [t for t in titles if t.startswith("Out")]
@@ -605,7 +614,7 @@ def test_sort_multi_three_levels(session: Session):
             SortSpec(field="discount_pct", dir="desc"),
         ],
     )
-    titles = [p.title for p, _ in rows]
+    titles = [g.title for _, _, g in rows]
     assert titles[-1] == "OutGame"
     assert titles.index("InHighDiscount") < titles.index("InLowDiscount")
 
@@ -616,7 +625,7 @@ def test_sort_updated_at_desc(session: Session):
     _product(session, "Old", 10.0, updated_at=now - timedelta(days=5))
     _product(session, "New", 10.0, updated_at=now)
     rows = query_products(session, sorts=[SortSpec(field="updated_at", dir="desc")])
-    titles = [p.title for p, _ in rows]
+    titles = [g.title for _, _, g in rows]
     assert titles[0] == "New"
 
 
@@ -626,7 +635,7 @@ def test_sort_title_asc(session: Session):
     _product(session, "Azul", 10.0)
     _product(session, "Meeple", 10.0)
     rows = query_products(session, sorts=[SortSpec(field="title", dir="asc")])
-    titles = [p.title for p, _ in rows]
+    titles = [g.title for _, _, g in rows]
     assert titles == sorted(titles)
 
 
@@ -1101,7 +1110,7 @@ def test_hidden_filter_eq_false_excludes_hidden(client: TestClient, session: Ses
 
 
 def _watch(session: Session, product: Product) -> None:
-    session.add(WatchlistItem(product_id=product.id))
+    session.add(WatchlistItem(game_id=product.game_id))
     session.commit()
 
 
@@ -1140,7 +1149,7 @@ def test_is_watched_separates_watched_from_unwatched(session: Session):
         session,
         filter_node=Condition(field="is_watched", op="eq", value=True),
     )
-    titles = [r[0].title for r in rows]
+    titles = [r[2].title for r in rows]
     assert "Watched" in titles
     assert "Unwatched" not in titles
 
@@ -1150,7 +1159,7 @@ def test_is_watched_false_after_unwatch(session: Session):
     product must stop matching is_watched=true."""
     _store(session)
     p = _product(session, "Unwatched Again", 40.0)
-    item = WatchlistItem(product_id=p.id)
+    item = WatchlistItem(game_id=p.game_id)
     session.add(item)
     session.commit()
 
@@ -1176,8 +1185,8 @@ def test_is_watched_count_excludes_inactive(session: Session):
     _store(session)
     active = _product(session, "Still Watched", 30.0)
     removed = _product(session, "Removed", 30.0)
-    session.add(WatchlistItem(product_id=active.id))
-    session.add(WatchlistItem(product_id=removed.id, active=False))
+    session.add(WatchlistItem(game_id=active.game_id))
+    session.add(WatchlistItem(game_id=removed.game_id, active=False))
     session.commit()
 
     node = Condition(field="is_watched", op="eq", value=True)

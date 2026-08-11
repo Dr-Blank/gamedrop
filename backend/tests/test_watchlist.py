@@ -3,8 +3,10 @@ from unittest.mock import ANY, patch
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Product, Store, WatchlistItem
+from app.models import Game, PriceSnapshot, Product, Store, WatchlistItem
 from app.scraper import _check_watchlist
+
+from .factories import make_product, make_store
 
 
 def _seed(session: Session) -> int:
@@ -12,7 +14,7 @@ def _seed(session: Session) -> int:
     session.add(store)
     session.commit()
 
-    product = Product(store_id="s1", external_id="ext-1", title="Catan")
+    product = make_product(session, external_id="ext-1", title="Catan")
     session.add(product)
     session.commit()
     session.refresh(product)
@@ -31,12 +33,42 @@ def test_list_empty(client: TestClient):
 
 def test_add_to_watchlist(client: TestClient, session: Session):
     pid = _seed(session)
+    product = session.get(Product, pid)
     r = client.post("/api/watchlist/", json={"product_id": pid, "target_price": 20.0})
     assert r.status_code == 200
     data = r.json()
-    assert data["product_id"] == pid
+    assert data["game_id"] == product.game_id
     assert data["target_price"] == 20.0
     assert data["active"] is True
+
+
+def test_watching_one_shop_watches_the_game(client: TestClient, session: Session):
+    """Two shops, one game: watching either marks both as watched."""
+    pid = _seed(session)
+    product = session.get(Product, pid)
+    make_store(session, "s2")
+    other = make_product(
+        session,
+        store_id="s2",
+        title="Catan",
+        external_id="e2",
+        game=session.get(Game, product.game_id),
+    )
+
+    client.post("/api/watchlist/", json={"product_id": pid})
+    watched = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "condition",
+                "field": "is_watched",
+                "op": "eq",
+                "value": True,
+            }
+        },
+    ).json()
+    ids = {item["product"]["id"] for item in watched["items"]}
+    assert {pid, other.id} <= ids
 
 
 def test_add_nonexistent_product(client: TestClient):
@@ -95,18 +127,16 @@ def _seed_for_notify(session: Session, target_price: float | None = None):
     session.add(store)
     session.commit()
 
-    product = Product(
+    product = make_product(
+        session,
         store_id="sn1",
         external_id="ext-n1",
         title="Catan Notify",
         url="https://sn1.com/catan",
     )
-    session.add(product)
-    session.commit()
-    session.refresh(product)
 
     watchlist_item = WatchlistItem(
-        product_id=product.id, target_price=target_price, active=True
+        game_id=product.game_id, target_price=target_price, active=True
     )
     session.add(watchlist_item)
     session.commit()
@@ -134,6 +164,7 @@ def test_price_drop_triggers_notification(session: Session):
             product.url,
             product.store_id,
             product_id=product.id,
+            game_id=ANY,
             recorded_at=ANY,
         )
 
@@ -157,6 +188,7 @@ def test_back_in_stock_triggers_notification(session: Session):
             product.url,
             product.store_id,
             product_id=product.id,
+            game_id=ANY,
             recorded_at=ANY,
         )
 
@@ -181,6 +213,7 @@ def test_target_price_hit_triggers_notification(session: Session):
             product.url,
             product.store_id,
             product_id=product.id,
+            game_id=ANY,
             recorded_at=ANY,
         )
 

@@ -104,7 +104,7 @@ def watched_store_fixture(file_engine):
 
     with Session(file_engine) as session:
         product = session.exec(select(Product)).one()
-        session.add(WatchlistItem(product_id=product.id, active=True))
+        session.add(WatchlistItem(game_id=product.game_id, active=True))
         session.commit()
     return file_engine
 

@@ -1,13 +1,9 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import (
-    PriceSnapshot,
-    Product,
-    ProductOverride,
-    Store,
-    WatchlistItem,
-)
+from app.models import PriceSnapshot, ProductOverride, Store, WatchlistItem
+
+from .factories import make_product
 
 
 def _seed(session: Session):
@@ -15,10 +11,7 @@ def _seed(session: Session):
     session.add(store)
     session.commit()
 
-    product = Product(store_id="s1", external_id="ext-1", title="Catan")
-    session.add(product)
-    session.commit()
-    session.refresh(product)
+    product = make_product(session, external_id="ext-1", title="Catan")
 
     for price in [25.0, 28.0, 22.0]:
         session.add(PriceSnapshot(product_id=product.id, price=price))
@@ -77,13 +70,18 @@ def test_search_filter_by_store(client: TestClient, session: Session):
 
 def test_price_history_includes_override(client: TestClient, session: Session):
     product = _seed(session)
-    session.add(ProductOverride(product_id=product.id, title="Catan Overridden"))
+    session.add(ProductOverride(product_id=product.id, override_price=19.0))
     session.commit()
 
     r = client.get(f"/api/prices/product/{product.id}")
     assert r.status_code == 200
-    data = r.json()
-    assert data["override"]["title"] == "Catan Overridden"
+    assert r.json()["override"]["override_price"] == 19.0
+
+
+def test_price_history_includes_the_game(client: TestClient, session: Session):
+    product = _seed(session)
+    data = client.get(f"/api/prices/product/{product.id}").json()
+    assert data["game"]["id"] == product.game_id
 
 
 def test_price_history_no_override_returns_null(client: TestClient, session: Session):
@@ -95,7 +93,7 @@ def test_price_history_no_override_returns_null(client: TestClient, session: Ses
 
 def test_price_history_includes_watchlist_item(client: TestClient, session: Session):
     product = _seed(session)
-    session.add(WatchlistItem(product_id=product.id, target_price=20.0, active=True))
+    session.add(WatchlistItem(game_id=product.game_id, target_price=20.0, active=True))
     session.commit()
 
     r = client.get(f"/api/prices/product/{product.id}")
@@ -108,7 +106,7 @@ def test_price_history_inactive_watchlist_not_returned(
     client: TestClient, session: Session
 ):
     product = _seed(session)
-    session.add(WatchlistItem(product_id=product.id, active=False))
+    session.add(WatchlistItem(game_id=product.game_id, active=False))
     session.commit()
 
     r = client.get(f"/api/prices/product/{product.id}")

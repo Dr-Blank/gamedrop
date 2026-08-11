@@ -1,8 +1,9 @@
 """Catalog data-access layer.
 
-Single source of truth for the "enriched product" read model: browse,
-search, home dashboard, all feeds. Latest-snapshot join, BGG enrichment,
-and override merging live here so no two endpoints can drift.
+Single source of truth for the "enriched card" read model: browse, search, home
+dashboard, all feeds. A card joins a listing (`Product`) to the game it belongs
+to (`Game`), so the name, BGG data and watch state come from the game while the
+price comes from the shop.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from ..filter_engine import (
 )
 from ..models import (
     BggCache,
+    Game,
     PriceSnapshot,
     Product,
     ProductOverride,
@@ -31,13 +33,16 @@ from ..models import (
 )
 from ..text_search import rank_titles
 
+#: (listing, latest snapshot, game) — what every read in here returns.
+CatalogRow = tuple[Product, PriceSnapshot | None, Game]
+
 # ---------------------------------------------------------------------------
 # Subqueries
 # ---------------------------------------------------------------------------
 
 
 def _latest_snapshot_subq():
-    """(product_id, max_date) for the most recent snapshot per product."""
+    """(product_id, max_date) for the most recent snapshot per listing."""
     return (
         select(
             PriceSnapshot.product_id,
@@ -49,7 +54,7 @@ def _latest_snapshot_subq():
 
 
 def _first_seen_subq():
-    """(product_id, first_date) — when product was first tracked."""
+    """(product_id, first_date) — when the listing was first tracked."""
     return (
         select(
             PriceSnapshot.product_id,
@@ -87,6 +92,14 @@ def _bgg_subq():
     ).subquery()
 
 
+def _watchlist_subq():
+    """Distinct watched game ids. Removal is a soft delete (active=False), so
+    inactive rows must not count as watched."""
+    return (
+        select(WatchlistItem.game_id).where(WatchlistItem.active).distinct().subquery()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Base join + registry helper
 # ---------------------------------------------------------------------------
@@ -94,7 +107,8 @@ def _bgg_subq():
 
 def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist):
     return (
-        select(Product, PriceSnapshot)
+        select(Product, PriceSnapshot, Game)
+        .join(Game, Product.game_id == Game.id)
         .join(latest, Product.id == latest.c.product_id, isouter=True)
         .join(
             PriceSnapshot,
@@ -102,21 +116,10 @@ def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist):
             & (PriceSnapshot.recorded_at == latest.c.max_date),
             isouter=True,
         )
-        .join(bgg, Product.bgg_id == bgg.c.bgg_id, isouter=True)
+        .join(bgg, Game.bgg_id == bgg.c.bgg_id, isouter=True)
         .join(first_seen, Product.id == first_seen.c.product_id, isouter=True)
         .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
-        .join(watchlist, Product.id == watchlist.c.product_id, isouter=True)
-    )
-
-
-def _watchlist_subq():
-    """Distinct product_ids on the watchlist. Removal is a soft delete
-    (active=False), so inactive rows must not count as watched."""
-    return (
-        select(WatchlistItem.product_id)
-        .where(WatchlistItem.active)
-        .distinct()
-        .subquery()
+        .join(watchlist, Product.game_id == watchlist.c.game_id, isouter=True)
     )
 
 
@@ -130,7 +133,7 @@ def _subqueries():
 
 
 def get_field_registry():
-    """Registry for introspection endpoint — subqueries are never executed."""
+    """Registry for the introspection endpoint — subqueries are never executed."""
     _, bgg, first_seen, prev_snap, watchlist = _subqueries()
     return build_field_registry(
         bgg_subq=bgg,
@@ -141,7 +144,7 @@ def get_field_registry():
 
 
 # ---------------------------------------------------------------------------
-# Enrichment — (product, snapshot) pairs → card dicts
+# Enrichment — rows → card dicts
 # ---------------------------------------------------------------------------
 
 
@@ -170,16 +173,146 @@ def _discount_pct(price: float | None, compare_at: float | None) -> float | None
     return None
 
 
+def _offer(product: Product, snap: PriceSnapshot | None, override) -> dict:
+    """One shop's current offer, override-corrected."""
+    price = snap.price if snap else None
+    available = snap.available if snap else False
+    if override is not None:
+        if override.override_price is not None:
+            price = override.override_price
+        if override.override_available is not None:
+            available = override.override_available
+    return {
+        "product_id": product.id,
+        "store_id": product.store_id,
+        "listing_title": product.title,
+        "url": (override.url if override and override.url else product.url),
+        "image_url": product.image_url,
+        "price": price,
+        "compare_at_price": snap.compare_at_price if snap else None,
+        "available": bool(available),
+        "recorded_at": snap.recorded_at if snap else None,
+        "price_history": [],  # filled in by the batched history query
+    }
+
+
+def _offer_images(offers: list[dict]) -> list[dict]:
+    """Distinct listing images, cheapest offer first.
+
+    Identical URLs collapse, so a game whose shops share one publisher photo
+    needs no carousel.
+    """
+    images: list[dict] = []
+    seen: set[str] = set()
+    for offer in offers:
+        url = offer.get("image_url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        images.append(
+            {
+                "url": url,
+                "store_id": offer["store_id"],
+                "product_id": offer["product_id"],
+            }
+        )
+    return images
+
+
+def _compare_summaries(session: Session, game_ids: set[int]) -> dict[int, dict]:
+    """Cross-shop price comparison per game, keyed by game id.
+
+    `cheapest` and `cheapest_in_stock` are separate: the lowest price is often
+    the out-of-stock one, and showing only that number misleads.
+    """
+    if not game_ids:
+        return {}
+
+    latest = _latest_snapshot_subq()
+    rows = session.exec(
+        select(Product, PriceSnapshot)
+        .join(latest, Product.id == latest.c.product_id, isouter=True)
+        .join(
+            PriceSnapshot,
+            (PriceSnapshot.product_id == latest.c.product_id)
+            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            isouter=True,
+        )
+        .where(Product.game_id.in_(game_ids))
+    ).all()
+
+    listing_ids = [r[0].id for r in rows if r[0].id is not None]
+    overrides = {
+        ov.product_id: ov
+        for ov in session.exec(
+            select(ProductOverride).where(ProductOverride.product_id.in_(listing_ids))
+        )
+    }
+
+    by_game: dict[int, list[dict]] = {}
+    for product, snap in rows:
+        by_game.setdefault(product.game_id, []).append(
+            _offer(product, snap, overrides.get(product.id))
+        )
+
+    summaries = {}
+    for game_id, offers in by_game.items():
+        priced = [o for o in offers if o["price"] is not None]
+        priced.sort(key=lambda o: o["price"])
+        in_stock = [o for o in priced if o["available"]]
+        ordered = priced + [o for o in offers if o["price"] is None]
+        summaries[game_id] = {
+            "game_id": game_id,
+            "listing_count": len(offers),
+            "store_ids": sorted({o["store_id"] for o in offers}),
+            "cheapest": priced[0] if priced else None,
+            "cheapest_in_stock": in_stock[0] if in_stock else None,
+            "offers": ordered,
+            "images": _offer_images(ordered),
+        }
+    return summaries
+
+
+def compare_summary(session: Session, game_id: int) -> dict | None:
+    """Cross-shop comparison for one game, or None if it has no listings."""
+    return _compare_summaries(session, {game_id}).get(game_id)
+
+
+def _price_histories(session: Session, product_ids: set[int]) -> dict[int, list[dict]]:
+    """Last 12 prices per listing, newest first."""
+    if not product_ids:
+        return {}
+    rn_col = (
+        func.row_number()
+        .over(
+            partition_by=PriceSnapshot.product_id,
+            order_by=PriceSnapshot.recorded_at.desc(),
+        )
+        .label("rn")
+    )
+    subq = (
+        select(PriceSnapshot.product_id, PriceSnapshot.price, rn_col)
+        .where(PriceSnapshot.product_id.in_(product_ids))
+        .subquery()
+    )
+    histories: dict[int, list[dict]] = {}
+    for pid, price in session.exec(
+        select(subq.c.product_id, subq.c.price).where(subq.c.rn <= 12)
+    ):
+        histories.setdefault(int(pid), []).append({"price": float(price)})
+    return histories
+
+
 def make_cards(
     session: Session,
-    items: list[tuple[Product, PriceSnapshot | None]],
+    items: list[CatalogRow],
     *,
     extra: dict[int, dict] | None = None,
 ) -> list[dict]:
-    """Batch-enrich (product, latest_snapshot) pairs into card dicts."""
-    products = [p for p, _ in items]
-    product_ids = [p.id for p in products if p.id is not None]
-    bgg_ids = {p.bgg_id for p in products if p.bgg_id}
+    """Batch-enrich (listing, latest snapshot, game) rows into card dicts."""
+    product_ids = [p.id for p, _, _ in items if p.id is not None]
+    game_ids = {g.id for _, _, g in items if g.id is not None}
+    bgg_ids = {g.bgg_id for _, _, g in items if g.bgg_id}
 
     overrides: dict[int, ProductOverride] = {}
     if product_ids:
@@ -193,38 +326,34 @@ def make_cards(
         for c in session.exec(select(BggCache).where(BggCache.bgg_id.in_(bgg_ids))):
             bgg_cache[c.bgg_id] = c
 
-    # Batch-fetch last 12 price snapshots per product for sparkline display.
-    histories: dict[int, list[dict]] = {}
-    if product_ids:
-        rn_col = (
-            func.row_number()
-            .over(
-                partition_by=PriceSnapshot.product_id,
-                order_by=PriceSnapshot.recorded_at.desc(),
-            )
-            .label("rn")
-        )
-        subq = (
-            select(PriceSnapshot.product_id, PriceSnapshot.price, rn_col)
-            .where(PriceSnapshot.product_id.in_(product_ids))
-            .subquery()
-        )
-        for pid, price in session.exec(
-            select(subq.c.product_id, subq.c.price).where(subq.c.rn <= 12)
-        ):
-            histories.setdefault(int(pid), []).append({"price": float(price)})
+    compares = _compare_summaries(session, game_ids)
+
+    # Sibling listings are included so a multi-shop card can graph the offer it
+    # quotes, not just its own listing.
+    wanted = set(product_ids)
+    for summary in compares.values():
+        wanted.update(o["product_id"] for o in summary["offers"])
+    histories = _price_histories(session, wanted)
+    for summary in compares.values():
+        for offer in summary["offers"]:
+            offer["price_history"] = histories.get(offer["product_id"], [])
 
     cards = []
-    for product, snap in items:
+    for product, snap, game in items:
         price = snap.price if snap else None
         cap = snap.compare_at_price if snap else None
+        compare = compares.get(game.id)
         card = {
             "product": product,
+            "game": game,
             "latest_price": snap,
-            "bgg": _parse_bgg(bgg_cache.get(product.bgg_id), product.bgg_id),
+            "bgg": _parse_bgg(bgg_cache.get(game.bgg_id), game.bgg_id),
             "override": overrides.get(product.id) if product.id else None,
             "discount_pct": _discount_pct(price, cap),
             "price_history": histories.get(product.id, []),
+            # Only when more than one shop sells it — otherwise there is nothing
+            # to compare and every card would carry a redundant payload.
+            "compare": compare if compare and compare["listing_count"] > 1 else None,
         }
         if extra and product.id in extra:
             card.update(extra[product.id])
@@ -262,8 +391,8 @@ def query_products(
     page: int = 1,
     limit: int = 48,
     include_hidden: bool = False,
-) -> list[tuple[Product, PriceSnapshot | None]]:
-    """Filtered, sorted, paginated (product, latest_snapshot) pairs."""
+) -> list[CatalogRow]:
+    """Filtered, sorted, paginated catalog rows."""
     latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
     registry = build_field_registry(
         bgg_subq=bgg,
@@ -277,7 +406,7 @@ def query_products(
         filter_node, "hidden"
     )
     if not include_hidden and not filter_on_hidden:
-        stmt = stmt.where(Product.hidden == False)  # noqa: E712
+        stmt = stmt.where(Game.hidden == False)  # noqa: E712
 
     if filter_node is not None:
         stmt = stmt.where(apply_filter(filter_node, registry))
@@ -285,11 +414,11 @@ def query_products(
     if sorts:
         stmt = apply_sorts(stmt, sorts, registry)
     else:
-        stmt = stmt.order_by(Product.title.asc())
+        stmt = stmt.order_by(Game.title.asc())
 
     offset = (page - 1) * limit
     rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    return [(r[0], r[1]) for r in rows]
+    return [(r[0], r[1], r[2]) for r in rows]
 
 
 def count_products(
@@ -309,6 +438,7 @@ def count_products(
     stmt = (
         select(func.count())
         .select_from(Product)
+        .join(Game, Product.game_id == Game.id)
         .join(latest, Product.id == latest.c.product_id, isouter=True)
         .join(
             PriceSnapshot,
@@ -316,28 +446,28 @@ def count_products(
             & (PriceSnapshot.recorded_at == latest.c.max_date),
             isouter=True,
         )
-        .join(bgg, Product.bgg_id == bgg.c.bgg_id, isouter=True)
+        .join(bgg, Game.bgg_id == bgg.c.bgg_id, isouter=True)
         .join(first_seen, Product.id == first_seen.c.product_id, isouter=True)
         .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
-        .join(watchlist, Product.id == watchlist.c.product_id, isouter=True)
+        .join(watchlist, Product.game_id == watchlist.c.game_id, isouter=True)
     )
     filter_on_hidden = filter_node is not None and filter_uses_field(
         filter_node, "hidden"
     )
     if not include_hidden and not filter_on_hidden:
-        stmt = stmt.where(Product.hidden == False)  # noqa: E712
+        stmt = stmt.where(Game.hidden == False)  # noqa: E712
     if filter_node is not None:
         stmt = stmt.where(apply_filter(filter_node, registry))
     return session.exec(stmt).one()
 
 
 # ---------------------------------------------------------------------------
-# Feeds (used by old catalog routes — kept for search bar + hidden page)
+# Feeds
 # ---------------------------------------------------------------------------
 
 
 def _ranked_snapshots_subq():
-    """Each snapshot with recency rank (1 = latest) per product."""
+    """Each snapshot with recency rank (1 = latest) per listing."""
     return select(
         PriceSnapshot.product_id,
         PriceSnapshot.price,
@@ -356,13 +486,14 @@ def _ranked_snapshots_subq():
 def price_drops(
     session: Session, *, page: int = 1, limit: int = 12, in_stock_only: bool = False
 ) -> list[dict]:
-    """Products whose latest price < their previous recorded price."""
+    """Listings whose latest price is below their previous recorded price."""
     ranked = _ranked_snapshots_subq()
     latest = select(ranked).where(ranked.c.rn == 1).subquery()
     prev = select(ranked).where(ranked.c.rn == 2).subquery()
     drop_pct = (prev.c.price - latest.c.price) / prev.c.price
     stmt = (
-        select(Product, PriceSnapshot, prev.c.price.label("previous_price"))
+        select(Product, PriceSnapshot, Game, prev.c.price.label("previous_price"))
+        .join(Game, Product.game_id == Game.id)
         .join(latest, Product.id == latest.c.product_id)
         .join(prev, Product.id == prev.c.product_id)
         .join(
@@ -371,19 +502,19 @@ def price_drops(
             & (PriceSnapshot.recorded_at == latest.c.recorded_at),
         )
         .where(latest.c.price < prev.c.price)
-        .where(Product.hidden == False)  # noqa: E712
+        .where(Game.hidden == False)  # noqa: E712
     )
     if in_stock_only:
         stmt = stmt.where(latest.c.available == True)  # noqa: E712
     stmt = stmt.order_by(drop_pct.desc())
     offset = (page - 1) * limit
     rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    extra = {r[0].id: {"previous_price": r[2]} for r in rows}
-    return make_cards(session, [(r[0], r[1]) for r in rows], extra=extra)
+    extra = {r[0].id: {"previous_price": r[3]} for r in rows}
+    return make_cards(session, [(r[0], r[1], r[2]) for r in rows], extra=extra)
 
 
 def new_additions(session: Session, *, page: int = 1, limit: int = 12) -> list[dict]:
-    """Most recently first-seen products."""
+    """Most recently first-seen listings."""
     rows = query_products(
         session,
         sorts=[SortSpec(field="first_seen", dir="desc")],
@@ -406,41 +537,58 @@ def top_discounts(session: Session, *, page: int = 1, limit: int = 12) -> list[d
     return [c for c in cards if (c["discount_pct"] or 0) > 0]
 
 
-def _rows_by_ids(
-    session: Session, ids: list[int]
-) -> list[tuple[Product, PriceSnapshot | None]]:
-    """(product, latest_snapshot) pairs for the given ids, in the given order."""
+def _rows_by_ids(session: Session, ids: list[int]) -> list[CatalogRow]:
+    """Catalog rows for the given listing ids, in the given order."""
     if not ids:
         return []
     latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
     stmt = _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist).where(
         Product.id.in_(ids)
     )
-    by_id = {r[0].id: (r[0], r[1]) for r in session.exec(stmt).all()}
+    by_id = {r[0].id: (r[0], r[1], r[2]) for r in session.exec(stmt).all()}
     return [by_id[i] for i in ids if i in by_id]
 
 
-def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
-    """Title search for the global search bar.
+def cards_by_ids(session: Session, ids: list[int]) -> list[dict]:
+    """Enriched cards for the given listing ids, in the given order."""
+    return make_cards(session, _rows_by_ids(session, ids))
 
-    Ranked and typo-tolerant: scoring runs in Python over the candidate titles
+
+def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
+    """Name search for the global search bar.
+
+    Ranked and typo-tolerant: scoring runs in Python over the candidate names
     because SQLite `LIKE` can only do substrings, which makes a single typo
     return nothing at all. See app.text_search.
+
+    One listing per game, so a merged game appears once.
     """
     if not q or not q.strip():
         return []
     candidates = session.exec(
-        select(Product.id, Product.title).where(Product.hidden == False)  # noqa: E712
+        select(Product.id, Game.title, Product.game_id)
+        .join(Game, Product.game_id == Game.id)
+        .where(Game.hidden == False)  # noqa: E712
     ).all()
-    ranked = rank_titles(q, [(r[0], r[1]) for r in candidates], limit=limit)
-    return make_cards(session, _rows_by_ids(session, [pid for pid, _ in ranked]))
+
+    seen_games: set[int] = set()
+    deduped: list[tuple[int, str]] = []
+    for product_id, title, game_id in candidates:
+        if game_id in seen_games:
+            continue
+        seen_games.add(game_id)
+        deduped.append((product_id, title))
+
+    ranked = rank_titles(q, deduped, limit=limit)
+    return cards_by_ids(session, [pid for pid, _ in ranked])
 
 
-def hidden_products(session: Session, *, page: int = 1, limit: int = 48) -> list[dict]:
-    """Enriched cards for hidden products."""
+def hidden_games(session: Session, *, page: int = 1, limit: int = 48) -> list[dict]:
+    """Enriched cards for hidden games, one listing each."""
     latest = _latest_snapshot_subq()
     stmt = (
-        select(Product, PriceSnapshot)
+        select(Product, PriceSnapshot, Game)
+        .join(Game, Product.game_id == Game.id)
         .join(latest, Product.id == latest.c.product_id, isouter=True)
         .join(
             PriceSnapshot,
@@ -448,12 +596,20 @@ def hidden_products(session: Session, *, page: int = 1, limit: int = 48) -> list
             & (PriceSnapshot.recorded_at == latest.c.max_date),
             isouter=True,
         )
-        .where(Product.hidden == True)  # noqa: E712
+        .where(Game.hidden == True)  # noqa: E712
         .order_by(Product.updated_at.desc())
     )
     offset = (page - 1) * limit
     rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    return make_cards(session, [(r[0], r[1]) for r in rows])
+
+    seen: set[int] = set()
+    unique: list[CatalogRow] = []
+    for product, snap, game in rows:
+        if game.id in seen:
+            continue
+        seen.add(game.id)
+        unique.append((product, snap, game))
+    return make_cards(session, unique)
 
 
 def enabled_stores(session: Session) -> list[Store]:

@@ -2,19 +2,19 @@ import { getWatchlist, addWatchlist, removeWatchlist } from './api.js';
 import { toast } from './toast.svelte.js';
 
 /**
- * App-wide watchlist state — single source of truth for "is this product
- * watched?" so every ProductCard can render Watch/Unwatch consistently and a
- * toggle on one page is reflected everywhere. Loaded once from the layout.
+ * App-wide watchlist state, keyed on the game — watching a game covers every
+ * shop that sells it, so a toggle on one shop's card is reflected on all of
+ * them. Loaded once from the layout.
  */
 class WatchlistState {
 	ready = $state(false);
-	/** product_id -> watchlist item id @type {Map<number, number>} */
+	/** game_id -> watchlist item id @type {Map<number, number>} */
 	map = $state(new Map());
 
 	async load() {
 		try {
 			const cards = await getWatchlist();
-			this.map = new Map(cards.map((c) => [c.product.id, c.watchlist.id]));
+			this.map = new Map(cards.map((c) => [c.game.id, c.watchlist.id]));
 		} catch {
 			// Non-fatal: cards just render as un-watched until next load.
 		} finally {
@@ -22,29 +22,30 @@ class WatchlistState {
 		}
 	}
 
-	/** @param {number} productId */
-	has(productId) {
-		return this.map.has(productId);
+	/** @param {number|null|undefined} gameId */
+	has(gameId) {
+		return gameId != null && this.map.has(gameId);
 	}
 
 	/**
-	 * Add or remove the product from the watchlist, keeping local state in sync.
-	 * @param {any} item a product card ({ product, override, ... })
+	 * Watch or unwatch the game this card belongs to.
+	 * @param {any} item a card ({ product, game, ... })
 	 * @param {number|null} targetPrice
 	 */
 	async toggle(item, targetPrice = null) {
-		const pid = item.product.id;
-		const title = item.override?.title || item.product.title;
+		const gameId = item.game?.id ?? item.product?.game_id;
+		if (gameId == null) return;
+		const title = item.game?.title || item.product?.title || 'game';
 		const next = new Map(this.map);
 		try {
-			if (this.map.has(pid)) {
-				await removeWatchlist(this.map.get(pid));
-				next.delete(pid);
+			if (this.map.has(gameId)) {
+				await removeWatchlist(this.map.get(gameId));
+				next.delete(gameId);
 				this.map = next;
 				toast.success(`Unwatched ${title}`);
 			} else {
-				const created = await addWatchlist(pid, targetPrice);
-				next.set(pid, created.id);
+				const created = await addWatchlist(gameId, targetPrice);
+				next.set(gameId, created.id);
 				this.map = next;
 				toast.success(`Watching ${title}`);
 			}

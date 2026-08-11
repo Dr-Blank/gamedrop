@@ -7,6 +7,7 @@ from sqlmodel import Session, asc, desc, select
 from ..channels import DatabaseChannel
 from ..db import get_session
 from ..models import (
+    Game,
     NotificationLog,
     PriceSnapshot,
     Product,
@@ -76,117 +77,126 @@ def mark_all_read(session: Session = Depends(get_session)):
 
 @router.post("/backfill")
 def backfill_notifications(session: Session = Depends(get_session)):
-    """Replay PriceSnapshot history for all watchlist items writing only to
-    the DatabaseChannel. Idempotent — deduplicates by (product_id, kind,
+    """Replay PriceSnapshot history for every watched game's listings, writing
+    only to the DatabaseChannel. Idempotent — deduplicates by (product_id, kind,
     sent_at) where sent_at == snap.recorded_at (set via recorded_at param)."""
     db_only: list = [DatabaseChannel()]
     inserted = 0
 
-    items = session.exec(select(WatchlistItem)).all()
-
-    for item in items:
-        product = session.get(Product, item.product_id)
-        if not product:
+    for item in session.exec(select(WatchlistItem)).all():
+        game = session.get(Game, item.game_id)
+        if not game:
             continue
-        store = session.get(Store, product.store_id)
-        store_name = store.id if store else product.store_id
-
-        snaps = session.exec(
-            select(PriceSnapshot)
-            .where(PriceSnapshot.product_id == item.product_id)
-            .order_by(asc(PriceSnapshot.recorded_at))
+        listings = session.exec(
+            select(Product).where(Product.game_id == item.game_id)
         ).all()
-
-        # Dedup key: (product_id, kind, sent_at). Because DatabaseChannel now
-        # stores sent_at = recorded_at, this matches both live and backfill rows.
-        existing_keys: set[tuple] = {
-            (r.product_id, r.kind, r.sent_at)
-            for r in session.exec(
-                select(NotificationLog).where(
-                    NotificationLog.product_id == item.product_id
-                )
-            ).all()
-        }
-
-        prev: PriceSnapshot | None = None
-        for snap in snaps:
-            kind: str | None = None
-
-            if prev and not prev.available and snap.available:
-                kind = "back_in_stock"
-            elif prev and prev.available and not snap.available:
-                kind = "out_of_stock"
-            elif snap.available and prev:
-                if item.target_price is not None:
-                    if snap.price <= item.target_price:
-                        kind = "target_reached"
-                elif snap.price < prev.price:
-                    kind = "price_drop"
-                elif snap.price > prev.price:
-                    kind = "price_increase"
-
-            if kind:
-                key = (item.product_id, kind, snap.recorded_at)
-                if key not in existing_keys:
-                    kwargs = {
-                        "product_id": product.id,
-                        "channels": db_only,
-                        "recorded_at": snap.recorded_at,
-                    }
-                    if kind == "back_in_stock" and item.notify_back_in_stock:
-                        notify_back_in_stock(
-                            product.title,
-                            snap.price,
-                            product.url,
-                            store_name,
-                            **kwargs,
-                        )
-                        existing_keys.add(key)
-                        inserted += 1
-                    elif kind == "target_reached" and item.notify_target_reached:
-                        notify_target_reached(
-                            product.title,
-                            item.target_price,  # type: ignore[arg-type]
-                            snap.price,
-                            product.url,
-                            store_name,
-                            **kwargs,
-                        )
-                        existing_keys.add(key)
-                        inserted += 1
-                    elif kind == "price_drop" and item.notify_price_drop:
-                        notify_price_drop(
-                            product.title,
-                            prev.price,  # type: ignore[union-attr]
-                            snap.price,
-                            product.url,
-                            store_name,
-                            **kwargs,
-                        )
-                        existing_keys.add(key)
-                        inserted += 1
-                    elif kind == "price_increase" and item.notify_price_increase:
-                        notify_price_increase(
-                            product.title,
-                            prev.price,  # type: ignore[union-attr]
-                            snap.price,
-                            product.url,
-                            store_name,
-                            **kwargs,
-                        )
-                        existing_keys.add(key)
-                        inserted += 1
-                    elif kind == "out_of_stock" and item.notify_out_of_stock:
-                        notify_out_of_stock(
-                            product.title,
-                            prev.price,  # type: ignore[union-attr]
-                            product.url,
-                            store_name,
-                            **kwargs,
-                        )
-                        existing_keys.add(key)
-                        inserted += 1
-
-            prev = snap
+        for product in listings:
+            inserted += _replay_listing(session, item, game, product, db_only)
 
     return {"inserted": inserted}
+
+
+def _replay_listing(session, item, game, product, db_only) -> int:
+    """Backfill one shop's history for a watched game."""
+    inserted = 0
+    store = session.get(Store, product.store_id)
+    store_name = store.id if store else product.store_id
+
+    snaps = session.exec(
+        select(PriceSnapshot)
+        .where(PriceSnapshot.product_id == product.id)
+        .order_by(asc(PriceSnapshot.recorded_at))
+    ).all()
+
+    # Dedup key: (product_id, kind, sent_at). Because DatabaseChannel stores
+    # sent_at = recorded_at, this matches both live and backfill rows.
+    existing_keys: set[tuple] = {
+        (r.product_id, r.kind, r.sent_at)
+        for r in session.exec(
+            select(NotificationLog).where(NotificationLog.product_id == product.id)
+        ).all()
+    }
+
+    prev: PriceSnapshot | None = None
+    for snap in snaps:
+        kind: str | None = None
+
+        if prev and not prev.available and snap.available:
+            kind = "back_in_stock"
+        elif prev and prev.available and not snap.available:
+            kind = "out_of_stock"
+        elif snap.available and prev:
+            if item.target_price is not None:
+                if snap.price <= item.target_price:
+                    kind = "target_reached"
+            elif snap.price < prev.price:
+                kind = "price_drop"
+            elif snap.price > prev.price:
+                kind = "price_increase"
+
+        if kind:
+            key = (product.id, kind, snap.recorded_at)
+            if key not in existing_keys:
+                kwargs = {
+                    "product_id": product.id,
+                    "game_id": game.id,
+                    "channels": db_only,
+                    "recorded_at": snap.recorded_at,
+                }
+                if kind == "back_in_stock" and item.notify_back_in_stock:
+                    notify_back_in_stock(
+                        game.title,
+                        snap.price,
+                        product.url,
+                        store_name,
+                        **kwargs,
+                    )
+                    existing_keys.add(key)
+                    inserted += 1
+                elif kind == "target_reached" and item.notify_target_reached:
+                    notify_target_reached(
+                        game.title,
+                        item.target_price,  # type: ignore[arg-type]
+                        snap.price,
+                        product.url,
+                        store_name,
+                        **kwargs,
+                    )
+                    existing_keys.add(key)
+                    inserted += 1
+                elif kind == "price_drop" and item.notify_price_drop:
+                    notify_price_drop(
+                        game.title,
+                        prev.price,  # type: ignore[union-attr]
+                        snap.price,
+                        product.url,
+                        store_name,
+                        **kwargs,
+                    )
+                    existing_keys.add(key)
+                    inserted += 1
+                elif kind == "price_increase" and item.notify_price_increase:
+                    notify_price_increase(
+                        game.title,
+                        prev.price,  # type: ignore[union-attr]
+                        snap.price,
+                        product.url,
+                        store_name,
+                        **kwargs,
+                    )
+                    existing_keys.add(key)
+                    inserted += 1
+                elif kind == "out_of_stock" and item.notify_out_of_stock:
+                    notify_out_of_stock(
+                        game.title,
+                        prev.price,  # type: ignore[union-attr]
+                        product.url,
+                        store_name,
+                        **kwargs,
+                    )
+                    existing_keys.add(key)
+                    inserted += 1
+
+        prev = snap
+
+    return inserted

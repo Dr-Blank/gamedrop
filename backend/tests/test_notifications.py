@@ -4,8 +4,10 @@ import pytest
 from sqlmodel import Session
 
 from app import notifier
-from app.models import PriceSnapshot, Product, Store, WatchlistItem
+from app.models import Game, PriceSnapshot, Product, WatchListingState, WatchlistItem
 from app.scraper import _check_watchlist
+
+from .factories import make_product, make_store
 
 PATCH_DROP = "app.scraper.notify_price_drop"
 PATCH_TARGET = "app.scraper.notify_target_reached"
@@ -14,23 +16,16 @@ PATCH_STOCK = "app.scraper.notify_back_in_stock"
 
 @pytest.fixture()
 def product(session: Session) -> Product:
-    session.add(Store(id="s1", name="S1", type="shopify", base_url="https://s1.com"))
-    session.commit()
-    p = Product(
-        store_id="s1", external_id="e1", title="Catan", url="https://s1.com/catan"
-    )
-    session.add(p)
-    session.commit()
-    session.refresh(p)
-    return p
+    make_store(session)
+    return make_product(session, url="https://s1.com/catan")
 
 
 def _snap(product_id: int, price: float, available: bool = True) -> PriceSnapshot:
     return PriceSnapshot(product_id=product_id, price=price, available=available)
 
 
-def _watch(product_id: int, target_price: float | None = None) -> WatchlistItem:
-    return WatchlistItem(product_id=product_id, target_price=target_price, active=True)
+def _watch(game_id: int, target_price: float | None = None) -> WatchlistItem:
+    return WatchlistItem(game_id=game_id, target_price=target_price, active=True)
 
 
 # --- price drop ---
@@ -39,7 +34,7 @@ def _watch(product_id: int, target_price: float | None = None) -> WatchlistItem:
 def test_price_drop_triggers_notification(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 30.0)
-    session.add(_watch(product.id))
+    session.add(_watch(product.game_id))
     session.commit()
 
     with patch(PATCH_DROP) as mock_drop:
@@ -51,6 +46,7 @@ def test_price_drop_triggers_notification(session: Session, product: Product):
             product.url,
             "s1",
             product_id=product.id,
+            game_id=ANY,
             recorded_at=ANY,
         )
 
@@ -60,7 +56,7 @@ def test_price_drop_no_notification_when_price_unchanged(
 ):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 40.0)
-    session.add(_watch(product.id))
+    session.add(_watch(product.game_id))
     session.commit()
 
     with patch(PATCH_DROP) as mock_drop:
@@ -73,7 +69,7 @@ def test_price_drop_no_notification_when_price_higher(
 ):
     old = _snap(product.id, 30.0)
     new = _snap(product.id, 40.0)
-    session.add(_watch(product.id))
+    session.add(_watch(product.game_id))
     session.commit()
 
     with patch(PATCH_DROP) as mock_drop:
@@ -84,9 +80,15 @@ def test_price_drop_no_notification_when_price_higher(
 def test_price_drop_no_duplicate_notification(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 30.0)
-    item = _watch(product.id)
-    item.last_notified_price = 30.0  # already notified at this price
+    item = _watch(product.game_id)
     session.add(item)
+    session.commit()
+    session.refresh(item)
+    session.add(
+        WatchListingState(
+            watch_id=item.id, product_id=product.id, last_notified_price=30.0
+        )
+    )
     session.commit()
 
     with patch(PATCH_DROP) as mock_drop:
@@ -94,10 +96,10 @@ def test_price_drop_no_duplicate_notification(session: Session, product: Product
         mock_drop.assert_not_called()
 
 
-def test_price_drop_updates_last_notified_price(session: Session, product: Product):
+def test_price_drop_remembers_price_per_listing(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 30.0)
-    item = _watch(product.id)
+    item = _watch(product.game_id)
     session.add(item)
     session.commit()
     session.refresh(item)
@@ -105,8 +107,31 @@ def test_price_drop_updates_last_notified_price(session: Session, product: Produ
     with patch(PATCH_DROP):
         _check_watchlist(session, product, old, new)
         session.commit()
-        session.refresh(item)
-        assert item.last_notified_price == 30.0
+        state = session.get(WatchListingState, (item.id, product.id))
+        assert state.last_notified_price == 30.0
+
+
+def test_price_drop_notifies_each_shop_separately(session: Session, product: Product):
+    """A second shop at the same price is still news for that shop."""
+    other = make_product(
+        session,
+        store_id="s2",
+        title="Catan",
+        external_id="e2",
+        game=session.get(Game, product.game_id),
+    )
+    item = _watch(product.game_id)
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+
+    with patch(PATCH_DROP) as mock_drop:
+        _check_watchlist(
+            session, product, _snap(product.id, 40.0), _snap(product.id, 30.0)
+        )
+        session.commit()
+        _check_watchlist(session, other, _snap(other.id, 40.0), _snap(other.id, 30.0))
+        assert mock_drop.call_count == 2
 
 
 # --- target price ---
@@ -115,7 +140,7 @@ def test_price_drop_updates_last_notified_price(session: Session, product: Produ
 def test_target_price_hit_triggers_notification(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 19.99)
-    session.add(_watch(product.id, target_price=20.0))
+    session.add(_watch(product.game_id, target_price=20.0))
     session.commit()
 
     with patch(PATCH_TARGET) as mock_target:
@@ -127,6 +152,7 @@ def test_target_price_hit_triggers_notification(session: Session, product: Produ
             product.url,
             "s1",
             product_id=product.id,
+            game_id=ANY,
             recorded_at=ANY,
         )
 
@@ -134,7 +160,7 @@ def test_target_price_hit_triggers_notification(session: Session, product: Produ
 def test_target_price_not_hit_no_notification(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 25.0)
-    session.add(_watch(product.id, target_price=20.0))
+    session.add(_watch(product.game_id, target_price=20.0))
     session.commit()
 
     with patch(PATCH_TARGET) as mock_target, patch(PATCH_DROP) as mock_drop:
@@ -146,9 +172,15 @@ def test_target_price_not_hit_no_notification(session: Session, product: Product
 def test_target_price_no_duplicate_notification(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 19.99)
-    item = _watch(product.id, target_price=20.0)
-    item.last_notified_price = 19.99
+    item = _watch(product.game_id, target_price=20.0)
     session.add(item)
+    session.commit()
+    session.refresh(item)
+    session.add(
+        WatchListingState(
+            watch_id=item.id, product_id=product.id, last_notified_price=19.99
+        )
+    )
     session.commit()
 
     with patch(PATCH_TARGET) as mock_target:
@@ -162,7 +194,7 @@ def test_target_price_no_duplicate_notification(session: Session, product: Produ
 def test_back_in_stock_triggers_notification(session: Session, product: Product):
     old = _snap(product.id, 30.0, available=False)
     new = _snap(product.id, 30.0, available=True)
-    session.add(_watch(product.id))
+    session.add(_watch(product.game_id))
     session.commit()
 
     with patch(PATCH_STOCK) as mock_stock:
@@ -173,6 +205,7 @@ def test_back_in_stock_triggers_notification(session: Session, product: Product)
             product.url,
             "s1",
             product_id=product.id,
+            game_id=ANY,
             recorded_at=ANY,
         )
 
@@ -180,7 +213,7 @@ def test_back_in_stock_triggers_notification(session: Session, product: Product)
 def test_out_of_stock_no_notification(session: Session, product: Product):
     old = _snap(product.id, 40.0, available=True)
     new = _snap(product.id, 30.0, available=False)
-    session.add(_watch(product.id))
+    session.add(_watch(product.game_id))
     session.commit()
 
     with patch(PATCH_DROP) as mock_drop, patch(PATCH_STOCK) as mock_stock:
@@ -204,7 +237,7 @@ def test_no_notification_when_not_on_watchlist(session: Session, product: Produc
 def test_no_notification_when_watchlist_inactive(session: Session, product: Product):
     old = _snap(product.id, 40.0)
     new = _snap(product.id, 30.0)
-    item = WatchlistItem(product_id=product.id, active=False)
+    item = WatchlistItem(game_id=product.game_id, active=False)
     session.add(item)
     session.commit()
 

@@ -6,7 +6,7 @@ from sqlmodel import Field, SQLModel
 class Store(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
-    type: str  # "shopify" | "custom"
+    type: str  # "shopify" | "woocommerce"
     base_url: str
     collection_path: str = "/collections/board-games"
     enabled: bool = True
@@ -20,19 +20,47 @@ class Store(SQLModel, table=True):
 
 
 class Product(SQLModel, table=True):
+    """One shop's listing of a game: its URL, its price history, its stock.
+
+    Everything the user *decides* (watching, naming, BGG identity) lives on
+    `Game` instead, so two shops selling one game share those decisions.
+    """
+
     id: int | None = Field(default=None, primary_key=True)
     store_id: str = Field(foreign_key="store.id")
+    game_id: int = Field(foreign_key="game.id", index=True)
     external_id: str
-    title: str
+    title: str  # as the shop lists it; Game.title is the name shown
     handle: str | None = None
     url: str | None = None
     image_url: str | None = None
-    bgg_id: int | None = None
-    hidden: bool = Field(default=False)  # user permanently hid this from views
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         table_name = "product"
+
+
+class Game(SQLModel, table=True):
+    """The game itself — one row per game, however many shops sell it.
+
+    Every listing has one, so watching, renaming, hiding and BGG linking work
+    the same whether a game is sold by one shop or five.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    title: str
+    bgg_id: int | None = None
+    hidden: bool = Field(default=False)  # hide the game from every view
+    note: str | None = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MergeRejection(SQLModel, table=True):
+    """A rejected merge suggestion. Ids stored low-first so the pair is one row."""
+
+    product_a_id: int = Field(primary_key=True, foreign_key="product.id")
+    product_b_id: int = Field(primary_key=True, foreign_key="product.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class PriceSnapshot(SQLModel, table=True):
@@ -53,10 +81,11 @@ class BggCache(SQLModel, table=True):
 
 
 class WatchlistItem(SQLModel, table=True):
+    """A watched game. Alerts fire per listing, so every shop is reported."""
+
     id: int | None = Field(default=None, primary_key=True)
-    product_id: int = Field(foreign_key="product.id")
+    game_id: int = Field(foreign_key="game.id")
     target_price: float | None = None
-    last_notified_price: float | None = None
     active: bool = True
     notify_price_drop: bool = True
     notify_back_in_stock: bool = True
@@ -64,6 +93,19 @@ class WatchlistItem(SQLModel, table=True):
     notify_price_increase: bool = True
     notify_out_of_stock: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WatchListingState(SQLModel, table=True):
+    """Last price a watched game's listing was alerted about.
+
+    Per listing, not per game: two shops can sit at the same price, and a drop
+    at one of them is still news.
+    """
+
+    watch_id: int = Field(primary_key=True, foreign_key="watchlistitem.id")
+    product_id: int = Field(primary_key=True, foreign_key="product.id")
+    last_notified_price: float | None = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class SyncLog(SQLModel, table=True):
@@ -78,15 +120,13 @@ class SyncLog(SQLModel, table=True):
 
 
 class ProductOverride(SQLModel, table=True):
-    """User-supplied corrections for any product field."""
+    """Corrections to what one shop reports. Name, BGG link and notes are the
+    game's, so only per-listing facts live here."""
 
     product_id: int = Field(primary_key=True, foreign_key="product.id")
-    title: str | None = None
     url: str | None = None
-    bgg_id: int | None = None
     override_price: float | None = None
     override_available: bool | None = None
-    note: str | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -117,6 +157,7 @@ class Shelf(SQLModel, table=True):
 class NotificationLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     product_id: int | None = Field(default=None, foreign_key="product.id")
+    game_id: int | None = Field(default=None, foreign_key="game.id")
     kind: str  # price_drop | back_in_stock | target_reached
     title: str
     message: str

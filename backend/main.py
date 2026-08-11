@@ -21,6 +21,7 @@ from app.routes import (  # noqa: E402
     watchlist,
 )
 from app.routes.applogs import router as applogs_router  # noqa: E402
+from app.routes.games import router as games_router  # noqa: E402
 from app.routes.notifications import router as notifications_router  # noqa: E402
 from app.routes.products import router as products_router  # noqa: E402
 from app.routes.shelves import router as shelves_router  # noqa: E402
@@ -308,6 +309,7 @@ app.include_router(products_router, prefix="/api")
 app.include_router(applogs_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(shelves_router, prefix="/api")
+app.include_router(games_router, prefix="/api")
 
 
 @app.get("/api/health")
