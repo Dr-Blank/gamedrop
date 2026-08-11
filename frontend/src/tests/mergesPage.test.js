@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 vi.mock('$lib/api.js', () => ({
 	mergeQueue: vi.fn(),
 	decideMerges: vi.fn(),
+	rejectedQueue: vi.fn(),
 	getStores: vi.fn().mockResolvedValue([]),
 	fetchProductImage: vi.fn().mockResolvedValue({ image_url: null })
 }));
@@ -32,8 +33,10 @@ function pair(score, a, b) {
 describe('merges page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		api.decideMerges.mockResolvedValue({ merged: 1, rejected: 0, skipped: 0 });
+		localStorage.clear();
+		api.decideMerges.mockResolvedValue({ merged: 1, rejected: 0, unrejected: 0, skipped: 0 });
 		api.fetchProductImage.mockResolvedValue({ image_url: null });
+		api.rejectedQueue.mockResolvedValue({ items: [], total: 0 });
 	});
 
 	it('fetches images for the pairs coming up, not just the one on screen', async () => {
@@ -59,7 +62,7 @@ describe('merges page', () => {
 		await fireEvent.click(await screen.findByRole('button', { name: /same game/i }));
 
 		expect(await screen.findByText('120')).toBeInTheDocument();
-		await waitFor(() => expect(api.decideMerges).toHaveBeenCalledWith([[1, 2]], []));
+		await waitFor(() => expect(api.decideMerges).toHaveBeenCalledWith([[1, 2]], [], []));
 	});
 
 	it('records a rejection rather than a merge when the pair is not the same game', async () => {
@@ -67,16 +70,53 @@ describe('merges page', () => {
 		render(MergesPage);
 		await fireEvent.click(await screen.findByRole('button', { name: /not the same/i }));
 
-		await waitFor(() => expect(api.decideMerges).toHaveBeenCalledWith([], [[1, 2]]));
+		await waitFor(() => expect(api.decideMerges).toHaveBeenCalledWith([], [[1, 2]], []));
 	});
 
-	it('skipping decides nothing but still moves on', async () => {
+	it('skipping decides nothing, moves on, and parks the pair for later', async () => {
 		api.mergeQueue.mockResolvedValue({ items: [pair(200, 1, 2), pair(120, 3, 4)], total: 2 });
 		render(MergesPage);
-		await fireEvent.click(await screen.findByRole('button', { name: /skip/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Skip S' }));
 
 		expect(await screen.findByText('120')).toBeInTheDocument();
 		expect(api.decideMerges).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByRole('button', { name: /^skipped/i }));
+		expect(await screen.findByText('200')).toBeInTheDocument();
+	});
+
+	it('keeps skips across a reload', async () => {
+		api.mergeQueue.mockResolvedValue({ items: [pair(200, 1, 2), pair(120, 3, 4)], total: 2 });
+		const first = render(MergesPage);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Skip S' }));
+		await screen.findByText('120');
+		first.unmount();
+
+		render(MergesPage);
+		// The skipped pair stays out of review and waits under Skipped.
+		expect(await screen.findByText('120')).toBeInTheDocument();
+		expect(screen.queryByText('200')).not.toBeInTheDocument();
+	});
+
+	it('posts unsent decisions by beacon when the page goes away', async () => {
+		const beacon = vi.fn(() => true);
+		vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+		api.mergeQueue.mockResolvedValue({ items: [pair(200, 1, 2), pair(120, 3, 4)], total: 2 });
+		render(MergesPage);
+		await fireEvent.click(await screen.findByRole('button', { name: /not the same/i }));
+
+		window.dispatchEvent(new Event('pagehide'));
+		await waitFor(() => expect(beacon).toHaveBeenCalled());
+		expect(beacon.mock.calls[0][0]).toBe('/api/games/suggestions/decide');
+		vi.unstubAllGlobals();
+	});
+
+	it('re-sends decisions left over from a lost flush', async () => {
+		localStorage.setItem('gd-merge-pending', JSON.stringify([{ pair: [7, 8], kind: 'reject' }]));
+		api.mergeQueue.mockResolvedValue({ items: [], total: 0 });
+		render(MergesPage);
+
+		await waitFor(() => expect(api.decideMerges).toHaveBeenCalledWith([], [[7, 8]], []));
 	});
 
 	it('undo takes back a decision that has not been sent yet', async () => {
@@ -101,13 +141,15 @@ describe('merges page', () => {
 		render(MergesPage);
 		await screen.findByText('200');
 
-		await fireEvent.click(screen.getByRole('button', { name: /merge 2 pairs/i }));
+		await fireEvent.click(screen.getByRole('button', { name: /all above score/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /merge all 2/i }));
 		await waitFor(() =>
 			expect(api.decideMerges).toHaveBeenCalledWith(
 				[
 					[1, 2],
 					[3, 4]
 				],
+				[],
 				[]
 			)
 		);
