@@ -1,6 +1,5 @@
 <script>
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { fade } from 'svelte/transition';
 	import {
 		shelvesPreview,
@@ -18,14 +17,12 @@
 	import ShelfReorderList from '$lib/components/ShelfReorderList.svelte';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
-	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
-	import { Search, Compass, Heart, GripVertical } from '@lucide/svelte';
+	import { Compass, Heart, GripVertical } from '@lucide/svelte';
 
 	let shelvesList = $state(/** @type {any[]} */ ([]));
 	let watchlistItems = $state(/** @type {any[]} */ ([]));
 	let loading = $state(true);
-	let q = $state('');
 
 	// Reorder mode: shelves collapse to draggable rows; order saves on exit.
 	let editing = $state(false);
@@ -50,10 +47,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function submitSearch() {
-		if (q.trim()) goto(`/search?q=${encodeURIComponent(q.trim())}`);
 	}
 
 	/** Persist the running order of the visible shelves. Hidden shelves are not
@@ -124,39 +117,6 @@
 </script>
 
 <div class="space-y-8">
-	<!-- Hero -->
-	<section
-		class="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-background p-6 sm:p-10"
-	>
-		<div class="relative z-10 max-w-2xl space-y-3">
-			<h1 class="text-3xl font-bold tracking-tight sm:text-4xl">
-				Never overpay for a board game again
-			</h1>
-			<p class="text-muted-foreground">
-				Track prices across stores, catch every drop, and pounce when it hits your target.
-			</p>
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					submitSearch();
-				}}
-				class="flex max-w-md gap-2 pt-1"
-			>
-				<div class="relative flex-1">
-					<Search
-						class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-					/>
-					<Input bind:value={q} placeholder="Search any game…" class="h-11 pl-9" />
-				</div>
-				<Button type="submit" size="lg" class="h-11">Search</Button>
-			</form>
-		</div>
-		<Compass
-			class="pointer-events-none absolute -right-8 -bottom-8 size-48 text-primary/5"
-			strokeWidth={1}
-		/>
-	</section>
-
 	{#snippet skeletonCard()}
 		<div class="space-y-2 rounded-xl border p-3">
 			<Skeleton class="aspect-[4/3] w-full" />
