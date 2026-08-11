@@ -132,11 +132,13 @@ export const unmergeProduct = (productId) =>
 	req(`/products/${productId}/game`, { method: 'DELETE' });
 export const mergeQueue = (limit = 20, minScore = 0) =>
 	req(`/games/suggestions?limit=${limit}&min_score=${minScore}`);
-export const decideMerges = (merges, rejects) =>
+export const decideMerges = (merges, rejects, unrejects = []) =>
 	req('/games/suggestions/decide', {
 		method: 'POST',
-		body: JSON.stringify({ merges, rejects })
+		body: JSON.stringify({ merges, rejects, unrejects })
 	});
+export const rejectedQueue = (limit = 50, minScore = 0) =>
+	req(`/games/suggestions/rejected?limit=${limit}&min_score=${minScore}`);
 
 // App logs
 export const getAppLogs = (level, limit = 200) => req(`/logs/?level=${level ?? ''}&limit=${limit}`);
