@@ -140,8 +140,15 @@ def _suggestion_cards(
     ]
 
 
-def suggestion_queue(session: Session, limit: int = 20) -> list[dict]:
-    """Catalog-wide merge candidates, best first."""
+def suggestion_queue(
+    session: Session, limit: int = 20, min_score: float = MERGE_CUTOFF
+) -> dict:
+    """Catalog-wide merge candidates, best first, one decision per listing.
+
+    A listing appears in at most one pair: a shop sells a given game once, so
+    its best match is the only one worth deciding, and the rest would only be
+    the same call asked again.
+    """
     rows = session.exec(
         select(Product.id, Game.title, Product.store_id, Product.game_id)
         .join(Game, Product.game_id == Game.id)
@@ -150,6 +157,7 @@ def suggestion_queue(session: Session, limit: int = 20) -> list[dict]:
     rejected = {
         (r.product_a_id, r.product_b_id) for r in session.exec(select(MergeRejection))
     }
+    floor = max(min_score, MERGE_CUTOFF)
 
     by_token: dict[str, list[tuple]] = defaultdict(list)
     for row in rows:
@@ -168,17 +176,51 @@ def suggestion_queue(session: Session, limit: int = 20) -> list[dict]:
                 if key in rejected or key in best:
                     continue
                 score = similarity(a_title, b_title)
-                if score >= MERGE_CUTOFF:
+                if score >= floor:
                     best[key] = score
 
-    top = sorted(best.items(), key=lambda kv: -kv[1])[:limit]
+    claimed: set[int] = set()
+    top: list[tuple[tuple[int, int], float]] = []
+    for pair, score in sorted(best.items(), key=lambda kv: -kv[1]):
+        if pair[0] in claimed or pair[1] in claimed:
+            continue
+        claimed.update(pair)
+        top.append((pair, score))
+
+    total = len(top)
+    top = top[:limit]
     ids = {pid for pair, _ in top for pid in pair}
     cards = {c["product"].id: c for c in repo.cards_by_ids(session, sorted(ids))}
-    return [
+    items = [
         {"score": round(score, 1), "left": cards[pair[0]], "right": cards[pair[1]]}
         for pair, score in top
         if pair[0] in cards and pair[1] in cards
     ]
+    return {"items": items, "total": total}
+
+
+def decide_many(session: Session, merges, rejects) -> dict:
+    """Apply a batch of merge/reject decisions, skipping ones that no longer hold.
+
+    A pair can go stale mid-batch — an earlier merge in the same batch may have
+    already put both listings on one game — so a failure is counted, not raised.
+    """
+    applied = {"merged": 0, "rejected": 0, "skipped": 0}
+    for a, b in merges:
+        try:
+            merge(session, a, b)
+            applied["merged"] += 1
+        except (LookupError, ValueError):
+            session.rollback()
+            applied["skipped"] += 1
+    for a, b in rejects:
+        try:
+            reject(session, a, b)
+            applied["rejected"] += 1
+        except (LookupError, ValueError):
+            session.rollback()
+            applied["skipped"] += 1
+    return applied
 
 
 # ---------------------------------------------------------------------------

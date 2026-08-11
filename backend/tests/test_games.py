@@ -173,6 +173,80 @@ def test_suggestion_queue_pairs_cross_store_matches(
     assert pair == {a.id, b.id}
 
 
+def test_suggestion_queue_reports_total_beyond_the_page(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    for title in ("Azul", "Catan", "Pandemic"):
+        _listing(session, "shopify-a", title, price=2000)
+        _listing(session, "woo-b", f"{title} | Board Game", price=1900)
+
+    body = client.get("/api/games/suggestions?limit=2").json()
+    assert len(body["items"]) == 2
+    assert body["total"] == 3
+
+
+def test_suggestion_queue_shows_each_listing_once(client: TestClient, session: Session):
+    """Three shops on one game yield one pair, not every combination."""
+    _stores(session)
+    make_store(session, "shopify-c", name="C")
+    _listing(session, "shopify-a", "Azul", price=2000)
+    _listing(session, "woo-b", "Azul", price=1900)
+    _listing(session, "shopify-c", "Azul", price=1800)
+
+    body = client.get("/api/games/suggestions").json()
+    assert len(body["items"]) == 1
+    seen = [
+        body["items"][0]["left"]["product"]["id"],
+        body["items"][0]["right"]["product"]["id"],
+    ]
+    assert len(set(seen)) == 2
+
+
+def test_suggestion_queue_honours_a_score_floor(client: TestClient, session: Session):
+    """A floor drops the loose matches and keeps the certain ones."""
+    _stores(session)
+    _listing(session, "shopify-a", "Catan", price=2000)
+    _listing(session, "woo-b", "Catan Board Game", price=1900)
+    _listing(session, "shopify-a", "Azul", price=2000)
+    _listing(session, "woo-b", "Azul Summer Pavilion", price=1900)
+
+    assert client.get("/api/games/suggestions").json()["total"] == 2
+    body = client.get("/api/games/suggestions?min_score=180").json()
+    assert body["total"] == 1
+    titles = {body["items"][0]["left"]["game"]["title"]}
+    assert titles == {"Catan"}
+
+
+def test_decide_applies_merges_and_rejections_in_one_call(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Board Game", price=1900)
+    c = _listing(session, "shopify-a", "Catan", price=3000)
+    d = _listing(session, "woo-b", "Catan Board Game", price=2900)
+
+    r = client.post(
+        "/api/games/suggestions/decide",
+        json={"merges": [[a.id, b.id]], "rejects": [[c.id, d.id]]},
+    )
+    assert r.json() == {"merged": 1, "rejected": 1, "skipped": 0}
+    assert _game(session, a).id == _game(session, b).id
+    assert session.get(MergeRejection, (min(c.id, d.id), max(c.id, d.id))) is not None
+
+
+def test_decide_skips_a_pair_that_no_longer_applies(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+
+    r = client.post("/api/games/suggestions/decide", json={"merges": [[a.id, 9999]]})
+    assert r.json()["skipped"] == 1
+    assert r.json()["merged"] == 0
+
+
 # --- manual candidate search ----------------------------------------------
 
 

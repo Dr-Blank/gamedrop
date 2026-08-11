@@ -22,11 +22,28 @@ class GamePatch(BaseModel):
     hidden: bool | None = None
 
 
+class DecisionBatch(BaseModel):
+    merges: list[tuple[int, int]] = []
+    rejects: list[tuple[int, int]] = []
+
+
 # Declared before /{game_id} so the literal path isn't swallowed by it.
 @router.get("/suggestions")
-def merge_queue(limit: int = 20, session: Session = Depends(get_session)):
+def merge_queue(
+    limit: int = 20,
+    min_score: float = 0.0,
+    session: Session = Depends(get_session),
+):
     """Catalog-wide merge candidates for bulk review."""
-    return {"items": service.suggestion_queue(session, limit=limit)}
+    return service.suggestion_queue(session, limit=limit, min_score=min_score)
+
+
+@router.post("/suggestions/decide")
+def decide_suggestions(
+    body: DecisionBatch, session: Session = Depends(get_session)
+) -> dict:
+    """Apply a screenful of merge/reject decisions in one request."""
+    return service.decide_many(session, body.merges, body.rejects)
 
 
 @router.get("/for-listing/{product_id}")
