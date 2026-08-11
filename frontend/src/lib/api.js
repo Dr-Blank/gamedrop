@@ -129,10 +129,7 @@ export const rejectMerge = (productId, otherProductId) =>
 		body: JSON.stringify({ other_product_id: otherProductId })
 	});
 export const unmergeProduct = (productId) =>
-	req(`/products/${productId}/group`, { method: 'DELETE' });
-export const getGroup = (groupId) => req(`/groups/${groupId}`);
-export const patchGroup = (groupId, body) =>
-	req(`/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify(body) });
+	req(`/products/${productId}/game`, { method: 'DELETE' });
 export const mergeQueue = (limit = 20) => req(`/games/suggestions?limit=${limit}`);
 
 // App logs
