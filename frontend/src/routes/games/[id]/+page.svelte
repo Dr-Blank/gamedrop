@@ -1,6 +1,6 @@
 <script>
 	import { page } from '$app/stores';
-	import { replaceState } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { fly } from 'svelte/transition';
 	import {
 		getGame,
@@ -181,6 +181,19 @@
 			if (offer) url.searchParams.set('store', offer.store_id);
 			replaceState(url, {});
 		}
+	}
+
+	/** Merging can absorb this game into another, which retires this URL. */
+	async function afterMerge(payload) {
+		const survivor = payload?.game?.id;
+		if (survivor && survivor !== gameId) {
+			const store = payload.offers?.find((o) => o.product_id === selectedId)?.store_id;
+			await goto(`/games/${survivor}${store ? `?store=${encodeURIComponent(store)}` : ''}`, {
+				replaceState: true
+			});
+			return;
+		}
+		await loadGame({ keepSelection: true });
 	}
 
 	async function toggleWatch() {
@@ -869,10 +882,7 @@
 					</Card.Root>
 				{/if}
 
-				<MergeSuggestions
-					productId={selectedId}
-					onmerged={() => loadGame({ keepSelection: true })}
-				/>
+				<MergeSuggestions productId={selectedId} onmerged={afterMerge} />
 			</aside>
 		</div>
 	{/if}

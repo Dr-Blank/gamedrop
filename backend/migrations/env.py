@@ -37,6 +37,15 @@ def _render_item(type_, obj, autogen_context):
     return False
 
 
+#: Indexes written by hand in a migration because SQLModel can't express them
+#: (partial indexes). Autogenerate would propose dropping them on every run.
+HAND_WRITTEN_INDEXES = {"ix_watchlistitem_active_game"}
+
+
+def _include_object(obj, name, type_, reflected, compare_to):
+    return not (type_ == "index" and name in HAND_WRITTEN_INDEXES)
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=_db_url(),
@@ -45,6 +54,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
         render_item=_render_item,
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -61,6 +71,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             render_as_batch=True,
             render_item=_render_item,
+            include_object=_include_object,
         )
         with context.begin_transaction():
             context.run_migrations()

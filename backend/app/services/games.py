@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from ..logger import get_logger
 from ..models import (
     Game,
+    GameAlias,
     MergeRejection,
     NotificationLog,
     PriceSnapshot,
@@ -284,6 +285,12 @@ def merge(session: Session, product_id: int, other_id: int) -> dict:
         entry.game_id = target_id
         session.add(entry)
 
+    # The absorbed id keeps pointing at the survivor, so links to it still work.
+    session.add(GameAlias(old_game_id=source_id, game_id=target_id))
+    for alias in session.exec(select(GameAlias).where(GameAlias.game_id == source_id)):
+        alias.game_id = target_id
+        session.add(alias)
+
     session.flush()
     session.delete(source)
     session.commit()
@@ -343,11 +350,21 @@ def reject(session: Session, product_id: int, other_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+def resolve_game_id(session: Session, game_id: int) -> int | None:
+    """Follow a merged-away id to the game that absorbed it."""
+    if session.get(Game, game_id) is not None:
+        return game_id
+    alias = session.get(GameAlias, game_id)
+    return alias.game_id if alias and session.get(Game, alias.game_id) else None
+
+
 def game_payload(session: Session, game_id: int) -> dict:
     """Everything the game page needs: offers, listing cards, per-shop history."""
-    game = session.get(Game, game_id)
+    resolved = resolve_game_id(session, game_id)
+    game = session.get(Game, resolved) if resolved else None
     if game is None:
         raise LookupError("Game not found")
+    game_id = resolved
 
     compare = repo.compare_summary(session, game_id) or {
         "game_id": game_id,

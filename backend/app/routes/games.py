@@ -53,9 +53,11 @@ def update_game(
     session: Session = Depends(get_session),
 ):
     """Rename a game, set its BGG link, note, or hide it."""
-    game = session.get(Game, game_id)
+    resolved = service.resolve_game_id(session, game_id)
+    game = session.get(Game, resolved) if resolved else None
     if game is None:
         raise HTTPException(404, "Game not found")
+    game_id = resolved
 
     fields = body.model_dump(exclude_unset=True)
     if "title" in fields:
@@ -90,7 +92,8 @@ def listing_detail(
     from ..models import PriceSnapshot, ProductOverride
 
     listing = session.get(Product, product_id)
-    if listing is None or listing.game_id != game_id:
+    resolved = service.resolve_game_id(session, game_id)
+    if listing is None or listing.game_id != resolved:
         raise HTTPException(404, "Listing not found for this game")
     snapshots = session.exec(
         select(PriceSnapshot)

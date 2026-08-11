@@ -10,7 +10,7 @@
 	import { inr } from '$lib/gamePricing.js';
 	import { Check, X, Link2, Search } from '@lucide/svelte';
 
-	let { productId, onmerged = /** @type {(()=>void)|null} */ (null) } = $props();
+	let { productId, onmerged = /** @type {((payload:any)=>void)|null} */ (null) } = $props();
 
 	let items = $state([]);
 	let loading = $state(true);
@@ -57,10 +57,10 @@
 	async function confirm(candidateId) {
 		busy = { ...busy, [candidateId]: 'merge' };
 		try {
-			await mergeProducts(productId, candidateId);
+			const payload = await mergeProducts(productId, candidateId);
 			drop(candidateId);
 			toast.success('Merged — prices now compared side by side');
-			onmerged?.();
+			onmerged?.(payload);
 		} catch (e) {
 			toast.error(e.message);
 		} finally {

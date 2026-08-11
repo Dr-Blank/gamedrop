@@ -436,6 +436,51 @@ def test_game_endpoint_404s_for_unknown_game(client: TestClient):
     assert client.get("/api/games/999").status_code == 404
 
 
+def test_absorbed_game_id_resolves_to_the_survivor(
+    client: TestClient, session: Session
+):
+    """Merging retires one id; links to it must still land on the game."""
+    _stores(session)
+    a = _listing(session, "shopify-a", "Catan", price=3000)
+    b = _listing(session, "woo-b", "Catan Board Game", price=2500)
+    payload = service.merge(session, a.id, b.id)
+    survivor = payload["game"].id
+    absorbed = b.game_id if survivor == a.game_id else a.game_id
+
+    r = client.get(f"/api/games/{absorbed}")
+    assert r.status_code == 200
+    assert r.json()["game"]["id"] == survivor
+
+
+def test_absorbed_id_follows_a_second_merge(client: TestClient, session: Session):
+    _stores(session)
+    make_store(session, "woo-c", name="C", type="woocommerce")
+    a = _listing(session, "shopify-a", "Catan", price=3000)
+    b = _listing(session, "woo-b", "Catan Board Game", price=2500)
+    c = _listing(session, "woo-c", "Catan Strategy Game", price=2600)
+    first = service.merge(session, b.id, c.id)
+    absorbed = c.game_id if first["game"].id == b.game_id else b.game_id
+    survivor = service.merge(session, a.id, b.id)["game"].id
+
+    assert client.get(f"/api/games/{absorbed}").json()["game"]["id"] == survivor
+
+
+def test_patching_an_absorbed_id_edits_the_survivor(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Catan", price=3000)
+    b = _listing(session, "woo-b", "Catan Board Game", price=2500)
+    payload = service.merge(session, a.id, b.id)
+    survivor = payload["game"].id
+    absorbed = b.game_id if survivor == a.game_id else a.game_id
+
+    r = client.patch(f"/api/games/{absorbed}", json={"title": "Catan (base)"})
+    assert r.status_code == 200
+    assert r.json()["game"]["id"] == survivor
+    assert r.json()["game"]["title"] == "Catan (base)"
+
+
 def test_game_for_listing_resolves_an_old_listing_url(
     client: TestClient, session: Session
 ):

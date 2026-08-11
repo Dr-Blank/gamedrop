@@ -55,6 +55,18 @@ class Game(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class GameAlias(SQLModel, table=True):
+    """A game id that was merged away, and the game it now points at.
+
+    Kept so bookmarks, open tabs and old notification links resolve instead of
+    404ing after a merge.
+    """
+
+    old_game_id: int = Field(primary_key=True)
+    game_id: int = Field(foreign_key="game.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class MergeRejection(SQLModel, table=True):
     """A rejected merge suggestion. Ids stored low-first so the pair is one row."""
 
