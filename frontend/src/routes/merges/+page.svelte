@@ -412,28 +412,57 @@
 
 {#snippet rowSide(card)}
 	<div class="flex min-w-0 flex-1 items-center gap-2">
-		<!-- Small enough to keep rows dense, big on hover for a proper look. -->
 		<ProductImage
 			src={srcFor(card)}
 			productId={card.product.id}
 			alt=""
-			class="relative z-0 size-9 shrink-0 rounded-md bg-background shadow-sm transition-transform duration-150 hover:z-30 hover:scale-[3.2] hover:shadow-xl"
+			class="size-14 shrink-0 rounded-md bg-background"
 		/>
 		<span
 			class="size-2 shrink-0 rounded-full"
 			style="background:{storeColors.of(card.product.store_id)}"
 			aria-hidden="true"
 		></span>
-		<a href="/games/{card.game.id}" class="line-clamp-1 text-sm hover:underline">
+		<a href="/games/{card.game.id}" class="line-clamp-2 text-sm hover:underline">
 			{card.game.title}
 		</a>
+	</div>
+{/snippet}
+
+<!-- Both sides at once: the point of the preview is telling two boxes apart,
+     which one enlarged image can't do. Floating and click-through, so the row
+     heights — and so the buttons under the pointer — never move. -->
+{#snippet rowPreview(item)}
+	<div
+		class="pointer-events-none absolute bottom-full left-14 z-40 mb-1 hidden gap-3 rounded-xl border bg-popover p-3 shadow-2xl group-hover/row:flex"
+	>
+		{#each [item.left, item.right] as card (card.product.id)}
+			<div class="w-52">
+				<ProductImage
+					src={srcFor(card)}
+					productId={card.product.id}
+					alt={card.game.title}
+					eager
+					class="h-52 w-52 rounded-lg"
+				/>
+				<p class="mt-1.5 flex items-center gap-1.5 text-xs">
+					<span
+						class="size-2 shrink-0 rounded-full"
+						style="background:{storeColors.of(card.product.store_id)}"
+						aria-hidden="true"
+					></span>
+					<span class="line-clamp-2">{card.product.title}</span>
+				</p>
+			</div>
+		{/each}
 	</div>
 {/snippet}
 
 <!-- Fixed height: a decided row leaves, the next slides into the same place, and
      the pointer is already on its button. -->
 {#snippet row(item, actions)}
-	<div class="flex h-14 items-center gap-3 rounded-lg border px-2.5">
+	<div class="group/row relative flex h-20 items-center gap-3 rounded-lg border px-2.5">
+		{@render rowPreview(item)}
 		<span class="w-8 shrink-0 text-center font-semibold tabular-nums">
 			{Math.round(item.score)}
 		</span>

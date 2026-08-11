@@ -172,7 +172,7 @@ describe('merges page', () => {
 		const heights = new Set(
 			screen
 				.getAllByRole('button', { name: /^merge$/i })
-				.map((b) => b.closest('div.h-14')?.className)
+				.map((b) => b.closest('div.h-20')?.className)
 		);
 		expect(heights.size).toBe(1);
 	});
