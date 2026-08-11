@@ -100,7 +100,7 @@ describe('merges page', () => {
 
 	it('posts unsent decisions by beacon when the page goes away', async () => {
 		const beacon = vi.fn(() => true);
-		vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+		navigator.sendBeacon = beacon;
 		api.mergeQueue.mockResolvedValue({ items: [pair(200, 1, 2), pair(120, 3, 4)], total: 2 });
 		render(MergesPage);
 		await fireEvent.click(await screen.findByRole('button', { name: /not the same/i }));
@@ -108,7 +108,7 @@ describe('merges page', () => {
 		window.dispatchEvent(new Event('pagehide'));
 		await waitFor(() => expect(beacon).toHaveBeenCalled());
 		expect(beacon.mock.calls[0][0]).toBe('/api/games/suggestions/decide');
-		vi.unstubAllGlobals();
+		delete navigator.sendBeacon;
 	});
 
 	it('re-sends decisions left over from a lost flush', async () => {
@@ -134,10 +134,8 @@ describe('merges page', () => {
 			items: [pair(200, 1, 2), pair(190, 3, 4), pair(100, 5, 6)],
 			total: 3
 		});
-		vi.stubGlobal(
-			'confirm',
-			vi.fn(() => true)
-		);
+		const realConfirm = window.confirm;
+		window.confirm = vi.fn(() => true);
 		render(MergesPage);
 		await screen.findByText('200');
 
@@ -153,7 +151,30 @@ describe('merges page', () => {
 				[]
 			)
 		);
-		vi.unstubAllGlobals();
+		window.confirm = realConfirm;
+	});
+
+	it('list rows leave as they are decided so the next lands under the pointer', async () => {
+		api.mergeQueue.mockResolvedValue({
+			items: [pair(200, 1, 2), pair(190, 3, 4), pair(180, 5, 6)],
+			total: 3
+		});
+		render(MergesPage);
+		await screen.findByText('200');
+		await fireEvent.click(screen.getByRole('button', { name: /all above score/i }));
+
+		const rows = () => screen.getAllByRole('button', { name: /^merge$/i });
+		expect(rows()).toHaveLength(3);
+		await fireEvent.click(rows()[0]);
+
+		await waitFor(() => expect(rows()).toHaveLength(2));
+		// Every remaining row keeps the same height, so the buttons stay put.
+		const heights = new Set(
+			screen
+				.getAllByRole('button', { name: /^merge$/i })
+				.map((b) => b.closest('div.h-14')?.className)
+		);
+		expect(heights.size).toBe(1);
 	});
 
 	it('says so when there is nothing left to review', async () => {

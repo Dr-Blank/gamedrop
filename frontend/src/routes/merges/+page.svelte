@@ -410,28 +410,35 @@
 	</div>
 {/snippet}
 
+{#snippet rowSide(card)}
+	<div class="flex min-w-0 flex-1 items-center gap-2">
+		<!-- Small enough to keep rows dense, big on hover for a proper look. -->
+		<ProductImage
+			src={srcFor(card)}
+			productId={card.product.id}
+			alt=""
+			class="relative z-0 size-9 shrink-0 rounded-md bg-background shadow-sm transition-transform duration-150 hover:z-30 hover:scale-[3.2] hover:shadow-xl"
+		/>
+		<span
+			class="size-2 shrink-0 rounded-full"
+			style="background:{storeColors.of(card.product.store_id)}"
+			aria-hidden="true"
+		></span>
+		<a href="/games/{card.game.id}" class="line-clamp-1 text-sm hover:underline">
+			{card.game.title}
+		</a>
+	</div>
+{/snippet}
+
+<!-- Fixed height: a decided row leaves, the next slides into the same place, and
+     the pointer is already on its button. -->
 {#snippet row(item, actions)}
-	{@const l = item.left}
-	{@const r = item.right}
-	<div class="flex flex-wrap items-center gap-3 rounded-lg border p-2.5">
-		<span class="w-8 shrink-0 text-center font-semibold tabular-nums">{Math.round(item.score)}</span
-		>
-		<div class="flex min-w-0 flex-1 items-center gap-2">
-			<span
-				class="size-2 shrink-0 rounded-full"
-				style="background:{storeColors.of(l.product.store_id)}"
-				aria-hidden="true"
-			></span>
-			<a href="/games/{l.game.id}" class="line-clamp-1 text-sm hover:underline">{l.game.title}</a>
-		</div>
-		<div class="flex min-w-0 flex-1 items-center gap-2">
-			<span
-				class="size-2 shrink-0 rounded-full"
-				style="background:{storeColors.of(r.product.store_id)}"
-				aria-hidden="true"
-			></span>
-			<a href="/games/{r.game.id}" class="line-clamp-1 text-sm hover:underline">{r.game.title}</a>
-		</div>
+	<div class="flex h-14 items-center gap-3 rounded-lg border px-2.5">
+		<span class="w-8 shrink-0 text-center font-semibold tabular-nums">
+			{Math.round(item.score)}
+		</span>
+		{@render rowSide(item.left)}
+		{@render rowSide(item.right)}
 		<div class="flex shrink-0 gap-1.5">
 			{@render actions(item)}
 		</div>
