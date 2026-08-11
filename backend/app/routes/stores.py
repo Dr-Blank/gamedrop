@@ -16,6 +16,20 @@ log = get_logger(__name__)
 
 _SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 _HOST_RE = re.compile(r"^(?:https?://)?(?:www\.)?([^/:?#]+)")
+_HEX_RE = re.compile(r"^#[0-9a-f]{6}$")
+
+
+def normalize_color(v: str | None) -> str | None:
+    """`#rrggbb`, or None to fall back to the colour derived from the store id."""
+    if v is None:
+        return None
+    v = v.strip().lower()
+    if not v:
+        return None
+    if not _HEX_RE.match(v):
+        raise ValueError("color must be a hex value like #4f46e5")
+    return v
+
 
 #: Default listing path per platform; the shapes differ, and a wrong one
 #: silently syncs nothing.
@@ -52,6 +66,12 @@ class StoreCreate(BaseModel):
     base_url: str
     collection_path: str | None = None
     scrape_config: str | None = None
+    color: str | None = None
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        return normalize_color(v)
 
     @field_validator("base_url", mode="before")
     @classmethod
@@ -105,6 +125,12 @@ class StorePatch(BaseModel):
     collection_path: str | None = None
     enabled: bool | None = None
     scrape_config: str | None = None
+    color: str | None = None
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        return normalize_color(v)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -216,7 +242,11 @@ def update_store(
     store = session.get(Store, store_id)
     if not store:
         raise HTTPException(404, "Store not found")
-    for field, val in body.model_dump(exclude_none=True).items():
+    # Null means "leave it alone", except for colour, where it is how the user
+    # asks for the derived default back.
+    for field, val in body.model_dump(exclude_unset=True).items():
+        if val is None and field != "color":
+            continue
         setattr(store, field, val)
     session.add(store)
     session.commit()

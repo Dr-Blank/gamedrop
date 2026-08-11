@@ -10,6 +10,8 @@ class Store(SQLModel, table=True):
     base_url: str
     collection_path: str = "/collections/board-games"
     enabled: bool = True
+    #: Hex accent for charts and store labels. Null means the derived default.
+    color: str | None = None
     # JSON: timeout_sec, request_delay_sec, sync_interval_hours
     scrape_config: str = (
         '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":6}'
