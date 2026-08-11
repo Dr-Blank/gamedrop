@@ -550,7 +550,9 @@ def test_hiding_a_listing_hides_the_game_everywhere(
     assert client.put(f"/api/products/{a.id}/hide").status_code == 200
     assert client.post("/api/browse/query", json={}).json()["items"] == []
     assert client.delete(f"/api/products/{b.id}/hide").status_code == 200
-    assert len(client.post("/api/browse/query", json={}).json()["items"]) == 2
+    items = client.post("/api/browse/query", json={}).json()["items"]
+    assert len(items) == 1
+    assert items[0]["compare"]["listing_count"] == 2
 
 
 # --- watch + BGG follow the game -----------------------------------------

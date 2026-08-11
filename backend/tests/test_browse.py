@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Store
+from app.models import Game, PriceSnapshot, Store
 
 from .factories import make_product
 
@@ -143,3 +143,34 @@ def test_browse_no_bgg_by_default(client: TestClient, session: Session):
     r = client.post("/api/browse/query", json=_q())
     items = r.json()["items"]
     assert all(i["bgg"] is None for i in items)
+
+
+def test_browse_merged_game_one_card(client: TestClient, session: Session):
+    """A game with listings at two stores (post-merge) is one card, not two."""
+    session.add(
+        Store(id="s1", name="Store One", type="shopify", base_url="https://s1.com")
+    )
+    session.add(
+        Store(id="s2", name="Store Two", type="shopify", base_url="https://s2.com")
+    )
+    session.commit()
+
+    game = Game(title="Poker Chip Set")
+    session.add(game)
+    session.flush()
+    p1 = make_product(
+        session, store_id="s1", external_id="e1", title="Poker Chip Set", game=game
+    )
+    p2 = make_product(
+        session, store_id="s2", external_id="e2", title="Poker Chip Set", game=game
+    )
+    session.add(PriceSnapshot(product_id=p1.id, price=325.0, available=True))
+    session.add(PriceSnapshot(product_id=p2.id, price=325.0, available=True))
+    session.commit()
+
+    r = client.post("/api/browse/query", json=_q())
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data["items"]) == 1
+    assert data["total"] == 1
+    assert data["items"][0]["compare"]["listing_count"] == 2

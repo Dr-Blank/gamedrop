@@ -392,7 +392,13 @@ def query_products(
     limit: int = 48,
     include_hidden: bool = False,
 ) -> list[CatalogRow]:
-    """Filtered, sorted, paginated catalog rows."""
+    """Filtered, sorted, paginated catalog rows, one per game.
+
+    A merged game keeps every listing row in the join, so duplicates are
+    collapsed per page (same approach as hidden_games/search): a merged
+    game whose listings straddle a page boundary can make that page come
+    back short of `limit`.
+    """
     latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
     registry = build_field_registry(
         bgg_subq=bgg,
@@ -418,7 +424,15 @@ def query_products(
 
     offset = (page - 1) * limit
     rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    return [(r[0], r[1], r[2]) for r in rows]
+
+    seen: set[int] = set()
+    unique: list[CatalogRow] = []
+    for product, snap, game in rows:
+        if game.id in seen:
+            continue
+        seen.add(game.id)
+        unique.append((product, snap, game))
+    return unique
 
 
 def count_products(
@@ -427,7 +441,7 @@ def count_products(
     filter_node: FilterNode | None = None,
     include_hidden: bool = False,
 ) -> int:
-    """Total matching row count (for pagination)."""
+    """Total matching game count (for pagination) — distinct, to match query_products."""
     latest, bgg, first_seen, prev_snap, watchlist = _subqueries()
     registry = build_field_registry(
         bgg_subq=bgg,
@@ -436,7 +450,7 @@ def count_products(
         watchlist_subq=watchlist,
     )
     stmt = (
-        select(func.count())
+        select(func.count(func.distinct(Game.id)))
         .select_from(Product)
         .join(Game, Product.game_id == Game.id)
         .join(latest, Product.id == latest.c.product_id, isouter=True)

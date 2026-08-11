@@ -67,8 +67,11 @@ def test_watching_one_shop_watches_the_game(client: TestClient, session: Session
             }
         },
     ).json()
-    ids = {item["product"]["id"] for item in watched["items"]}
-    assert {pid, other.id} <= ids
+    assert len(watched["items"]) == 1
+    item = watched["items"][0]
+    assert item["game"]["id"] == product.game_id
+    offer_ids = {o["product_id"] for o in item["compare"]["offers"]}
+    assert {pid, other.id} <= offer_ids
 
 
 def test_add_nonexistent_product(client: TestClient):
