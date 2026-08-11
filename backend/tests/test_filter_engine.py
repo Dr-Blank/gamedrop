@@ -1445,3 +1445,129 @@ def test_store_compare_endpoint(client: TestClient, session: Session):
     assert r.status_code == 200
     titles = [i["game"]["title"] for i in r.json()["items"]]
     assert "CrossStoreGame" in titles
+
+
+# ---------------------------------------------------------------------------
+# store_compare thresholds — compare the price gap, not just which is cheaper
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "op,value,price_a,price_b,expected",
+    [
+        # "at least 500 cheaper at store A"
+        ("lte", -500.0, 1000.0, 1600.0, True),
+        ("lte", -500.0, 1000.0, 1400.0, False),
+        # "store A more than 500 dearer"
+        ("gt", 500.0, 2000.0, 1200.0, True),
+        ("gt", 500.0, 2000.0, 1600.0, False),
+        # gap inside a band
+        ("lt", 100.0, 1000.0, 950.0, True),
+        ("gte", 0.0, 1000.0, 1000.0, True),
+        ("ne", 0.0, 1000.0, 1000.0, False),
+    ],
+)
+def test_store_compare_abs_threshold(
+    session: Session, op, value, price_a, price_b, expected
+):
+    game, _, _ = _same_game_two_stores(session, price_a, price_b)
+    rows = query_products(
+        session,
+        filter_node=StoreCompare(store_a="s1", store_b="s2", op=op, value=value),
+    )
+    assert (game.id in {g.id for _, _, g in rows}) is expected
+
+
+def test_store_compare_default_value_keeps_plain_comparison(session: Session):
+    """No threshold given = the simple "A cheaper than B" comparison."""
+    game, _, _ = _same_game_two_stores(session, 20.0, 30.0)
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="s2", op="lt")
+    )
+    assert game.id in {g.id for _, _, g in rows}
+
+
+def test_store_compare_band_between_two_thresholds(session: Session):
+    """Gap between −800 and −200: savings big enough to matter, not a fake listing."""
+    game, _, _ = _same_game_two_stores(session, 1000.0, 1500.0)
+    node = Group(
+        op="and",
+        conditions=[
+            StoreCompare(store_a="s1", store_b="s2", op="lte", value=-200.0),
+            StoreCompare(store_a="s1", store_b="s2", op="gte", value=-800.0),
+        ],
+    )
+    assert game.id in {g.id for _, _, g in query_products(session, filter_node=node)}
+
+
+@pytest.mark.parametrize(
+    "op,value,price_a,price_b,expected",
+    [
+        # 25% cheaper at store A
+        ("lte", -25.0, 750.0, 1000.0, True),
+        ("lte", -25.0, 800.0, 1000.0, False),
+        # more than 10% dearer at store A
+        ("gt", 10.0, 1200.0, 1000.0, True),
+        ("gt", 10.0, 1050.0, 1000.0, False),
+    ],
+)
+def test_store_compare_pct_threshold(
+    session: Session, op, value, price_a, price_b, expected
+):
+    game, _, _ = _same_game_two_stores(session, price_a, price_b)
+    rows = query_products(
+        session,
+        filter_node=StoreCompare(
+            store_a="s1", store_b="s2", op=op, value=value, mode="pct"
+        ),
+    )
+    assert (game.id in {g.id for _, _, g in rows}) is expected
+
+
+def test_store_compare_pct_skips_zero_base_price(session: Session):
+    """A free/zero-priced listing at store B has no meaningful percent gap."""
+    game, _, _ = _same_game_two_stores(session, 500.0, 0.0)
+    rows = query_products(
+        session,
+        filter_node=StoreCompare(
+            store_a="s1", store_b="s2", op="gt", value=0.0, mode="pct"
+        ),
+    )
+    assert game.id not in {g.id for _, _, g in rows}
+
+
+def test_store_compare_threshold_endpoint(client: TestClient, session: Session):
+    _same_game_two_stores(session, 1000.0, 1800.0)
+    r = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "store_compare",
+                "store_a": "s1",
+                "store_b": "s2",
+                "op": "lte",
+                "value": -500,
+                "mode": "abs",
+            }
+        },
+    )
+    assert r.status_code == 200
+    titles = [i["game"]["title"] for i in r.json()["items"]]
+    assert "CrossStoreGame" in titles
+
+
+def test_store_compare_bad_mode_returns_422(client: TestClient, session: Session):
+    _same_game_two_stores(session, 20.0, 30.0)
+    r = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "store_compare",
+                "store_a": "s1",
+                "store_b": "s2",
+                "op": "lt",
+                "mode": "bogus",
+            }
+        },
+    )
+    assert r.status_code == 422

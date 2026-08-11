@@ -65,7 +65,30 @@
 	function addStoreCompare() {
 		const a = stores[0]?.id ?? '';
 		const b = stores[1]?.id ?? stores[0]?.id ?? '';
-		group.conditions.push({ type: 'store_compare', store_a: a, op: 'lt', store_b: b });
+		group.conditions.push({
+			type: 'store_compare',
+			store_a: a,
+			op: 'lt',
+			store_b: b,
+			value: 0,
+			mode: 'abs'
+		});
+	}
+
+	function storeName(id) {
+		return stores.find((s) => s.id === id)?.name ?? id;
+	}
+
+	function storeCompareHint(cond) {
+		const unit = cond.mode === 'pct' ? '%' : '';
+		const v = Number(cond.value) || 0;
+		const a = storeName(cond.store_a);
+		const b = storeName(cond.store_b);
+		if (v === 0) return `gap below 0 means cheaper at ${a}`;
+		const size = `${Math.abs(v)}${unit}`;
+		return v < 0
+			? `e.g. ${size} cheaper at ${a} than ${b}`
+			: `e.g. ${size} dearer at ${a} than ${b}`;
 	}
 
 	function removeChild(i) {
@@ -221,7 +244,16 @@
 					{/each}
 				</select>
 
-				<span class="text-xs text-muted-foreground">price</span>
+				<span class="text-xs text-muted-foreground">−</span>
+
+				<!-- Store B -->
+				<select bind:value={cond.store_b} class="h-7 rounded border bg-background px-2 text-xs">
+					{#each stores as s}
+						<option value={s.id}>{s.name}</option>
+					{/each}
+				</select>
+
+				<span class="text-xs text-muted-foreground">price gap</span>
 
 				<!-- Operator -->
 				<select bind:value={cond.op} class="h-7 rounded border bg-background px-2 text-xs">
@@ -230,13 +262,18 @@
 					{/each}
 				</select>
 
-				<!-- Store B -->
-				<select bind:value={cond.store_b} class="h-7 rounded border bg-background px-2 text-xs">
-					{#each stores as s}
-						<option value={s.id}>{s.name}</option>
-					{/each}
+				<!-- Threshold -->
+				<input
+					type="number"
+					bind:value={cond.value}
+					step="1"
+					class="h-7 w-24 rounded border bg-background px-2 text-xs"
+				/>
+
+				<select bind:value={cond.mode} class="h-7 rounded border bg-background px-2 text-xs">
+					<option value="abs">amount</option>
+					<option value="pct">%</option>
 				</select>
-				<span class="text-xs text-muted-foreground">price</span>
 
 				<button
 					onclick={() => removeChild(i)}
@@ -245,6 +282,9 @@
 					<X class="size-3.5" />
 				</button>
 			</div>
+			<p class="pl-2 text-[11px] text-muted-foreground">
+				{storeCompareHint(cond)}
+			</p>
 		{:else}
 			<!-- Nested group (recursive) -->
 			<div class="pl-2">

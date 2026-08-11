@@ -16,6 +16,7 @@ Sort schema:
 
 from __future__ import annotations
 
+import operator
 import types
 import typing
 from dataclasses import dataclass
@@ -315,16 +316,30 @@ class Condition(BaseModel):
     value: Any = None
 
 
-_STORE_CMP_OPS = frozenset({"eq", "ne", "gt", "gte", "lt", "lte"})
+_STORE_CMP_FUNCS: dict[str, Any] = {
+    "eq": operator.eq,
+    "ne": operator.ne,
+    "gt": operator.gt,
+    "gte": operator.ge,
+    "lt": operator.lt,
+    "lte": operator.le,
+}
+_STORE_CMP_OPS = frozenset(_STORE_CMP_FUNCS)
 
 
 class StoreCompare(BaseModel):
-    """Compare a game's latest price at two stores (e.g. Store A < Store B)."""
+    """Compare a game's latest price at two stores by their difference.
+
+    The op tests `price_a - price_b` against `value`, so the plain "A cheaper
+    than B" case is op=lt with the default threshold of 0.
+    """
 
     type: Literal["store_compare"] = "store_compare"
     store_a: str
     store_b: str
     op: str
+    value: float = 0
+    mode: Literal["abs", "pct"] = "abs"
 
 
 class Group(BaseModel):
@@ -374,8 +389,9 @@ def apply_filter(
 
 
 def _apply_store_compare(node: StoreCompare) -> Any:
-    """Game.id IN (games where latest price at store_a `op` latest price at store_b)."""
-    if node.op not in _STORE_CMP_OPS:
+    """Game.id IN (games whose store_a − store_b latest price gap `op` `value`)."""
+    cmp_func = _STORE_CMP_FUNCS.get(node.op)
+    if cmp_func is None:
         raise ValueError(f"Unknown store_compare op: {node.op!r}")
 
     from .models import Game, PriceSnapshot, Product
@@ -404,24 +420,16 @@ def _apply_store_compare(node: StoreCompare) -> Any:
     a = per_store_stmt.subquery("store_a")
     b = per_store_stmt.subquery("store_b")
 
-    match node.op:
-        case "eq":
-            cmp_expr = a.c.price == b.c.price
-        case "ne":
-            cmp_expr = a.c.price != b.c.price
-        case "gt":
-            cmp_expr = a.c.price > b.c.price
-        case "gte":
-            cmp_expr = a.c.price >= b.c.price
-        case "lt":
-            cmp_expr = a.c.price < b.c.price
-        case "lte":
-            cmp_expr = a.c.price <= b.c.price
+    clauses = [a.c.store_id == node.store_a, b.c.store_id == node.store_b]
+    if node.mode == "pct":
+        gap: Any = (a.c.price - b.c.price) / b.c.price * 100
+        clauses.append(b.c.price > 0)  # percentage is undefined against a zero base
+    else:
+        gap = a.c.price - b.c.price
+    clauses.append(cmp_func(gap, node.value))
 
     matching_games = (
-        select(a.c.game_id)
-        .join(b, a.c.game_id == b.c.game_id)
-        .where(a.c.store_id == node.store_a, b.c.store_id == node.store_b, cmp_expr)
+        select(a.c.game_id).join(b, a.c.game_id == b.c.game_id).where(*clauses)
     )
     return Game.id.in_(matching_games)
 
