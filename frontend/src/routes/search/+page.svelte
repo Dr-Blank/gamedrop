@@ -14,10 +14,23 @@
 	let items = $state([]);
 	let loading = $state(false);
 	let ran = $state(false);
+	let debounceHandle;
 
 	// Keep the box in sync when navigating via the header search.
 	$effect(() => {
 		input = q;
+	});
+
+	// Auto-navigate once the user stops typing, so a search runs without
+	// pressing Enter. Enter/click still fires immediately via submit().
+	$effect(() => {
+		const term = input.trim();
+		clearTimeout(debounceHandle);
+		if (term === q) return;
+		debounceHandle = setTimeout(() => {
+			goto(term ? `/search?q=${encodeURIComponent(term)}` : '/search', { keepFocus: true });
+		}, 400);
+		return () => clearTimeout(debounceHandle);
 	});
 
 	// Run a search whenever the URL query changes.
@@ -37,6 +50,7 @@
 	});
 
 	function submit() {
+		clearTimeout(debounceHandle);
 		const t = input.trim();
 		if (t) goto(`/search?q=${encodeURIComponent(t)}`, { keepFocus: true });
 	}
