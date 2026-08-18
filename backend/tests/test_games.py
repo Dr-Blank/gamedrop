@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.models import (
     Game,
+    GameAlias,
     MergeRejection,
     PriceSnapshot,
     Product,
@@ -582,6 +583,26 @@ def test_absorbed_game_id_resolves_to_the_survivor(
     r = client.get(f"/api/games/{absorbed}")
     assert r.status_code == 200
     assert r.json()["game"]["id"] == survivor
+
+
+def test_merge_overwrites_a_stale_alias_for_a_reused_game_id(
+    client: TestClient, session: Session
+):
+    """old_game_id is the alias table's primary key, and a game id can be
+    reused after an earlier merge -- the row must be updated, not re-inserted."""
+    _stores(session)
+    a = _listing(session, "shopify-a", "Catan", price=3000)
+    b = _listing(session, "woo-b", "Catan Board Game", price=2500)
+    c = _listing(session, "woo-b", "Puerto Rico", price=1500)
+    target_id, source_id = sorted([a.game_id, b.game_id])
+
+    session.add(GameAlias(old_game_id=source_id, game_id=c.game_id))
+    session.commit()
+
+    payload = service.merge(session, a.id, b.id)
+
+    alias = session.get(GameAlias, source_id)
+    assert alias.game_id == target_id == payload["game"].id
 
 
 def test_absorbed_id_follows_a_second_merge(client: TestClient, session: Session):

@@ -384,7 +384,15 @@ def merge(session: Session, product_id: int, other_id: int) -> dict:
         session.add(entry)
 
     # The absorbed id keeps pointing at the survivor, so links to it still work.
-    session.add(GameAlias(old_game_id=source_id, game_id=target_id))
+    # A game id can be reused after an earlier merge, so an alias row for
+    # source_id may already exist (old_game_id is the primary key) -- update
+    # it in place rather than inserting a duplicate.
+    existing_alias = session.get(GameAlias, source_id)
+    if existing_alias:
+        existing_alias.game_id = target_id
+        session.add(existing_alias)
+    else:
+        session.add(GameAlias(old_game_id=source_id, game_id=target_id))
     for alias in session.exec(select(GameAlias).where(GameAlias.game_id == source_id)):
         alias.game_id = target_id
         session.add(alias)
