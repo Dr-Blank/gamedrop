@@ -34,6 +34,9 @@ needs a big diff, one commit is fine.
 
 Conventional Commits, one line, no body, no trailers.
 
+Never commit on your own. Finish the change, report it, and wait — commit only
+when I say so.
+
 ## API versioning
 
 App is in alpha. No backward compat needed for API or frontend — break freely.
