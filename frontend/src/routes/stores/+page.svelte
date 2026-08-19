@@ -12,13 +12,12 @@
 		getStoreTypes,
 		detectStore
 	} from '$lib/api.js';
-	import { Check, Search, TriangleAlert } from '@lucide/svelte';
+	import { Check, ExternalLink, Search, TriangleAlert } from '@lucide/svelte';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import { fmtDate, fmtRelative } from '$lib/dateFormat.svelte.js';
 	import * as Card from '$lib/components/ui/card';
-	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -284,6 +283,23 @@
 		return watchStore.toggle({ product });
 	}
 
+	/** The category page a sync actually walks — base URL joined with the path. */
+	function listingUrl(store) {
+		try {
+			return new URL(store.collection_path || '/', store.base_url).href;
+		} catch {
+			return store.base_url;
+		}
+	}
+
+	function hostOf(url) {
+		try {
+			return new URL(url).hostname.replace(/^www\./, '');
+		} catch {
+			return url;
+		}
+	}
+
 	function fmtDuration(startIso, endIso) {
 		if (!startIso || !endIso) return '';
 		const ms = new Date(endIso) - new Date(startIso);
@@ -324,269 +340,239 @@
 
 	<!-- Current stores -->
 	{#if !loading && stores.length > 0}
-		<Card.Root>
-			<Card.Header><Card.Title>Configured stores</Card.Title></Card.Header>
-			<Table.Root>
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Name</Table.Head>
-						<Table.Head>Type</Table.Head>
-						<Table.Head>URL</Table.Head>
-						<Table.Head>Path</Table.Head>
-						<Table.Head>Scrape config</Table.Head>
-						<Table.Head>Last sync</Table.Head>
-						<Table.Head></Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each stores as store}
-						<Table.Row>
-							<Table.Cell class="font-medium">
-								<div class="flex items-center gap-2">
-									<label
-										class="relative size-5 shrink-0 cursor-pointer rounded-full ring-1 ring-border"
-										style="background:{storeColors.of(store.id)}"
-										title="Accent colour for {store.name}"
-									>
-										<input
-											type="color"
-											value={storeColors.of(store.id)}
-											onchange={(e) => saveColor(store, e.currentTarget.value)}
-											class="absolute inset-0 cursor-pointer opacity-0"
-										/>
-									</label>
-									<div>
-										{#if editingBasic[store.id]}
-											<Input bind:value={editingBasic[store.id].name} class="h-7 w-40 text-xs" />
-										{:else}
-											{store.name}
-											{#if !store.enabled}
-												<Badge variant="secondary" class="ml-1 text-xs">disabled</Badge>
-											{/if}
-										{/if}
-										{#if store.color}
-											<button
-												onclick={() => saveColor(store, null)}
-												class="block text-[0.65rem] text-muted-foreground hover:text-foreground"
-											>
-												reset colour
-											</button>
-										{/if}
-									</div>
-								</div>
-							</Table.Cell>
-							<Table.Cell><Badge variant="outline">{store.type}</Badge></Table.Cell>
-							<Table.Cell class="text-sm">
-								{#if editingBasic[store.id]}
-									<Input bind:value={editingBasic[store.id].base_url} class="h-7 w-48 text-xs" />
-								{:else}
-									<a
-										href={store.base_url}
-										target="_blank"
-										class="text-muted-foreground hover:underline"
-									>
-										{store.base_url}
-									</a>
-								{/if}
-							</Table.Cell>
-							<Table.Cell>
-								{#if editingBasic[store.id]}
-									<Input
-										bind:value={editingBasic[store.id].collection_path}
-										class="h-7 w-36 text-xs"
+		<div class="space-y-3">
+			<h2 class="text-sm font-medium text-muted-foreground">Configured stores</h2>
+			{#each stores as store}
+				{@const cfg = parseCfg(store)}
+				<Card.Root class="px-4 py-3">
+					<div class="space-y-3">
+						<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+							<div class="flex min-w-0 items-center gap-2">
+								<label
+									class="relative size-5 shrink-0 cursor-pointer rounded-full ring-1 ring-border"
+									style="background:{storeColors.of(store.id)}"
+									title="Accent colour for {store.name}"
+								>
+									<input
+										type="color"
+										value={storeColors.of(store.id)}
+										onchange={(e) => saveColor(store, e.currentTarget.value)}
+										class="absolute inset-0 cursor-pointer opacity-0"
 									/>
-								{:else}
-									<span class="text-xs text-muted-foreground">{store.collection_path}</span>
-								{/if}
-							</Table.Cell>
-							<Table.Cell class="min-w-64 text-sm">
-								{#if editingConfig[store.id]}
-									<div class="flex flex-col gap-1">
-										<label class="flex items-center gap-2">
-											<span class="w-36 text-muted-foreground">Timeout (s)</span>
-											<Input
-												type="number"
-												bind:value={editingConfig[store.id].timeout_sec}
-												class="h-7 w-20 text-xs"
-											/>
-										</label>
-										<label class="flex items-center gap-2">
-											<span class="w-36 text-muted-foreground">Delay between pages (s)</span>
-											<Input
-												type="number"
-												step="0.1"
-												bind:value={editingConfig[store.id].request_delay_sec}
-												class="h-7 w-20 text-xs"
-											/>
-										</label>
-										<label class="flex items-center gap-2">
-											<span class="w-36 text-muted-foreground">Sync interval (h)</span>
-											<Input
-												type="number"
-												bind:value={editingConfig[store.id].sync_interval_hours}
-												class="h-7 w-20 text-xs"
-											/>
-										</label>
-										<div class="mt-1 flex gap-1">
-											<Button
-												size="sm"
-												onclick={() => saveCfg(store)}
-												disabled={savingConfig[store.id]}
-												class="h-6 text-xs"
-											>
-												{savingConfig[store.id] ? 'Saving…' : 'Save'}
-											</Button>
-											<Button
-												size="sm"
-												variant="ghost"
-												onclick={() => cancelEditCfg(store.id)}
-												class="h-6 text-xs"
-											>
-												Cancel
-											</Button>
-										</div>
-									</div>
-								{:else}
-									{@const cfg = parseCfg(store)}
-									<div class="space-y-0.5 text-muted-foreground">
-										<div>Timeout: {cfg.timeout_sec ?? 30}s</div>
-										<div>Page delay: {cfg.request_delay_sec ?? 1}s</div>
-										<div>Sync every: {cfg.sync_interval_hours ?? 6}h</div>
-									</div>
-									<Button
-										size="sm"
-										variant="ghost"
-										onclick={() => startEditCfg(store)}
-										class="mt-1 h-6 px-2 text-xs"
-									>
-										Edit
-									</Button>
-								{/if}
-							</Table.Cell>
-							<Table.Cell class="min-w-40 text-xs">
+								</label>
+								<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+									{#if editingBasic[store.id]}
+										<Input bind:value={editingBasic[store.id].name} class="h-7 w-44 text-sm" />
+									{:else}
+										<span class="truncate font-medium">{store.name}</span>
+									{/if}
+									<Badge variant="outline" class="text-xs">{store.type}</Badge>
+									{#if !store.enabled}
+										<Badge variant="secondary" class="text-xs">disabled</Badge>
+									{/if}
+									{#if store.color}
+										<button
+											onclick={() => saveColor(store, null)}
+											class="text-[0.65rem] text-muted-foreground hover:text-foreground"
+										>
+											reset colour
+										</button>
+									{/if}
+								</div>
+							</div>
+
+							<div class="text-xs">
 								{#if store.last_sync_error}
-									<div class="font-medium text-destructive">✗ Error</div>
-									<div
-										class="max-w-48 truncate text-muted-foreground"
-										title={store.last_sync_error}
-									>
+									<div class="font-medium text-destructive">✗ Sync failed</div>
+									<div class="max-w-xs break-words text-muted-foreground">
 										{store.last_sync_error}
 									</div>
 								{:else if store.last_synced_at}
-									<div class="text-green-600">✓ Done</div>
-									<div class="text-muted-foreground">
-										{fmtDate(store.last_synced_at)} · {fmtRelative(store.last_synced_at)}
-									</div>
+									<div class="text-green-600">✓ Synced {fmtRelative(store.last_synced_at)}</div>
+									<div class="text-muted-foreground">{fmtDate(store.last_synced_at)}</div>
 								{:else}
 									<span class="text-muted-foreground">Never synced</span>
 								{/if}
-							</Table.Cell>
-							<Table.Cell>
-								<div class="flex flex-col items-start gap-1">
-									<div class="flex items-center gap-1">
-										{#if editingBasic[store.id]}
-											<Button
-												size="sm"
-												onclick={() => saveBasic(store)}
-												disabled={savingBasic[store.id]}
-												class="h-6 text-xs"
-											>
-												{savingBasic[store.id] ? 'Saving…' : 'Save'}
-											</Button>
-											<Button
-												size="sm"
-												variant="ghost"
-												onclick={() => cancelEditBasic(store.id)}
-												class="h-6 text-xs"
-											>
-												Cancel
-											</Button>
-										{:else}
-											<Button
-												size="sm"
-												variant="ghost"
-												onclick={() => startEditBasic(store)}
-												class="h-6 text-xs"
-											>
-												Edit details
-											</Button>
-										{/if}
-									</div>
-									<div class="flex items-center gap-2">
-										<Button
-											size="sm"
-											variant="outline"
-											onclick={() => sync(store.id)}
-											disabled={syncing[store.id]}
-										>
-											{syncing[store.id] ? 'Syncing…' : 'Sync now'}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											onclick={() => toggleLogs(store.id)}
-											class="text-xs"
-										>
-											{logsOpen[store.id] ? 'Hide logs' : 'Logs'}
-										</Button>
-										<Button size="sm" variant="destructive" onclick={() => remove(store.id)}>
-											Remove
-										</Button>
-									</div>
-									{#if syncResults[store.id]}
-										<span class="text-xs text-muted-foreground">
-											+{syncResults[store.id].new_products} new,
-											{syncResults[store.id].price_changes} price changes
-										</span>
-									{/if}
-									{#if logsOpen[store.id]}
-										<div class="mt-2 w-full min-w-80">
-											{#if logsLoading[store.id]}
-												<span class="text-xs text-muted-foreground">Loading logs…</span>
-											{:else if logsData[store.id]?.length === 0}
-												<span class="text-xs text-muted-foreground">No sync history yet.</span>
-											{:else if logsData[store.id]}
-												<div class="max-h-48 divide-y overflow-y-auto rounded border text-xs">
-													{#each logsData[store.id] as log}
-														<div class="flex items-start gap-2 px-2 py-1.5">
-															<span
-																class="shrink-0 {log.error ? 'text-destructive' : 'text-green-600'}"
-															>
-																{log.error ? '✗' : '✓'}
-															</span>
-															<div class="min-w-0 flex-1">
-																<div class="flex flex-wrap items-center gap-2">
-																	<span class="font-medium">{fmtDate(log.started_at)}</span>
-																	<span class="text-muted-foreground"
-																		>{fmtRelative(log.started_at)}</span
-																	>
-																	{#if log.finished_at}
-																		<span class="text-muted-foreground"
-																			>{fmtDuration(log.started_at, log.finished_at)}</span
-																		>
-																	{/if}
-																</div>
-																{#if log.error}
-																	<div class="break-words text-destructive">{log.error}</div>
-																{:else}
-																	<div class="text-muted-foreground">
-																		+{log.new_products} new · {log.price_changes} price changes
-																	</div>
-																{/if}
-															</div>
-														</div>
-													{/each}
-												</div>
-											{/if}
-										</div>
-									{/if}
+							</div>
+						</div>
+
+						{#if editingBasic[store.id]}
+							<div class="grid gap-2 sm:grid-cols-2">
+								<label class="space-y-1">
+									<span class="text-xs text-muted-foreground">Shop URL</span>
+									<Input bind:value={editingBasic[store.id].base_url} class="h-8 text-xs" />
+								</label>
+								<label class="space-y-1">
+									<span class="text-xs text-muted-foreground">Category path</span>
+									<Input bind:value={editingBasic[store.id].collection_path} class="h-8 text-xs" />
+								</label>
+							</div>
+						{:else}
+							<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+								<a
+									href={store.base_url}
+									target="_blank"
+									class="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
+								>
+									<ExternalLink class="size-3.5 shrink-0" />
+									{hostOf(store.base_url)}
+								</a>
+								<a
+									href={listingUrl(store)}
+									target="_blank"
+									title="Open the category page this store syncs"
+									class="inline-flex min-w-0 items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
+								>
+									<ExternalLink class="size-3.5 shrink-0" />
+									<span class="truncate">{store.collection_path}</span>
+								</a>
+							</div>
+						{/if}
+
+						{#if editingConfig[store.id]}
+							<div class="space-y-2 rounded-md border p-3">
+								<div class="grid gap-2 sm:grid-cols-3">
+									<label class="space-y-1">
+										<span class="text-xs text-muted-foreground">Timeout (s)</span>
+										<Input
+											type="number"
+											bind:value={editingConfig[store.id].timeout_sec}
+											class="h-8 text-xs"
+										/>
+									</label>
+									<label class="space-y-1">
+										<span class="text-xs text-muted-foreground">Page delay (s)</span>
+										<Input
+											type="number"
+											step="0.1"
+											bind:value={editingConfig[store.id].request_delay_sec}
+											class="h-8 text-xs"
+										/>
+									</label>
+									<label class="space-y-1">
+										<span class="text-xs text-muted-foreground">Sync every (h)</span>
+										<Input
+											type="number"
+											bind:value={editingConfig[store.id].sync_interval_hours}
+											class="h-8 text-xs"
+										/>
+									</label>
 								</div>
-							</Table.Cell>
-						</Table.Row>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-		</Card.Root>
+								<div class="flex gap-2">
+									<Button
+										size="sm"
+										onclick={() => saveCfg(store)}
+										disabled={savingConfig[store.id]}
+										class="h-7 text-xs"
+									>
+										{savingConfig[store.id] ? 'Saving…' : 'Save'}
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										onclick={() => cancelEditCfg(store.id)}
+										class="h-7 text-xs"
+									>
+										Cancel
+									</Button>
+								</div>
+							</div>
+						{:else}
+							<div
+								class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+							>
+								<span>Timeout {cfg.timeout_sec ?? 30}s</span>
+								<span>Page delay {cfg.request_delay_sec ?? 1}s</span>
+								<span>Sync every {cfg.sync_interval_hours ?? 6}h</span>
+								<button
+									onclick={() => startEditCfg(store)}
+									class="hover:text-foreground hover:underline"
+								>
+									Edit
+								</button>
+							</div>
+						{/if}
+
+						<div class="flex flex-wrap items-center gap-2 border-t pt-3">
+							<Button
+								size="sm"
+								variant="outline"
+								onclick={() => sync(store.id)}
+								disabled={syncing[store.id]}
+							>
+								{syncing[store.id] ? 'Syncing…' : 'Sync now'}
+							</Button>
+							<Button size="sm" variant="ghost" onclick={() => toggleLogs(store.id)}>
+								{logsOpen[store.id] ? 'Hide logs' : 'Logs'}
+							</Button>
+							{#if editingBasic[store.id]}
+								<Button size="sm" onclick={() => saveBasic(store)} disabled={savingBasic[store.id]}>
+									{savingBasic[store.id] ? 'Saving…' : 'Save'}
+								</Button>
+								<Button size="sm" variant="ghost" onclick={() => cancelEditBasic(store.id)}>
+									Cancel
+								</Button>
+							{:else}
+								<Button size="sm" variant="ghost" onclick={() => startEditBasic(store)}>
+									Edit details
+								</Button>
+							{/if}
+							<Button
+								size="sm"
+								variant="destructive"
+								onclick={() => remove(store.id)}
+								class="ml-auto"
+							>
+								Remove
+							</Button>
+						</div>
+
+						{#if syncResults[store.id]}
+							<p class="text-xs text-muted-foreground">
+								+{syncResults[store.id].new_products} new, {syncResults[store.id].price_changes} price
+								changes
+							</p>
+						{/if}
+
+						{#if logsOpen[store.id]}
+							{#if logsLoading[store.id]}
+								<span class="text-xs text-muted-foreground">Loading logs…</span>
+							{:else if logsData[store.id]?.length === 0}
+								<span class="text-xs text-muted-foreground">No sync history yet.</span>
+							{:else if logsData[store.id]}
+								<div class="max-h-48 divide-y overflow-y-auto rounded-md border text-xs">
+									{#each logsData[store.id] as log}
+										<div class="flex items-start gap-2 px-2 py-1.5">
+											<span class="shrink-0 {log.error ? 'text-destructive' : 'text-green-600'}">
+												{log.error ? '✗' : '✓'}
+											</span>
+											<div class="min-w-0 flex-1">
+												<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+													<span class="font-medium">{fmtDate(log.started_at)}</span>
+													<span class="text-muted-foreground">{fmtRelative(log.started_at)}</span>
+													{#if log.finished_at}
+														<span class="text-muted-foreground">
+															{fmtDuration(log.started_at, log.finished_at)}
+														</span>
+													{/if}
+												</div>
+												{#if log.error}
+													<div class="break-words text-destructive">{log.error}</div>
+												{:else}
+													<div class="text-muted-foreground">
+														+{log.new_products} new · {log.price_changes} price changes
+													</div>
+												{/if}
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					</div>
+				</Card.Root>
+			{/each}
+		</div>
 	{/if}
 
 	<!-- Add store -->
