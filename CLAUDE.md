@@ -7,6 +7,9 @@ Run with: `python -m pytest /home/drblank/projects/gamedrop/backend/tests/ -q`
 
 New feature = new test. No exceptions.
 
+Tests are the proof. Don't start dev servers or drive a headless browser to
+check UI work — report what changed and let me look.
+
 ## Database migrations
 
 Migrations are sacred — never destructive, always idempotent.
