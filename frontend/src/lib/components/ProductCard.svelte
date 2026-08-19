@@ -12,6 +12,9 @@
 	import { hidden } from '$lib/hidden.svelte.js';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
+	import { linkBgg } from '$lib/api.js';
+	import { toast } from '$lib/toast.svelte.js';
+	import { parseBggId, bggGameUrl, bggSearchUrl } from '$lib/bgg.js';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import {
 		Heart,
@@ -24,7 +27,8 @@
 		EyeOff,
 		RotateCcw,
 		Store,
-		XCircle
+		XCircle,
+		Dices
 	} from '@lucide/svelte';
 
 	let {
@@ -34,7 +38,8 @@
 		target = /** @type {number|null} */ (null),
 		onremove = /** @type {(()=>void)|null} */ (null),
 		onedit = /** @type {((item:any)=>void)|null} */ (null),
-		ontarget = /** @type {(()=>void)|null} */ (null)
+		ontarget = /** @type {(()=>void)|null} */ (null),
+		onlinked = /** @type {((bggId:number)=>void)|null} */ (null)
 	} = $props();
 
 	const gameId = $derived(item.game?.id ?? item.product.game_id);
@@ -120,12 +125,50 @@
 		e.stopPropagation();
 		fn?.();
 	}
+	// BGG linking from the card: the pill opens a search, the field takes the
+	// pasted link. Linking is local state so the pill flips without a refetch.
+	let linkedId = $state(/** @type {number|null} */ (null));
+	let bggOpen = $state(false);
+	let bggUrl = $state('');
+	let linking = $state(false);
+
+	const bggId = $derived(linkedId ?? item.game?.bgg_id ?? null);
+	const bggHref = $derived(item.bgg?.bgg_url || bggGameUrl(bggId));
+
+	function findOnBgg() {
+		bggOpen = true;
+		window.open(bggSearchUrl(title), '_blank', 'noopener');
+	}
+
+	async function linkPasted() {
+		const id = parseBggId(bggUrl);
+		if (!id || linking) return;
+		linking = true;
+		try {
+			await linkBgg(id, item.product.id);
+			linkedId = id;
+			bggOpen = false;
+			bggUrl = '';
+			toast.success('Linked to BGG');
+			onlinked?.(id);
+		} catch (e) {
+			toast.error(e.message);
+		} finally {
+			linking = false;
+		}
+	}
+
+	/** @param {HTMLElement} node */
+	function focused(node) {
+		node.focus();
+	}
+
 	/** Svelte action: prevents anchor navigation when click originates from a nested button/link. */
 	function cardLink(node) {
 		/** @param {MouseEvent} e */
 		function handler(e) {
 			const t = /** @type {Element} */ (e.target);
-			if (t.closest('button, [data-slot="button"]')) e.preventDefault();
+			if (t.closest('button, input, [data-slot="button"]')) e.preventDefault();
 		}
 		node.addEventListener('click', handler);
 		return { destroy: () => node.removeEventListener('click', handler) };
@@ -320,8 +363,50 @@
 
 				<RatingStats bgg={item.bgg} />
 
+				{#if bggOpen && !bggHref}
+					<input
+						use:focused
+						bind:value={bggUrl}
+						oninput={linkPasted}
+						onclick={(e) => e.stopPropagation()}
+						disabled={linking}
+						placeholder="Paste BGG link…"
+						aria-label="Paste BGG link"
+						class="h-7 w-full rounded-md border bg-background px-2 text-xs focus:ring-2 focus:ring-ring focus:outline-none"
+					/>
+				{/if}
+
 				<!-- actions -->
 				<div class="mt-auto flex items-center gap-1.5 pt-1">
+					{#if variant !== 'hidden'}
+						{#if bggHref}
+							<Button
+								data-action="bgg"
+								size="icon-sm"
+								variant="ghost"
+								href={bggHref}
+								target="_blank"
+								rel="noopener"
+								title="Open on BoardGameGeek"
+								aria-label="Open on BoardGameGeek"
+								onclick={(e) => e.stopPropagation()}
+							>
+								<Dices class="size-3.5" />
+							</Button>
+						{:else}
+							<Button
+								data-action="bgg"
+								size="icon-sm"
+								variant="ghost"
+								class="text-muted-foreground/60"
+								onclick={(e) => act(e, findOnBgg)}
+								title="Find on BoardGameGeek and paste the link"
+								aria-label="Find on BoardGameGeek"
+							>
+								<Dices class="size-3.5" />
+							</Button>
+						{/if}
+					{/if}
 					{#if variant === 'hidden'}
 						<Button
 							size="sm"

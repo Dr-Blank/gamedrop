@@ -37,6 +37,7 @@
 	import { gamePricing, inr } from '$lib/gamePricing.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
 	import { buildTimeline } from '$lib/priceTimeline.js';
+	import { parseBggId, bggGameUrl, bggSearchUrl } from '$lib/bgg.js';
 	import {
 		ArrowLeft,
 		ExternalLink,
@@ -605,7 +606,7 @@
 						{#if bgg?.bgg_url || game.bgg_id}
 							<Button
 								variant="outline"
-								href={bgg?.bgg_url || `https://boardgamegeek.com/boardgame/${game.bgg_id}`}
+								href={bgg?.bgg_url || bggGameUrl(game.bgg_id)}
 								target="_blank">BGG ↗</Button
 							>
 						{/if}
@@ -639,18 +640,14 @@
 								placeholder="Paste BGG URL…"
 								class="h-9 flex-1 rounded-lg border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
 								oninput={() => {
-									const m = bggUrl.match(/boardgamegeek\.com\/(?:boardgame|rpg|videogame)\/(\d+)/i);
-									if (m) linkGame(Number(m[1]));
+									const id = parseBggId(bggUrl);
+									if (id) linkGame(id);
 								}}
 								disabled={linking}
 							/>
 							<Button
 								variant="outline"
-								onclick={() =>
-									window.open(
-										`https://www.google.com/search?q=${encodeURIComponent('BGG ' + game.title)}`,
-										'_blank'
-									)}>Google ↗</Button
+								onclick={() => window.open(bggSearchUrl(game.title), '_blank')}>Google ↗</Button
 							>
 							{#if game.bgg_id}
 								<Button

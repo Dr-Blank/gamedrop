@@ -2,6 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import ProductCard from '$lib/components/ProductCard.svelte';
 
+const linkBgg = vi.fn(async () => ({}));
+vi.mock('$lib/api.js', async (original) => ({
+	...(await original()),
+	linkBgg: (...a) => linkBgg(...a)
+}));
+
 const item = {
 	product: {
 		id: 2,
@@ -153,5 +159,38 @@ describe('ProductCard price line', () => {
 		const { container } = render(ProductCard, { props: { item: twice, variant: 'browse' } });
 		expect(container.querySelectorAll('span[title="satyam"]')).toHaveLength(1);
 		expect(container.querySelectorAll('span[title="other"]')).toHaveLength(1);
+	});
+});
+
+describe('ProductCard BGG link', () => {
+	it('opens a search and takes the pasted link when the game has no BGG id', async () => {
+		const open = vi.fn();
+		vi.stubGlobal('open', open);
+		const onlinked = vi.fn();
+		render(ProductCard, { props: { item, variant: 'browse', onlinked } });
+
+		await fireEvent.click(screen.getByLabelText('Find on BoardGameGeek'));
+		expect(open).toHaveBeenCalledWith(expect.stringContaining('BGG%20Catan'), '_blank', 'noopener');
+
+		const field = screen.getByLabelText('Paste BGG link');
+		await fireEvent.input(field, {
+			target: { value: 'https://boardgamegeek.com/boardgame/13/catan' }
+		});
+		expect(linkBgg).toHaveBeenCalledWith(13, 2);
+		expect(await screen.findByLabelText('Open on BoardGameGeek')).toHaveAttribute(
+			'href',
+			'https://boardgamegeek.com/boardgame/13'
+		);
+		expect(onlinked).toHaveBeenCalledWith(13);
+	});
+
+	it('links straight out when the game is already on BGG', () => {
+		const linked = { ...item, game: { ...item.game, bgg_id: 42 } };
+		render(ProductCard, { props: { item: linked, variant: 'browse' } });
+		expect(screen.getByLabelText('Open on BoardGameGeek')).toHaveAttribute(
+			'href',
+			'https://boardgamegeek.com/boardgame/42'
+		);
+		expect(screen.queryByLabelText('Paste BGG link')).not.toBeInTheDocument();
 	});
 });
