@@ -13,7 +13,9 @@ export function lastPriceChange(history, now = Date.now()) {
 	const idx = history.findIndex((s) => s.price !== current);
 	const changed = idx > 0;
 	const since = changed ? history[idx - 1] : history[history.length - 1];
-	const ms = now - new Date(since.recorded_at).getTime();
+	const at = new Date(since.recorded_at).getTime();
+	if (Number.isNaN(at)) return null;
+	const ms = now - at;
 	return { changed, at: since.recorded_at, ms, label: agoLabel(ms) };
 }
 

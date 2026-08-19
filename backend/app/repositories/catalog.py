@@ -294,7 +294,10 @@ def compare_summary(session: Session, game_id: int) -> dict | None:
 
 
 def _price_histories(session: Session, product_ids: set[int]) -> dict[int, list[dict]]:
-    """Last 12 prices per listing, newest first."""
+    """Last 12 readings per listing, newest first.
+
+    Timestamps ride along so a card can say how long its price has stood.
+    """
     if not product_ids:
         return {}
     rn_col = (
@@ -306,15 +309,24 @@ def _price_histories(session: Session, product_ids: set[int]) -> dict[int, list[
         .label("rn")
     )
     subq = (
-        select(PriceSnapshot.product_id, PriceSnapshot.price, rn_col)
+        select(
+            PriceSnapshot.product_id,
+            PriceSnapshot.price,
+            PriceSnapshot.recorded_at,
+            rn_col,
+        )
         .where(PriceSnapshot.product_id.in_(product_ids))
         .subquery()
     )
     histories: dict[int, list[dict]] = {}
-    for pid, price in session.exec(
-        select(subq.c.product_id, subq.c.price).where(subq.c.rn <= 12)
+    for pid, price, recorded_at in session.exec(
+        select(subq.c.product_id, subq.c.price, subq.c.recorded_at)
+        .where(subq.c.rn <= 12)
+        .order_by(subq.c.product_id, subq.c.rn)
     ):
-        histories.setdefault(int(pid), []).append({"price": float(price)})
+        histories.setdefault(int(pid), []).append(
+            {"price": float(price), "recorded_at": recorded_at}
+        )
     return histories
 
 

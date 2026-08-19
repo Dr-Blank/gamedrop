@@ -11,6 +11,7 @@
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
+	import { lastPriceChange } from '$lib/priceChange.js';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import {
 		Heart,
@@ -58,9 +59,6 @@
 	const pricing = $derived(gamePricing(item.compare));
 	const price = $derived(pricing ? pricing.primary.price : ownPrice);
 	const available = $derived(pricing ? pricing.primary.available : ownAvailable);
-	const compareAt = $derived(
-		pricing ? pricing.primary.compare_at_price : item.latest_price?.compare_at_price
-	);
 	const imgSrc = $derived(item.bgg?.thumbnail || item.product.image_url || '');
 	// The game is the destination; the shop is a facet of it.
 	const href = $derived(`/games/${gameId}?store=${encodeURIComponent(item.product.store_id)}`);
@@ -82,12 +80,8 @@
 		)
 	]);
 
-	// MRP is reference, not news — it stays, but out of the price line.
-	const mrpPct = $derived.by(() => {
-		if (pricing) return null;
-		const pct = item.discount_pct;
-		return pct ? Math.round(pct) : null;
-	});
+	// How long the quoted price has stood — a shop's own MRP says less.
+	const held = $derived(lastPriceChange(trendHistory));
 
 	// price-range glance from history
 	const range = $derived.by(() => {
@@ -307,9 +301,9 @@
 
 				<div class="flex items-center gap-2">
 					<StockBadge {available} size="sm" />
-					{#if mrpPct}
-						<span class="text-[0.7rem] text-muted-foreground" title={`MRP ${fmt(compareAt)}`}>
-							−{mrpPct}% off MRP
+					{#if held}
+						<span class="text-[0.7rem] text-muted-foreground">
+							{held.changed ? `changed ${held.label} ago` : `same for ${held.label}`}
 						</span>
 					{/if}
 					{#if variant === 'watchlist'}

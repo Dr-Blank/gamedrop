@@ -671,7 +671,34 @@ def test_cards_expose_the_comparison(client: TestClient, session: Session):
     assert card["compare"]["listing_count"] == 2
     assert card["compare"]["cheapest"]["price"] == 400
     assert card["compare"]["cheapest_in_stock"]["price"] == 600
-    assert card["compare"]["cheapest_in_stock"]["price_history"] == [{"price": 600.0}]
+    history = card["compare"]["cheapest_in_stock"]["price_history"]
+    assert [h["price"] for h in history] == [600.0]
+
+
+def test_card_history_is_newest_first_with_timestamps(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    a = _listing(
+        session,
+        "shopify-a",
+        "Catan",
+        price=500,
+        recorded_at=datetime(2026, 8, 10, 9, 0),
+    )
+    session.add(
+        PriceSnapshot(
+            product_id=a.id,
+            price=400,
+            available=True,
+            recorded_at=datetime(2026, 8, 14, 9, 0),
+        )
+    )
+    session.commit()
+
+    history = repo.cards_by_ids(session, [a.id])[0]["price_history"]
+    assert [h["price"] for h in history] == [400.0, 500.0]
+    assert history[0]["recorded_at"] == datetime(2026, 8, 14, 9, 0)
 
 
 def test_cards_have_no_comparison_for_a_single_shop(

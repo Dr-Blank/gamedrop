@@ -90,12 +90,26 @@ describe('ProductCard tab/new-window support', () => {
 });
 
 describe('ProductCard price line', () => {
-	const history = [{ price: 610 }, { price: 900 }, { price: 800 }];
+	const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
+	const history = [
+		{ price: 610, recorded_at: day(0) },
+		{ price: 610, recorded_at: day(3) },
+		{ price: 900, recorded_at: day(9) },
+		{ price: 800, recorded_at: day(12) }
+	];
 
-	it('keeps the struck-through MRP out of the price line', () => {
+	it('says how long the price has stood instead of quoting an MRP', () => {
 		render(ProductCard, { props: { item, variant: 'browse', history } });
 		expect(screen.queryByText('₹2,000')).not.toBeInTheDocument();
-		expect(screen.getByText(/off MRP/)).toBeInTheDocument();
+		expect(screen.queryByText(/off MRP/)).not.toBeInTheDocument();
+		expect(screen.getByText('changed 3 days ago')).toBeInTheDocument();
+	});
+
+	it('leaves the price age off a card whose history has no timestamps', () => {
+		render(ProductCard, {
+			props: { item, variant: 'browse', history: [{ price: 610 }, { price: 900 }] }
+		});
+		expect(screen.queryByText(/changed|same for/)).not.toBeInTheDocument();
 	});
 
 	it('says how far the price sits above its own low', () => {
