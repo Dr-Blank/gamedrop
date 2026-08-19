@@ -14,12 +14,16 @@ import logging
 import logging.handlers
 import platform
 import sys
+import time
 import traceback
 from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 
 LOG_BUFFER_SIZE = 2000
+
+# Offset included so a stdout line is readable without knowing the container's zone.
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S %z"
 
 
 class _StructuredRecord:
@@ -125,8 +129,14 @@ _ring: RingBufferHandler | None = None
 
 
 def setup_logging(level: int = logging.INFO) -> None:
+    """Timestamps follow the TZ env var; .env sets it after start, so re-read it."""
     global _ring
-    fmt = logging.Formatter("%(levelname)s  %(name)s  %(message)s")
+    if hasattr(time, "tzset"):
+        time.tzset()
+
+    fmt = logging.Formatter(
+        "%(asctime)s  %(levelname)s  %(name)s  %(message)s", datefmt=LOG_DATE_FORMAT
+    )
     _ring = RingBufferHandler()
     _ring.setFormatter(fmt)
 
@@ -135,6 +145,7 @@ def setup_logging(level: int = logging.INFO) -> None:
 
     root = logging.getLogger()
     root.setLevel(level)
+    root.handlers.clear()  # re-running would otherwise emit every line twice
     root.addHandler(_ring)
     root.addHandler(stream)
 
