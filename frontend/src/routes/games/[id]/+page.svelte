@@ -33,6 +33,7 @@
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
+	import { lastPriceChange } from '$lib/priceChange.js';
 	import {
 		ArrowLeft,
 		ExternalLink,
@@ -117,15 +118,7 @@
 	const atLowest = $derived(
 		!!selected && atl !== null && selected.price != null && selected.price <= atl
 	);
-	const daysSinceChange = $derived.by(() => {
-		if (!history.length) return null;
-		const currentPrice = history[0].price;
-		const changeIdx = history.findIndex((s) => s.price !== currentPrice);
-		if (changeIdx <= 0) return null;
-		return Math.floor(
-			(Date.now() - new Date(history[changeIdx - 1].recorded_at).getTime()) / 86400000
-		);
-	});
+	const priceChange = $derived(lastPriceChange(history));
 
 	const chartSeries = $derived(
 		(data?.series ?? []).map((s) => ({
@@ -485,7 +478,7 @@
 				{#if selected}
 					<div class="space-y-1">
 						<div class="flex flex-wrap items-end gap-3">
-							<PriceTag price={selected.price} compareAt={selected.compare_at_price} size="lg" />
+							<PriceTag price={selected.price} size="lg" />
 							{#if atLowest}
 								<span
 									class="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400"
@@ -516,10 +509,11 @@
 								ATL {inr(atl)} · ATH {inr(ath)} at {selected.store_id}
 							</p>
 						{/if}
-						{#if daysSinceChange !== null}
+						{#if priceChange}
 							<p class="text-xs text-muted-foreground">
-								Unchanged {daysSinceChange}
-								{daysSinceChange === 1 ? 'day' : 'days'}
+								{priceChange.changed
+									? `Price changed ${priceChange.label} ago`
+									: `Price unchanged for ${priceChange.label}`}
 							</p>
 						{/if}
 					</div>
