@@ -389,7 +389,7 @@
 <div class="space-y-6">
 	{#if canGoBack}
 		<button
-			onclick={() => history.back()}
+			onclick={() => window.history.back()}
 			class="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
 		>
 			<ArrowLeft class="size-4" /> Back
