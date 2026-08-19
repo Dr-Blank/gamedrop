@@ -8,9 +8,10 @@ function dayKey(iso) {
  *
  * Stores are scraped at different times, so each series is forward-filled from
  * its last known price; days before a store's first snapshot stay null so the
- * line starts where the data does.
+ * line starts where the data does. `real` marks the days a store was actually
+ * scraped, so a carried price is never drawn as a data point of its own.
  *
- * @param {Array<{label?:string, store_id?:string, product_id?:number, history?:Array<{price:number, recorded_at:string}>}>} series
+ * @param {Array<{label?:string, store_id?:string, product_id?:number, history?:Array<{price:number, available?:boolean, recorded_at:string}>}>} series
  */
 export function alignSeries(series) {
 	const days = [
@@ -19,17 +20,25 @@ export function alignSeries(series) {
 
 	const datasets = (series ?? []).map((s) => {
 		const byDay = new Map();
-		for (const h of s.history ?? []) byDay.set(dayKey(h.recorded_at), h.price);
-		let carry = /** @type {number|null} */ (null);
-		const data = days.map((d) => {
-			if (byDay.has(d)) carry = byDay.get(d);
-			return carry;
-		});
+		for (const h of s.history ?? []) byDay.set(dayKey(h.recorded_at), h);
+		let carry = /** @type {any} */ (null);
+		const data = /** @type {Array<number|null>} */ ([]);
+		const available = /** @type {Array<boolean|null>} */ ([]);
+		const real = /** @type {boolean[]} */ ([]);
+		for (const d of days) {
+			const snap = byDay.get(d);
+			if (snap) carry = snap;
+			data.push(carry ? carry.price : null);
+			available.push(carry ? carry.available !== false : null);
+			real.push(!!snap);
+		}
 		return {
 			label: s.label ?? s.store_id ?? 'Price',
 			productId: s.product_id ?? null,
 			storeId: s.store_id ?? null,
-			data
+			data,
+			available,
+			real
 		};
 	});
 

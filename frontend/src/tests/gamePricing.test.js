@@ -141,6 +141,27 @@ describe('alignSeries', () => {
 		expect(datasets[1].label).toBe('b');
 	});
 
+	it('marks scraped days and carries the last known stock state', () => {
+		const { datasets } = alignSeries([
+			{
+				store_id: 'a',
+				history: [
+					{ price: 100, available: true, recorded_at: '2026-01-01T00:00:00' },
+					{ price: 100, available: false, recorded_at: '2026-01-03T00:00:00' }
+				]
+			},
+			{
+				store_id: 'b',
+				history: [{ price: 120, available: true, recorded_at: '2026-01-02T00:00:00' }]
+			}
+		]);
+		expect(datasets[0].real).toEqual([true, false, true]);
+		expect(datasets[0].available).toEqual([true, true, false]);
+		// A store scraped on one day only owns that one point.
+		expect(datasets[1].real).toEqual([false, true, false]);
+		expect(datasets[1].available).toEqual([null, true, true]);
+	});
+
 	it('returns empty axes for no data', () => {
 		expect(alignSeries([]).labels).toEqual([]);
 	});

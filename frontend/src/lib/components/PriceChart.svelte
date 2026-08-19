@@ -7,7 +7,6 @@
 		LinearScale,
 		CategoryScale,
 		Filler,
-		Legend,
 		Tooltip
 	} from 'chart.js';
 	import { theme } from '$lib/theme.svelte.js';
@@ -21,25 +20,15 @@
 		LinearScale,
 		CategoryScale,
 		Filler,
-		Legend,
 		Tooltip
 	);
 
 	let {
-		history = /** @type {Array<{price:number, recorded_at:string, available:boolean}>} */ ([]),
-		series = /** @type {Array<{label?:string, store_id?:string, history:Array<any>}>|null} */ (
-			null
-		),
-		storeId = /** @type {string|null} */ (null)
+		series = /** @type {Array<{label?:string, store_id?:string, history:Array<any>}>} */ ([])
 	} = $props();
 
-	// One store or many: everything downstream works on a list of series.
-	const sources = $derived(
-		series?.length
-			? series
-			: [{ label: 'Price', store_id: storeId, history: history.slice().reverse() }]
-	);
-	const multi = $derived((series?.length ?? 0) > 1);
+	const sources = $derived(series ?? []);
+	const multi = $derived(sources.length > 1);
 
 	const ranges = [
 		{ key: '30', label: '30D', days: 30 },
@@ -92,6 +81,11 @@
 	const fmt = (/** @type {number} */ n) =>
 		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
+	/** True when both ends of a line segment were in stock. */
+	function soldAt(/** @type {any} */ d, /** @type {any} */ ctx) {
+		return d.available[ctx.p0DataIndex] !== false && d.available[ctx.p1DataIndex] !== false;
+	}
+
 	let canvas = $state(/** @type {HTMLCanvasElement | null} */ (null));
 	let chart;
 
@@ -114,10 +108,14 @@
 		grad.addColorStop(0, tint(soloColor, 0.25));
 		grad.addColorStop(1, tint(soloColor, 0));
 
+		const dense = aligned.labels.length > 60;
+
 		const datasets = aligned.datasets.map((d, i) => {
 			const color = d.storeId
 				? storeColors.of(d.storeId)
 				: DEFAULT_PALETTE[i % DEFAULT_PALETTE.length];
+			const scraped = (/** @type {any} */ ctx) => d.real[ctx.dataIndex];
+			const sold = (/** @type {any} */ ctx) => d.available[ctx.dataIndex] !== false;
 			return {
 				label: d.label,
 				data: d.data,
@@ -127,9 +125,19 @@
 				spanGaps: true,
 				tension: 0.32,
 				borderWidth: 2,
-				pointRadius: aligned.labels.length > 40 ? 0 : 3,
-				pointHoverRadius: 5,
-				pointBackgroundColor: color
+				// Only scraped days get a marker — a forward-filled price is the
+				// same reading, not a second one.
+				pointRadius: (ctx) => (scraped(ctx) ? (sold(ctx) ? (dense ? 2.5 : 3.5) : 4) : 0),
+				pointHoverRadius: (ctx) => (scraped(ctx) ? 6 : 0),
+				pointStyle: (ctx) => (sold(ctx) ? 'circle' : 'crossRot'),
+				pointBackgroundColor: (ctx) => (sold(ctx) ? color : 'transparent'),
+				pointBorderColor: color,
+				pointBorderWidth: 2,
+				segment: {
+					// A stretch with nothing to buy is drawn broken and faded.
+					borderDash: (ctx) => (soldAt(d, ctx) ? undefined : [5, 4]),
+					borderColor: (ctx) => (soldAt(d, ctx) ? undefined : tint(color, 0.35))
+				}
 			};
 		});
 
@@ -142,14 +150,15 @@
 				maintainAspectRatio: false,
 				interaction: { mode: 'index', intersect: false },
 				plugins: {
-					legend: {
-						display: multi,
-						position: 'bottom',
-						labels: { color: muted, boxWidth: 10, usePointStyle: true, font: { size: 11 } }
-					},
+					legend: { display: false },
 					tooltip: {
 						callbacks: {
-							label: (c) => (multi ? `${c.dataset.label}: ${fmt(c.parsed.y)}` : fmt(c.parsed.y))
+							label: (c) => {
+								const d = aligned.datasets[c.datasetIndex];
+								const head = multi ? `${c.dataset.label}: ${fmt(c.parsed.y)}` : fmt(c.parsed.y);
+								if (d?.available[c.dataIndex] === false) return `${head} · out of stock`;
+								return d?.real[c.dataIndex] ? head : `${head} · last seen`;
+							}
 						},
 						padding: 10,
 						displayColors: multi

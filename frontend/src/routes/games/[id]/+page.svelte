@@ -30,6 +30,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import GameGallery from '$lib/components/GameGallery.svelte';
 	import StoreOffers from '$lib/components/StoreOffers.svelte';
+	import StoreFilter from '$lib/components/StoreFilter.svelte';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
@@ -124,9 +125,22 @@
 		(data?.series ?? []).map((s) => ({
 			label: s.store_id,
 			store_id: s.store_id,
+			product_id: s.product_id,
 			history: s.history
 		}))
 	);
+	// Shops the reader switched off: the chart and the timeline share one filter.
+	let hiddenStores = $state(new Set());
+	const visibleSeries = $derived(chartSeries.filter((s) => !hiddenStores.has(s.store_id)));
+	const chartPoints = $derived(visibleSeries.reduce((n, s) => n + (s.history?.length ?? 0), 0));
+
+	/** @param {string} storeId */
+	function toggleStore(storeId) {
+		const next = new Set(hiddenStores);
+		if (next.has(storeId)) next.delete(storeId);
+		else if (visibleSeries.length > 1) next.add(storeId);
+		hiddenStores = next;
+	}
 
 	async function loadGame({ keepSelection = false } = {}) {
 		refreshing = true;
@@ -768,20 +782,22 @@
 		<div class="grid gap-6 lg:grid-cols-[1fr_320px]">
 			<div class="min-w-0 space-y-6">
 				<!-- Price chart: one line per shop once merged -->
-				{#if multiStore}
+				{#if chartPoints > 1}
 					<Card.Root>
-						<Card.Header
-							><Card.Title>Price history · {data.store_ids.length} stores</Card.Title></Card.Header
-						>
-						<Card.Content>
-							<PriceChart series={chartSeries} />
-						</Card.Content>
-					</Card.Root>
-				{:else if history.length > 1}
-					<Card.Root>
-						<Card.Header><Card.Title>Price history</Card.Title></Card.Header>
-						<Card.Content>
-							<PriceChart {history} storeId={selected?.store_id} />
+						<Card.Header>
+							<Card.Title>
+								Price history{multiStore ? ` · ${data.store_ids.length} stores` : ''}
+							</Card.Title>
+						</Card.Header>
+						<Card.Content class="space-y-4">
+							<PriceChart series={visibleSeries} />
+							{#if multiStore}
+								<StoreFilter
+									stores={chartSeries.map((s) => s.store_id)}
+									hidden={hiddenStores}
+									ontoggle={toggleStore}
+								/>
+							{/if}
 						</Card.Content>
 					</Card.Root>
 				{:else}
