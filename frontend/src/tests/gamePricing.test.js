@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import ProductCard from '$lib/components/ProductCard.svelte';
 import { gamePricing, inr } from '$lib/gamePricing.js';
-import { alignSeries } from '$lib/priceSeries.js';
+import { alignSeries, segmentInStock } from '$lib/priceSeries.js';
 
 const offer = (over = {}) => ({
 	product_id: 1,
@@ -160,6 +160,23 @@ describe('alignSeries', () => {
 		// A store scraped on one day only owns that one point.
 		expect(datasets[1].real).toEqual([false, true, false]);
 		expect(datasets[1].available).toEqual([null, true, true]);
+	});
+
+	it('dashes only the stretch after a shop went out of stock', () => {
+		const { datasets } = alignSeries([
+			{
+				store_id: 'a',
+				history: [
+					{ price: 2899, available: true, recorded_at: '2026-06-12T00:00:00' },
+					{ price: 2899, available: false, recorded_at: '2026-06-14T00:00:00' },
+					{ price: 2199, available: true, recorded_at: '2026-07-22T00:00:00' }
+				]
+			}
+		]);
+		const { available } = datasets[0];
+		expect(segmentInStock(available, 0)).toBe(true);
+		expect(segmentInStock(available, 1)).toBe(false);
+		expect(segmentInStock(available, 2)).toBe(true);
 	});
 
 	it('returns empty axes for no data', () => {

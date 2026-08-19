@@ -10,7 +10,7 @@
 		Tooltip
 	} from 'chart.js';
 	import { theme } from '$lib/theme.svelte.js';
-	import { alignSeries, formatDay } from '$lib/priceSeries.js';
+	import { alignSeries, formatDay, segmentInStock } from '$lib/priceSeries.js';
 	import { storeColors, DEFAULT_PALETTE, tint } from '$lib/storeColors.svelte.js';
 
 	Chart.register(
@@ -81,11 +81,6 @@
 	const fmt = (/** @type {number} */ n) =>
 		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-	/** True when both ends of a line segment were in stock. */
-	function soldAt(/** @type {any} */ d, /** @type {any} */ ctx) {
-		return d.available[ctx.p0DataIndex] !== false && d.available[ctx.p1DataIndex] !== false;
-	}
-
 	let canvas = $state(/** @type {HTMLCanvasElement | null} */ (null));
 	let chart;
 
@@ -135,8 +130,9 @@
 				pointBorderWidth: 2,
 				segment: {
 					// A stretch with nothing to buy is drawn broken and faded.
-					borderDash: (ctx) => (soldAt(d, ctx) ? undefined : [5, 4]),
-					borderColor: (ctx) => (soldAt(d, ctx) ? undefined : tint(color, 0.35))
+					borderDash: (ctx) => (segmentInStock(d.available, ctx.p0DataIndex) ? undefined : [5, 4]),
+					borderColor: (ctx) =>
+						segmentInStock(d.available, ctx.p0DataIndex) ? undefined : tint(color, 0.35)
 				}
 			};
 		});

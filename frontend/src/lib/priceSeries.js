@@ -45,6 +45,20 @@ export function alignSeries(series) {
 	return { labels: days, datasets };
 }
 
+/**
+ * Whether a line segment runs over a stretch the shop was selling in.
+ *
+ * A reading holds until the next one, so a segment takes the stock state of the
+ * point it starts at — going out of stock on a day does not dim the days before
+ * it.
+ *
+ * @param {Array<boolean|null>} available
+ * @param {number} from index of the segment's first point
+ */
+export function segmentInStock(available, from) {
+	return available[from] !== false;
+}
+
 /** @param {string} day */
 export function formatDay(day) {
 	return new Date(day).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
