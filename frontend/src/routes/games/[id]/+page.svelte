@@ -31,10 +31,12 @@
 	import GameGallery from '$lib/components/GameGallery.svelte';
 	import StoreOffers from '$lib/components/StoreOffers.svelte';
 	import StoreFilter from '$lib/components/StoreFilter.svelte';
+	import PriceTimeline from '$lib/components/PriceTimeline.svelte';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
+	import { buildTimeline } from '$lib/priceTimeline.js';
 	import {
 		ArrowLeft,
 		ExternalLink,
@@ -42,7 +44,6 @@
 		Users,
 		Clock,
 		Baby,
-		ChevronDown,
 		Link2,
 		Pencil,
 		Eye,
@@ -66,7 +67,6 @@
 	let selectedId = $state(/** @type {number|null} */ (null));
 	let listing = $state(null);
 	let listingLoading = $state(false);
-	let showAllSnaps = $state(false);
 	let busy = $state(false);
 
 	// Edit panels
@@ -133,6 +133,7 @@
 	let hiddenStores = $state(new Set());
 	const visibleSeries = $derived(chartSeries.filter((s) => !hiddenStores.has(s.store_id)));
 	const chartPoints = $derived(visibleSeries.reduce((n, s) => n + (s.history?.length ?? 0), 0));
+	const timeline = $derived(buildTimeline(chartSeries, { hidden: hiddenStores }));
 
 	/** @param {string} storeId */
 	function toggleStore(storeId) {
@@ -818,66 +819,23 @@
 					</Card.Root>
 				{/if}
 
-				<!-- Snapshots for the selected shop -->
+				<!-- Every shop's changes, newest first -->
 				<Card.Root>
 					<Card.Header class="flex-row items-center justify-between">
-						<Card.Title>Price snapshots · {selected?.store_id}</Card.Title>
+						<Card.Title>Price timeline</Card.Title>
 						<span class="text-xs text-muted-foreground">
-							{listingLoading ? 'loading…' : `${history.length} records`}
+							{listingLoading ? 'loading…' : `${timeline.length} changes`}
 						</span>
 					</Card.Header>
-					<Card.Content>
-						{#if history.length}
-							<div class="overflow-hidden rounded-lg border">
-								<table class="w-full text-sm">
-									<thead class="bg-muted/50 text-muted-foreground">
-										<tr>
-											<th class="px-3 py-2 text-left font-medium">Date</th>
-											<th class="px-3 py-2 text-right font-medium">Price</th>
-											<th class="px-3 py-2 text-center font-medium">Stock</th>
-										</tr>
-									</thead>
-									<tbody class="divide-y">
-										{#each showAllSnaps ? history : history.slice(0, 8) as snap}
-											<tr class="transition-colors hover:bg-muted/30">
-												<td class="px-3 py-2 text-muted-foreground">
-													{new Date(snap.recorded_at).toLocaleString('en-IN', {
-														day: 'numeric',
-														month: 'short',
-														year: 'numeric',
-														hour: '2-digit',
-														minute: '2-digit'
-													})}
-												</td>
-												<td class="px-3 py-2 text-right font-semibold tabular-nums">
-													{inr(snap.price)}
-												</td>
-												<td class="px-3 py-2 text-center">
-													{#if snap.available}
-														<span class="text-green-600 dark:text-green-400">●</span>
-													{:else}
-														<span class="text-destructive">●</span>
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-							{#if history.length > 8}
-								<button
-									onclick={() => (showAllSnaps = !showAllSnaps)}
-									class="mt-3 inline-flex items-center gap-1 text-sm text-primary hover:underline"
-								>
-									<ChevronDown
-										class="size-4 transition-transform {showAllSnaps ? 'rotate-180' : ''}"
-									/>
-									{showAllSnaps ? 'Show less' : `Show all ${history.length}`}
-								</button>
-							{/if}
-						{:else}
-							<p class="text-sm text-muted-foreground">No snapshots for this shop yet.</p>
+					<Card.Content class="space-y-4">
+						{#if multiStore}
+							<StoreFilter
+								stores={chartSeries.map((s) => s.store_id)}
+								hidden={hiddenStores}
+								ontoggle={toggleStore}
+							/>
 						{/if}
+						<PriceTimeline events={timeline} {multiStore} />
 					</Card.Content>
 				</Card.Root>
 			</div>
