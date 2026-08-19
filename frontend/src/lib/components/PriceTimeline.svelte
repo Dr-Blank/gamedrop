@@ -2,6 +2,7 @@
 	import { ChevronDown } from '@lucide/svelte';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { inr } from '$lib/gamePricing.js';
+	import { fmtDateParts } from '$lib/dateFormat.svelte.js';
 
 	let { events = /** @type {Array<any>} */ ([]), multiStore = false, limit = 12 } = $props();
 
@@ -22,7 +23,7 @@
 
 	/** @param {string} at */
 	const when = (at) =>
-		new Date(at).toLocaleString('en-IN', {
+		fmtDateParts(at, {
 			day: 'numeric',
 			month: 'short',
 			year: 'numeric',

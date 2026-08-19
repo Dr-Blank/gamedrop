@@ -12,6 +12,7 @@
 		ArrowRight
 	} from '@lucide/svelte';
 	import { notifications } from '$lib/notifications.svelte.js';
+	import { fmtRelative } from '$lib/dateFormat.svelte.js';
 
 	let open = $state(false);
 	let loading = $state(false);
@@ -52,16 +53,7 @@
 		}
 	};
 
-	function reltime(ts) {
-		const diff = Date.now() - new Date(ts + 'Z').getTime();
-		if (diff < 60_000) return 'just now';
-		if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-		if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-		const d = Math.floor(diff / 86_400_000);
-		if (d === 1) return 'yesterday';
-		if (d < 7) return `${d}d ago`;
-		return new Date(ts + 'Z').toLocaleDateString();
-	}
+	const reltime = fmtRelative;
 
 	async function toggle(e) {
 		e.stopPropagation();

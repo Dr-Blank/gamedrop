@@ -1,3 +1,5 @@
+import { fmtDateParts } from './dateFormat.svelte.js';
+
 /** @param {string} iso */
 function dayKey(iso) {
 	return new Date(iso).toISOString().slice(0, 10);
@@ -61,5 +63,5 @@ export function segmentInStock(available, from) {
 
 /** @param {string} day */
 export function formatDay(day) {
-	return new Date(day).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+	return fmtDateParts(day, { day: 'numeric', month: 'short' });
 }

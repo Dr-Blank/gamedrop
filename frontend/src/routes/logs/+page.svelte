@@ -4,6 +4,17 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Card from '$lib/components/ui/card';
 	import { getAppLogs, getGithubIssueExport } from '$lib/api.js';
+	import { fmtDateParts, fmtRelative } from '$lib/dateFormat.svelte.js';
+
+	/** Log lines are scanned, not read — keep them fixed-width and second-precise. */
+	const fmtLogTime = (ts) =>
+		fmtDateParts(ts, {
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		});
 
 	let records = $state([]);
 	let loading = $state(true);
@@ -113,8 +124,8 @@
 				<div class="max-h-[70vh] divide-y overflow-y-auto font-mono text-xs">
 					{#each [...records].reverse() as r}
 						<div class="flex gap-3 px-4 py-2 hover:bg-muted/30">
-							<span class="shrink-0 text-muted-foreground"
-								>{r.ts.replace('T', ' ').slice(0, 19)}</span
+							<span class="shrink-0 text-muted-foreground" title={fmtRelative(r.ts)}
+								>{fmtLogTime(r.ts)}</span
 							>
 							<span class="w-16 shrink-0 {LEVEL_CLASS[r.level] ?? ''}">{r.level}</span>
 							<span class="w-40 shrink-0 truncate text-muted-foreground" title={r.logger}

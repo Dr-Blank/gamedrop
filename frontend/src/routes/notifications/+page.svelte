@@ -25,6 +25,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { shortcuts, NOTIFICATION_SHORTCUTS } from '$lib/shortcuts.svelte.js';
+	import { fmtRelative, fmtDateParts } from '$lib/dateFormat.svelte.js';
 
 	const PAGE_SIZE = 20;
 
@@ -72,17 +73,7 @@
 		}
 	};
 
-	function reltime(ts) {
-		const d = new Date(ts + 'Z');
-		const diff = Date.now() - d.getTime();
-		if (diff < 60_000) return 'just now';
-		if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-		if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-		const days = Math.floor(diff / 86_400_000);
-		if (days === 1) return 'yesterday';
-		if (days < 7) return `${days}d ago`;
-		return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-	}
+	const reltime = fmtRelative;
 
 	function dayLabel(ts) {
 		const d = new Date(ts + 'Z');
@@ -92,7 +83,7 @@
 		if (diff <= 86_400_000) return 'Yesterday';
 		const days = Math.floor(diff / 86_400_000);
 		if (days < 7) return `${days} days ago`;
-		return new Date(ts + 'Z').toLocaleDateString(undefined, {
+		return fmtDateParts(ts, {
 			weekday: 'long',
 			day: 'numeric',
 			month: 'short'

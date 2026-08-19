@@ -16,6 +16,7 @@
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
+	import { fmtDate, fmtRelative } from '$lib/dateFormat.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
@@ -283,12 +284,6 @@
 		return watchStore.toggle({ product });
 	}
 
-	function fmtDate(iso) {
-		if (!iso) return 'Never';
-		const d = new Date(iso);
-		return d.toLocaleString();
-	}
-
 	function fmtDuration(startIso, endIso) {
 		if (!startIso || !endIso) return '';
 		const ms = new Date(endIso) - new Date(startIso);
@@ -479,7 +474,9 @@
 									</div>
 								{:else if store.last_synced_at}
 									<div class="text-green-600">✓ Done</div>
-									<div class="text-muted-foreground">{fmtDate(store.last_synced_at)}</div>
+									<div class="text-muted-foreground">
+										{fmtDate(store.last_synced_at)} · {fmtRelative(store.last_synced_at)}
+									</div>
 								{:else}
 									<span class="text-muted-foreground">Never synced</span>
 								{/if}
@@ -560,6 +557,9 @@
 															<div class="min-w-0 flex-1">
 																<div class="flex flex-wrap items-center gap-2">
 																	<span class="font-medium">{fmtDate(log.started_at)}</span>
+																	<span class="text-muted-foreground"
+																		>{fmtRelative(log.started_at)}</span
+																	>
 																	{#if log.finished_at}
 																		<span class="text-muted-foreground"
 																			>{fmtDuration(log.started_at, log.finished_at)}</span
