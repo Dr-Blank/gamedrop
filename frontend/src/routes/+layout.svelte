@@ -1,7 +1,7 @@
 <script>
 	import './layout.css';
 	import { page } from '$app/stores';
-	import { goto, onNavigate } from '$app/navigation';
+	import { onNavigate } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { slide, fly } from 'svelte/transition';
 	import {
@@ -18,7 +18,6 @@
 		Merge,
 		Menu,
 		X,
-		Search,
 		Keyboard,
 		MoreHorizontal
 	} from '@lucide/svelte';
@@ -30,6 +29,7 @@
 	import { shortcuts } from '$lib/shortcuts.svelte.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
+	import SearchBox from '$lib/components/SearchBox.svelte';
 	import { notifications } from '$lib/notifications.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 
@@ -55,23 +55,21 @@
 
 	let mobileOpen = $state(false);
 	let moreOpen = $state(false);
-	let q = $state('');
-	/** @type {HTMLInputElement | null} */
-	let searchInput = $state(null);
-	/** @type {HTMLInputElement | null} */
-	let mobileSearchInput = $state(null);
-	let searchFocused = $state(false);
+	/** @type {any} */
+	let searchBox = $state(null);
+	/** @type {any} */
+	let mobileSearchBox = $state(null);
 
 	// The desktop search box is hidden under md — open the mobile nav instead so
 	// the shortcut has something to focus on a phone.
 	$effect(() =>
 		shortcuts.registerSearchFocus(() => {
-			if (searchInput?.offsetParent) {
-				searchInput.select();
+			if (searchBox?.isVisible()) {
+				searchBox.focus();
 				return;
 			}
 			mobileOpen = true;
-			setTimeout(() => mobileSearchInput?.select(), 0);
+			setTimeout(() => mobileSearchBox?.focus(), 0);
 		})
 	);
 
@@ -94,14 +92,6 @@
 			if ($page.url.searchParams.get(k) !== v) return false;
 		}
 		return true;
-	}
-
-	function submitSearch() {
-		if (q.trim()) {
-			goto(`/search?q=${encodeURIComponent(q.trim())}`);
-			q = '';
-			mobileOpen = false;
-		}
 	}
 
 	onNavigate((navigation) => {
@@ -154,33 +144,12 @@
 			</nav>
 
 			<!-- search -->
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					submitSearch();
-				}}
-				class="relative ml-auto hidden w-44 md:block xl:w-56"
-			>
-				<Search
-					class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-				/>
-				<input
-					bind:this={searchInput}
-					bind:value={q}
-					onfocus={() => (searchFocused = true)}
-					onblur={() => (searchFocused = false)}
-					placeholder="Search…"
-					aria-keyshortcuts="/ Control+K"
-					class="h-9 w-full rounded-lg border bg-background pr-10 pl-8 text-sm shadow-sm transition-colors focus:ring-2 focus:ring-ring focus:outline-none"
-				/>
-				<!-- Hint, not a control: it would only be in the way once typing starts. -->
-				{#if !searchFocused && !q}
-					<kbd
-						class="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-b-2 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-						>/</kbd
-					>
-				{/if}
-			</form>
+			<SearchBox
+				bind:this={searchBox}
+				hint
+				class="ml-auto hidden w-44 md:block xl:w-56"
+				inputClass="h-9 pr-10 pl-8 shadow-sm"
+			/>
 
 			<div class="ml-auto flex items-center gap-1 md:ml-1">
 				<!-- More menu (desktop) -->
@@ -240,23 +209,13 @@
 		{#if mobileOpen}
 			<nav class="border-t lg:hidden" transition:slide={{ duration: 200 }}>
 				<div class="mx-auto max-w-6xl space-y-1 px-3 py-3">
-					<form
-						onsubmit={(e) => {
-							e.preventDefault();
-							submitSearch();
-						}}
-						class="relative mb-2"
-					>
-						<Search
-							class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-						/>
-						<input
-							bind:this={mobileSearchInput}
-							bind:value={q}
-							placeholder="Search any game…"
-							class="h-10 w-full rounded-lg border bg-background pr-3 pl-9 text-sm"
-						/>
-					</form>
+					<SearchBox
+						bind:this={mobileSearchBox}
+						placeholder="Search any game…"
+						class="mb-2"
+						inputClass="h-10 pr-3 pl-9"
+						onnavigate={() => (mobileOpen = false)}
+					/>
 					{#each [...primary, ...more] as link}
 						{@const Icon = link.icon}
 						<a
