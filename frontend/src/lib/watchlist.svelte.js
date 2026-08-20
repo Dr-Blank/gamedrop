@@ -13,8 +13,8 @@ class WatchlistState {
 
 	async load() {
 		try {
-			const cards = await getWatchlist();
-			this.map = new Map(cards.map((c) => [c.game.id, c.watchlist.id]));
+			const items = await getWatchlist();
+			this.map = new Map(items.map((w) => [w.game_id, w.id]));
 		} catch {
 			// Non-fatal: cards just render as un-watched until next load.
 		} finally {

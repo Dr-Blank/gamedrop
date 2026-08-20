@@ -1,13 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import {
-		shelvesPreview,
-		getWatchlist,
-		getShelves,
-		patchShelf,
-		reorderShelves
-	} from '$lib/api.js';
+	import { shelvesPreview, browseQuery, getShelves, patchShelf, reorderShelves } from '$lib/api.js';
 	import { browseUrl } from '$lib/browse.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
@@ -22,6 +16,8 @@
 
 	let shelvesList = $state(/** @type {any[]} */ ([]));
 	let watchlistItems = $state(/** @type {any[]} */ ([]));
+
+	const WATCHED = { type: 'condition', field: 'is_watched', op: 'eq', value: true };
 	let loading = $state(true);
 
 	// Reorder mode: shelves collapse to draggable rows; order saves on exit.
@@ -39,9 +35,12 @@
 	async function load() {
 		loading = true;
 		try {
-			const [preview, wl] = await Promise.all([shelvesPreview(8), getWatchlist()]);
+			const [preview, wl] = await Promise.all([
+				shelvesPreview(8),
+				browseQuery({ filters: WATCHED, limit: 8 })
+			]);
 			shelvesList = preview;
-			watchlistItems = wl;
+			watchlistItems = wl.items;
 		} catch (e) {
 			toast.error('Failed to load: ' + e.message);
 		} finally {

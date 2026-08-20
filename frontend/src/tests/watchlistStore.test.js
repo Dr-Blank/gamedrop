@@ -22,8 +22,8 @@ describe('watchlist store', () => {
 
 	it('load() builds a game_id -> watchlist_id map', async () => {
 		api.getWatchlist.mockResolvedValue([
-			{ game: { id: 7 }, watchlist: { id: 99 } },
-			{ game: { id: 8 }, watchlist: { id: 100 } }
+			{ id: 99, game_id: 7 },
+			{ id: 100, game_id: 8 }
 		]);
 		await watchlist.load();
 		expect(watchlist.has(7)).toBe(true);

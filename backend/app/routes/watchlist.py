@@ -51,7 +51,8 @@ def _resolve_game_id(body: WatchlistAdd, session: Session) -> int:
 
 @router.get("/")
 def list_watchlist(session: Session = Depends(get_session)):
-    return wl_repo.cards(session)
+    """The watches themselves. Cards for them come from a browse query."""
+    return wl_repo.active_items(session)
 
 
 @router.post("/")

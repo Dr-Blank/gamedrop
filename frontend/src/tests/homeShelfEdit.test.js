@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/api.js', () => ({
 	shelvesPreview: vi.fn(),
-	getWatchlist: vi.fn(),
+	browseQuery: vi.fn(),
 	getShelves: vi.fn(),
 	patchShelf: vi.fn(),
 	reorderShelves: vi.fn(),
@@ -34,7 +34,7 @@ async function renderHome() {
 		{ shelf: shelf(1, 'Top Discounts'), items: [] },
 		{ shelf: shelf(2, 'New Arrivals'), items: [] }
 	]);
-	api.getWatchlist.mockResolvedValue([]);
+	api.browseQuery.mockResolvedValue({ items: [], total: 0 });
 	api.getShelves.mockResolvedValue([shelf(1, 'Top Discounts'), shelf(2, 'New Arrivals')]);
 	render(Home);
 	await screen.findByText('Top Discounts');

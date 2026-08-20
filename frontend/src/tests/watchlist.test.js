@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
+import { afterNavigate } from '$app/navigation';
 
-// Mock the API + toast so the page renders in isolation.
 vi.mock('$lib/api.js', () => ({
-	getWatchlist: vi.fn(),
-	removeWatchlist: vi.fn(),
-	updateWatchlist: vi.fn(),
-	addWatchlist: vi.fn(),
-	priceSearch: vi.fn(),
-	priceHistory: vi.fn()
+	browseFields: vi.fn(),
+	browseStores: vi.fn(),
+	browseQuery: vi.fn(),
+	createShelf: vi.fn(),
+	patchGame: vi.fn(),
+	setOverride: vi.fn(),
+	clearOverride: vi.fn()
 }));
 vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn() }
@@ -31,30 +32,52 @@ const card = {
 	bgg: null,
 	override: null,
 	discount_pct: 69.5,
-	watchlist: { id: 1, target_price: null, product_id: 2 }
+	watchlist: { id: 1, target_price: null }
 };
 
 describe('watchlist page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		api.priceHistory.mockResolvedValue({ history: [] });
+		api.browseFields.mockResolvedValue([]);
+		api.browseStores.mockResolvedValue([]);
 	});
 
-	// Regression: the page imported onMount but never called it, so load() never
-	// ran — watchlist stayed empty and nothing rendered even with items present.
-	it('fetches the watchlist on mount and renders the items', async () => {
-		api.getWatchlist.mockResolvedValue([card]);
+	// SvelteKit runs the first query from afterNavigate, which is stubbed here.
+	async function renderPage() {
 		render(Watchlist);
+		await afterNavigate.mock.calls.at(-1)[0]({ type: 'load' });
+	}
 
-		await waitFor(() => expect(api.getWatchlist).toHaveBeenCalledOnce());
+	// The page is a browse view with the watch as its preset — no feed of its own.
+	it('asks for watched games and keeps hidden ones in view', async () => {
+		api.browseQuery.mockResolvedValue({ items: [card], total: 1 });
+		await renderPage();
+
+		expect(api.browseQuery.mock.calls[0][0]).toMatchObject({
+			filters: {
+				type: 'group',
+				op: 'and',
+				conditions: [{ type: 'condition', field: 'is_watched', op: 'eq', value: true }]
+			},
+			include_hidden: true
+		});
 		expect(await screen.findByText('Catan')).toBeInTheDocument();
-		expect(screen.getByText(/1 game tracked/)).toBeInTheDocument();
+		expect(screen.getByText('1 game tracked')).toBeInTheDocument();
 	});
 
-	it('shows the empty state when the watchlist is empty', async () => {
-		api.getWatchlist.mockResolvedValue([]);
-		render(Watchlist);
+	it('shows the empty state when nothing is watched', async () => {
+		api.browseQuery.mockResolvedValue({ items: [], total: 0 });
+		await renderPage();
 
 		expect(await screen.findByText(/Your watchlist is empty/)).toBeInTheDocument();
+	});
+
+	it('leaves out the shelf-saving and merge controls that belong to browse', async () => {
+		api.browseQuery.mockResolvedValue({ items: [card], total: 1 });
+		await renderPage();
+
+		await screen.findByText('Catan');
+		expect(screen.queryByRole('button', { name: /Not merged/ })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Save shelf/ })).not.toBeInTheDocument();
 	});
 });

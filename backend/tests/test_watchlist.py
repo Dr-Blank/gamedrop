@@ -120,12 +120,15 @@ def test_add_duplicate_updates(client: TestClient, session: Session):
     assert len(items) == 1
 
 
-def test_list_watchlist_includes_product(client: TestClient, session: Session):
+def test_list_watchlist_returns_the_watches(client: TestClient, session: Session):
+    """The list is the watches themselves — cards for them come from browse."""
     pid = _seed(session)
-    client.post("/api/watchlist/", json={"product_id": pid})
+    client.post("/api/watchlist/", json={"product_id": pid, "target_price": 20.0})
     items = client.get("/api/watchlist/").json()
     assert len(items) == 1
-    assert items[0]["product"]["id"] == pid
+    assert items[0]["game_id"] == session.get(Product, pid).game_id
+    assert items[0]["target_price"] == 20.0
+    assert items[0]["active"] is True
 
 
 def test_remove_from_watchlist(client: TestClient, session: Session):
