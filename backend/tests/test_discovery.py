@@ -1,4 +1,4 @@
-"""Feeds + global search + home dashboard."""
+"""Discovery through browse filters + the ranked global search."""
 
 from datetime import datetime, timedelta
 
@@ -71,29 +71,10 @@ def _seed(session: Session):
     return products
 
 
-def test_feed_drops_only_includes_price_drops(client: TestClient, session: Session):
+def test_browse_finds_price_drops(client: TestClient, session: Session):
+    """Drops are a filter, not a feed: cheaper than the previous snapshot."""
     _seed(session)
-    items = client.get("/api/feed/drops").json()["items"]
-    titles = [i["product"]["title"] for i in items]
-    assert "Catan" in titles
-    assert "Pandemic" not in titles  # price rose
-    catan = next(i for i in items if i["product"]["title"] == "Catan")
-    assert catan["previous_price"] == 30.0
-    assert catan["latest_price"]["price"] == 20.0
-
-
-def test_feed_new_orders_by_first_seen(client: TestClient, session: Session):
-    _seed(session)
-    items = client.get("/api/feed/new").json()["items"]
-    # Azul was first seen last → should lead.
-    assert items[0]["product"]["title"] == "Azul"
-
-
-def test_browse_preset_matches_the_drops_feed(client: TestClient, session: Session):
-    """The drops page is a browse query, so the filter must pick the same games."""
-    _seed(session)
-    feed = {i["game"]["id"] for i in client.get("/api/feed/drops").json()["items"]}
-    browsed = client.post(
+    items = client.post(
         "/api/browse/query",
         json={
             "filters": {
@@ -105,24 +86,35 @@ def test_browse_preset_matches_the_drops_feed(client: TestClient, session: Sessi
             "sorts": [{"field": "price_pct_change", "dir": "asc"}],
         },
     ).json()["items"]
-    assert {i["game"]["id"] for i in browsed} == feed
+    titles = [i["product"]["title"] for i in items]
+    assert "Catan" in titles
+    assert "Pandemic" not in titles  # price rose
 
 
-def test_browse_sort_matches_the_new_feed(client: TestClient, session: Session):
+def test_browse_orders_new_arrivals_by_first_seen(client: TestClient, session: Session):
     _seed(session)
-    feed = [i["game"]["id"] for i in client.get("/api/feed/new").json()["items"]]
-    browsed = client.post(
+    items = client.post(
         "/api/browse/query",
         json={"sorts": [{"field": "first_seen", "dir": "desc"}]},
     ).json()["items"]
-    assert [i["game"]["id"] for i in browsed] == feed
+    # Azul was first seen last → should lead.
+    assert items[0]["product"]["title"] == "Azul"
 
 
-def test_feed_discounts_only_positive(client: TestClient, session: Session):
+def test_browse_finds_discounted_listings(client: TestClient, session: Session):
     _seed(session)
-    items = client.get("/api/feed/discounts").json()["items"]
-    titles = [i["product"]["title"] for i in items]
-    assert titles == ["Azul"]
+    items = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "condition",
+                "field": "discount_pct",
+                "op": "gt",
+                "value": 0,
+            }
+        },
+    ).json()["items"]
+    assert [i["product"]["title"] for i in items] == ["Azul"]
     assert items[0]["discount_pct"] == 50.0
 
 
@@ -137,13 +129,22 @@ def test_search_blank_returns_empty(client: TestClient, session: Session):
     assert client.get("/api/search?q=").json()["items"] == []
 
 
-def test_home_has_all_shelves(client: TestClient, session: Session):
+def test_browse_finds_watched_games(client: TestClient, session: Session):
+    """The watchlist page is a filter too, and its cards name the watch."""
     products = _seed(session)
     session.add(WatchlistItem(game_id=products[0].game_id))
     session.commit()
 
-    data = client.get("/api/home").json()
-    assert set(data) == {"watchlist", "price_drops", "new_additions", "top_discounts"}
-    assert data["watchlist"][0]["product"]["title"] == "Catan"
-    assert data["watchlist"][0]["watchlist"]["active"] is True
-    assert any(i["product"]["title"] == "Catan" for i in data["price_drops"])
+    items = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "condition",
+                "field": "is_watched",
+                "op": "eq",
+                "value": True,
+            }
+        },
+    ).json()["items"]
+    assert [i["product"]["title"] for i in items] == ["Catan"]
+    assert items[0]["watchlist"]["active"] is True

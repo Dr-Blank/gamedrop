@@ -14,7 +14,6 @@ from sqlalchemy import case, func
 from sqlmodel import Session, select
 
 from ..filter_engine import (
-    Condition,
     FilterNode,
     SortSpec,
     apply_filter,
@@ -520,7 +519,7 @@ def count_products(
 
 
 # ---------------------------------------------------------------------------
-# Feeds
+# Search
 # ---------------------------------------------------------------------------
 
 
@@ -539,60 +538,6 @@ def _ranked_snapshots_subq():
         )
         .label("rn"),
     ).subquery()
-
-
-def price_drops(
-    session: Session, *, page: int = 1, limit: int = 12, in_stock_only: bool = False
-) -> list[dict]:
-    """Listings whose latest price is below their previous recorded price."""
-    ranked = _ranked_snapshots_subq()
-    latest = select(ranked).where(ranked.c.rn == 1).subquery()
-    prev = select(ranked).where(ranked.c.rn == 2).subquery()
-    drop_pct = (prev.c.price - latest.c.price) / prev.c.price
-    stmt = (
-        select(Product, PriceSnapshot, Game, prev.c.price.label("previous_price"))
-        .join(Game, Product.game_id == Game.id)
-        .join(latest, Product.id == latest.c.product_id)
-        .join(prev, Product.id == prev.c.product_id)
-        .join(
-            PriceSnapshot,
-            (PriceSnapshot.product_id == Product.id)
-            & (PriceSnapshot.recorded_at == latest.c.recorded_at),
-        )
-        .where(latest.c.price < prev.c.price)
-        .where(Game.hidden == False)  # noqa: E712
-    )
-    if in_stock_only:
-        stmt = stmt.where(latest.c.available == True)  # noqa: E712
-    stmt = stmt.order_by(drop_pct.desc())
-    offset = (page - 1) * limit
-    rows = session.exec(stmt.offset(offset).limit(limit)).all()
-    extra = {r[0].id: {"previous_price": r[3]} for r in rows}
-    return make_cards(session, [(r[0], r[1], r[2]) for r in rows], extra=extra)
-
-
-def new_additions(session: Session, *, page: int = 1, limit: int = 12) -> list[dict]:
-    """Most recently first-seen listings."""
-    rows = query_products(
-        session,
-        sorts=[SortSpec(field="first_seen", dir="desc")],
-        page=page,
-        limit=limit,
-    )
-    return make_cards(session, rows)
-
-
-def top_discounts(session: Session, *, page: int = 1, limit: int = 12) -> list[dict]:
-    """Largest current % discount."""
-    rows = query_products(
-        session,
-        filter_node=Condition(field="discount_pct", op="gt", value=0),
-        sorts=[SortSpec(field="discount_pct", dir="desc")],
-        page=page,
-        limit=limit,
-    )
-    cards = make_cards(session, rows)
-    return [c for c in cards if (c["discount_pct"] or 0) > 0]
 
 
 def _rows_by_ids(session: Session, ids: list[int]) -> list[CatalogRow]:
