@@ -21,6 +21,7 @@
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import FilterGroup from '$lib/components/FilterGroup.svelte';
+	import SortMenu from '$lib/components/SortMenu.svelte';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { shortcuts, BROWSE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
 	import {
@@ -30,9 +31,7 @@
 		X,
 		Bookmark,
 		Unlink,
-		ArrowUp,
-		ArrowDown,
-		Trash2
+		ArrowUpDown
 	} from '@lucide/svelte';
 
 	// ---------------------------------------------------------------------------
@@ -46,6 +45,7 @@
 	let loading = $state(false);
 	let page_ = $state(1);
 	let showFilters = $state(false);
+	let showSort = $state(false);
 	let saveOpen = $state(false);
 	let saveName = $state('');
 	let saveIcon = $state('Layers');
@@ -189,28 +189,7 @@
 
 	function resetFilters() {
 		filterTree = { type: 'group', op: 'and', conditions: [] };
-		sorts = [];
 		pushUrl(); // afterNavigate will decode URL + search
-	}
-
-	// ---------------------------------------------------------------------------
-	// Sorts
-	// ---------------------------------------------------------------------------
-
-	function addSort() {
-		const used = new Set(sorts.map((s) => s.field));
-		const first = fields.find((f) => f.sortable && !used.has(f.name));
-		if (first) sorts.push({ field: first.name, dir: 'asc' });
-	}
-
-	function removeSort(i) {
-		sorts.splice(i, 1);
-	}
-
-	function moveSort(i, dir) {
-		const j = i + dir;
-		if (j < 0 || j >= sorts.length) return;
-		[sorts[i], sorts[j]] = [sorts[j], sorts[i]];
 	}
 
 	// ---------------------------------------------------------------------------
@@ -354,16 +333,38 @@
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => (showFilters = !showFilters)}
+				onclick={() => {
+					showSort = !showSort;
+					showFilters = false;
+				}}
+				aria-expanded={showSort}
+			>
+				<ArrowUpDown class="size-4" />
+				Sort
+				{#if hasSorts}
+					<span
+						class="grid size-5 place-items-center rounded-full bg-primary text-xs text-primary-foreground"
+					>
+						{sorts.length}
+					</span>
+				{/if}
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={() => {
+					showFilters = !showFilters;
+					showSort = false;
+				}}
 				aria-expanded={showFilters}
 			>
 				<SlidersHorizontal class="size-4" />
 				Filters
-				{#if hasFilters || hasSorts}
+				{#if hasFilters}
 					<span
 						class="grid size-5 place-items-center rounded-full bg-primary text-xs text-primary-foreground"
 					>
-						{filterTree.conditions.length + sorts.length}
+						{filterTree.conditions.length}
 					</span>
 				{/if}
 			</Button>
@@ -375,7 +376,14 @@
 		</div>
 	</div>
 
-	<!-- Filter + sort panel -->
+	<!-- Sort panel -->
+	{#if showSort}
+		<div transition:fly={{ y: -8, duration: 180 }}>
+			<SortMenu {fields} bind:sorts onapply={applyFilters} />
+		</div>
+	{/if}
+
+	<!-- Filter panel -->
 	{#if showFilters}
 		<div transition:fly={{ y: -8, duration: 180 }}>
 			<Card.Root>
@@ -386,61 +394,6 @@
 						{#if fields.length}
 							<FilterGroup bind:group={filterTree} {fields} {stores} depth={0} />
 						{/if}
-					</div>
-
-					<!-- Sort builder -->
-					<div class="space-y-2">
-						<p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-							Sort priority (first = primary)
-						</p>
-						<div class="space-y-1.5">
-							{#each sorts as sort, i (i)}
-								<div class="flex items-center gap-1.5">
-									<span class="w-4 text-center text-xs text-muted-foreground">{i + 1}</span>
-									<select
-										bind:value={sort.field}
-										class="h-7 flex-1 rounded border bg-background px-2 text-xs"
-									>
-										{#each fields.filter((f) => f.sortable) as f}
-											<option value={f.name}>{f.label}</option>
-										{/each}
-									</select>
-									<select
-										bind:value={sort.dir}
-										class="h-7 w-24 rounded border bg-background px-2 text-xs"
-									>
-										<option value="asc">↑ asc</option>
-										<option value="desc">↓ desc</option>
-									</select>
-									<button
-										onclick={() => moveSort(i, -1)}
-										disabled={i === 0}
-										class="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-									>
-										<ArrowUp class="size-3" />
-									</button>
-									<button
-										onclick={() => moveSort(i, 1)}
-										disabled={i === sorts.length - 1}
-										class="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-									>
-										<ArrowDown class="size-3" />
-									</button>
-									<button
-										onclick={() => removeSort(i)}
-										class="rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
-									>
-										<Trash2 class="size-3" />
-									</button>
-								</div>
-							{/each}
-							<button
-								onclick={addSort}
-								class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-							>
-								<Plus class="size-3" /> Add sort
-							</button>
-						</div>
 					</div>
 
 					<div class="flex gap-2 pt-1">
