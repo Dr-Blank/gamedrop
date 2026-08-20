@@ -27,20 +27,20 @@ const item = {
 
 describe('ProductCard watch toggle', () => {
 	it('shows the Remove (unwatch) affordance when already watched', () => {
-		render(ProductCard, { props: { item, variant: 'browse' } });
+		render(ProductCard, { props: { item } });
 		// Heart button reflects watched state via its accessible label.
 		expect(screen.getByLabelText('Remove from watchlist')).toBeInTheDocument();
 		expect(screen.queryByLabelText('Add to watchlist')).not.toBeInTheDocument();
 	});
 
 	it('calls store.toggle when the heart is clicked', async () => {
-		render(ProductCard, { props: { item, variant: 'browse' } });
+		render(ProductCard, { props: { item } });
 		await fireEvent.click(screen.getByLabelText('Remove from watchlist'));
 		expect(toggle).toHaveBeenCalledWith(item);
 	});
 
 	it('does not render a redundant bottom "Watch" button', () => {
-		render(ProductCard, { props: { item, variant: 'browse' } });
+		render(ProductCard, { props: { item } });
 		expect(screen.queryByRole('button', { name: /^Watch$/ })).not.toBeInTheDocument();
 	});
 });

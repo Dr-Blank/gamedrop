@@ -72,13 +72,6 @@
 	const hasFilters = $derived(filterTree.conditions.length > 0);
 	const hasSorts = $derived(sorts.length > 0);
 
-	// When explicitly filtering hidden=true, show hidden variant so cards render
-	const browsingHidden = $derived(
-		filterTree.conditions.some(
-			(c) => c.type === 'condition' && c.field === 'hidden' && c.op === 'eq' && c.value === true
-		)
-	);
-
 	// A game sold by one shop has nothing merged into it.
 	const UNMERGED = { type: 'condition', field: 'store_count', op: 'eq', value: 1 };
 	const unmergedOnly = $derived(
@@ -486,12 +479,7 @@
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
 			{#each items as item (item.product.id)}
-				<ProductCard
-					{item}
-					variant={browsingHidden ? 'hidden' : 'browse'}
-					onedit={openEdit}
-					history={item.price_history ?? []}
-				/>
+				<ProductCard {item} onedit={openEdit} history={item.price_history ?? []} />
 			{/each}
 		</div>
 		<InfiniteScroll

@@ -83,7 +83,7 @@
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
 			{#each items as item (item.product.id)}
-				<ProductCard {item} variant="browse" history={history(item)} />
+				<ProductCard {item} history={history(item)} />
 			{/each}
 		</div>
 		<InfiniteScroll {hasMore} {loading} onload={more} />

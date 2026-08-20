@@ -160,7 +160,7 @@
 					empty="Nothing here yet."
 				>
 					{#snippet card(item)}
-						<ProductCard {item} variant="browse" />
+						<ProductCard {item} />
 					{/snippet}
 					{#snippet actions()}
 						<ShelfMenu
@@ -181,16 +181,11 @@
 					title="Your watchlist"
 					icon={Heart}
 					href="/watchlist"
-					items={watchlistItems.slice(0, 8)}
+					items={watchlistItems.filter((it) => watchlist.has(it.game.id)).slice(0, 8)}
 					empty="Your watchlist is empty."
 				>
 					{#snippet card(item)}
-						<ProductCard
-							{item}
-							variant="watchlist"
-							target={item.watchlist?.target_price}
-							onremove={() => watchlist.toggle(item).then(load)}
-						/>
+						<ProductCard {item} />
 					{/snippet}
 				</Shelf>
 			{/if}

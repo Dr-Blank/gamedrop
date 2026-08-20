@@ -25,67 +25,76 @@ const item = {
 	watchlist: { id: 1, target_price: null }
 };
 
-describe('ProductCard (watchlist variant)', () => {
+describe('ProductCard', () => {
 	it('renders title and price', () => {
-		render(ProductCard, { props: { item, variant: 'watchlist' } });
+		render(ProductCard, { props: { item } });
 		expect(screen.getByText('Catan')).toBeInTheDocument();
 		expect(screen.getByText(/610/)).toBeInTheDocument();
 	});
 
-	it('fires onremove when the remove button is clicked', async () => {
-		const onremove = vi.fn();
-		render(ProductCard, { props: { item, variant: 'watchlist', onremove } });
-		await fireEvent.click(screen.getByTitle('Remove from watchlist'));
-		expect(onremove).toHaveBeenCalledOnce();
+	it('shows "Add to watchlist" when not watched', () => {
+		// Real store, empty map -> not watched.
+		render(ProductCard, { props: { item } });
+		expect(screen.getByLabelText('Add to watchlist')).toBeInTheDocument();
 	});
 
-	it('shows "any drop" when no target price set', () => {
-		render(ProductCard, { props: { item, variant: 'watchlist', target: null } });
+	it('leaves removal to the heart — no trash button, no Details', () => {
+		render(ProductCard, { props: { item } });
+		expect(screen.queryByTitle('Remove from watchlist')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
+	});
+
+	it('tints the store button with the shop colour', () => {
+		render(ProductCard, { props: { item } });
+		expect(screen.getByRole('link', { name: 'Store' }).getAttribute('style')).toContain(
+			'border-color'
+		);
+	});
+});
+
+describe('ProductCard target chip', () => {
+	it('offers a target on any watched card', () => {
+		render(ProductCard, { props: { item } });
+		expect(screen.getByTitle('Set target price')).toBeInTheDocument();
 		expect(screen.getByText('any drop')).toBeInTheDocument();
 	});
 
-	it('browse variant shows "Add to watchlist" when not watched', () => {
-		// Real store, empty map -> not watched.
-		render(ProductCard, { props: { item, variant: 'browse' } });
-		expect(screen.getByLabelText('Add to watchlist')).toBeInTheDocument();
+	it('quotes the target once one is set', () => {
+		const withTarget = { ...item, watchlist: { id: 1, target_price: 450 } };
+		render(ProductCard, { props: { item: withTarget } });
+		expect(screen.getByText('₹450')).toBeInTheDocument();
+	});
+
+	it('stays off cards for games that are not watched', () => {
+		const unwatched = { ...item, watchlist: null };
+		render(ProductCard, { props: { item: unwatched } });
+		expect(screen.queryByTitle('Set target price')).not.toBeInTheDocument();
 	});
 });
 
 describe('ProductCard tab/new-window support', () => {
 	it('wraps card in <a> with correct href (enables browser middle-click and right-click new tab)', () => {
-		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
+		const { container } = render(ProductCard, { props: { item } });
 		const anchor = container.querySelector('a[href="/games/5?store=satyam"]');
 		expect(anchor).toBeInTheDocument();
 	});
 
-	it('watchlist variant also has correct href anchor', () => {
-		const { container } = render(ProductCard, { props: { item, variant: 'watchlist' } });
-		const anchor = container.querySelector('a[href="/games/5?store=satyam"]');
-		expect(anchor).toBeInTheDocument();
-	});
-
-	it('hidden variant also has correct href anchor', () => {
-		const { container } = render(ProductCard, {
-			props: { item: { ...item, bgg: null }, variant: 'hidden' }
-		});
-		const anchor = container.querySelector('a[href="/games/5?store=satyam"]');
-		expect(anchor).toBeInTheDocument();
-	});
-
-	it('clicking remove button prevents card anchor from navigating', async () => {
-		const onremove = vi.fn();
-		const { container } = render(ProductCard, { props: { item, variant: 'watchlist', onremove } });
+	it('clicking the target chip prevents card anchor from navigating', async () => {
+		vi.stubGlobal(
+			'prompt',
+			vi.fn(() => null)
+		);
+		const { container } = render(ProductCard, { props: { item } });
 		let anchorEvent;
 		container.querySelector('a[href="/games/5?store=satyam"]').addEventListener('click', (e) => {
 			anchorEvent = e;
 		});
-		await fireEvent.click(screen.getByTitle('Remove from watchlist'));
-		expect(onremove).toHaveBeenCalledOnce();
+		await fireEvent.click(screen.getByTitle('Set target price'));
 		expect(anchorEvent?.defaultPrevented).toBe(true);
 	});
 
 	it('clicking hide button prevents card anchor from navigating', async () => {
-		const { container } = render(ProductCard, { props: { item, variant: 'browse' } });
+		const { container } = render(ProductCard, { props: { item } });
 		let anchorEvent;
 		container.querySelector('a[href="/games/5?store=satyam"]').addEventListener('click', (e) => {
 			anchorEvent = e;
@@ -105,7 +114,7 @@ describe('ProductCard price line', () => {
 	];
 
 	it('says how long the price has stood instead of quoting an MRP', () => {
-		render(ProductCard, { props: { item, variant: 'browse', history } });
+		render(ProductCard, { props: { item, history } });
 		expect(screen.queryByText('₹2,000')).not.toBeInTheDocument();
 		expect(screen.queryByText(/off MRP/)).not.toBeInTheDocument();
 		expect(screen.getByText('changed 3 days ago')).toBeInTheDocument();
@@ -113,13 +122,13 @@ describe('ProductCard price line', () => {
 
 	it('leaves the price age off a card whose history has no timestamps', () => {
 		render(ProductCard, {
-			props: { item, variant: 'browse', history: [{ price: 610 }, { price: 900 }] }
+			props: { item, history: [{ price: 610 }, { price: 900 }] }
 		});
 		expect(screen.queryByText(/changed|same for/)).not.toBeInTheDocument();
 	});
 
 	it('says how far the price sits above its own low', () => {
-		render(ProductCard, { props: { item, variant: 'browse', history } });
+		render(ProductCard, { props: { item, history } });
 		expect(screen.getByText('cheapest it has been')).toBeInTheDocument();
 	});
 
@@ -137,7 +146,7 @@ describe('ProductCard price line', () => {
 				]
 			}
 		};
-		render(ProductCard, { props: { item: multi, variant: 'browse' } });
+		render(ProductCard, { props: { item: multi } });
 		expect(screen.getByText('₹380 less than other')).toBeInTheDocument();
 	});
 
@@ -156,7 +165,7 @@ describe('ProductCard price line', () => {
 				]
 			}
 		};
-		const { container } = render(ProductCard, { props: { item: twice, variant: 'browse' } });
+		const { container } = render(ProductCard, { props: { item: twice } });
 		expect(container.querySelectorAll('span[title="satyam"]')).toHaveLength(1);
 		expect(container.querySelectorAll('span[title="other"]')).toHaveLength(1);
 	});
@@ -167,7 +176,7 @@ describe('ProductCard BGG link', () => {
 		const open = vi.fn();
 		vi.stubGlobal('open', open);
 		const onlinked = vi.fn();
-		render(ProductCard, { props: { item, variant: 'browse', onlinked } });
+		render(ProductCard, { props: { item, onlinked } });
 
 		await fireEvent.click(screen.getByLabelText('Find on BoardGameGeek'));
 		expect(open).toHaveBeenCalledWith(expect.stringContaining('BGG%20Catan'), '_blank', 'noopener');
@@ -186,7 +195,7 @@ describe('ProductCard BGG link', () => {
 
 	it('links straight out when the game is already on BGG', () => {
 		const linked = { ...item, game: { ...item.game, bgg_id: 42 } };
-		render(ProductCard, { props: { item: linked, variant: 'browse' } });
+		render(ProductCard, { props: { item: linked } });
 		expect(screen.getByLabelText('Open on BoardGameGeek')).toHaveAttribute(
 			'href',
 			'https://boardgamegeek.com/boardgame/42'

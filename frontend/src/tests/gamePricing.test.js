@@ -96,7 +96,7 @@ describe('ProductCard for a game sold by two shops', () => {
 	};
 
 	it('shows the buyable price, its store, and the blocked cheaper offer', () => {
-		render(ProductCard, { props: { item, variant: 'browse' } });
+		render(ProductCard, { props: { item } });
 		expect(screen.getByText(/600/)).toBeInTheDocument();
 		expect(screen.getByText(/at store-b/)).toBeInTheDocument();
 		expect(screen.getByText(/out of stock/i)).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe('ProductCard for a game sold by two shops', () => {
 	});
 
 	it('shows in stock, because the quoted offer is the buyable one', () => {
-		render(ProductCard, { props: { item, variant: 'browse' } });
+		render(ProductCard, { props: { item } });
 		expect(screen.getByText('In stock')).toBeInTheDocument();
 	});
 
@@ -116,7 +116,7 @@ describe('ProductCard for a game sold by two shops', () => {
 				offer({ product_id: 2, store_id: 'store-b', price: 600, available: true })
 			])
 		};
-		render(ProductCard, { props: { item: clean, variant: 'browse' } });
+		render(ProductCard, { props: { item: clean } });
 		expect(screen.queryByText(/out of stock/i)).not.toBeInTheDocument();
 		expect(screen.getByText(/400/)).toBeInTheDocument();
 	});

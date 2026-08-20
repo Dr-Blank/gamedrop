@@ -3,14 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import { beforeNavigate, afterNavigate } from '$app/navigation';
 	import { flip } from 'svelte/animate';
-	import {
-		getWatchlist,
-		removeWatchlist,
-		updateWatchlist,
-		priceSearch,
-		addWatchlist,
-		priceHistory
-	} from '$lib/api.js';
+	import { getWatchlist, priceSearch, addWatchlist, priceHistory } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import * as Card from '$lib/components/ui/card';
@@ -36,8 +29,14 @@
 		{ v: 'stock_first', l: 'In stock first' }
 	];
 
+	// The heart lives on the card, so the store — not a refetch — decides what
+	// stays on screen.
+	let watched = $derived(
+		watchStore.ready ? watchlist.filter((item) => watchStore.has(item.game.id)) : watchlist
+	);
+
 	let sortedWatchlist = $derived(
-		[...watchlist].sort((a, b) => {
+		[...watched].sort((a, b) => {
 			if (sortBy === 'name_asc') return a.game.title.localeCompare(b.game.title);
 			if (sortBy === 'name_desc') return b.game.title.localeCompare(a.game.title);
 			if (sortBy === 'price_asc')
@@ -70,20 +69,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	async function remove(item) {
-		await removeWatchlist(item.watchlist.id);
-		toast.success(`Removed ${item.game.title}`);
-		await Promise.all([load(), watchStore.load()]);
-	}
-
-	async function setTarget(item) {
-		const val = prompt('Target price (₹) — blank for any drop:', item.watchlist.target_price ?? '');
-		if (val === null) return;
-		await updateWatchlist(item.watchlist.id, val ? parseFloat(val) : null);
-		toast.success('Target updated');
-		await load();
 	}
 
 	async function search() {
@@ -138,10 +123,10 @@
 				<Heart class="size-6 text-primary" /> Watchlist
 			</h1>
 			<p class="text-sm text-muted-foreground">
-				{watchlist.length} game{watchlist.length === 1 ? '' : 's'} tracked
+				{watched.length} game{watched.length === 1 ? '' : 's'} tracked
 			</p>
 		</div>
-		{#if watchlist.length > 0}
+		{#if watched.length > 0}
 			<select
 				bind:value={sortBy}
 				class="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm transition-colors hover:bg-muted/50"
@@ -211,7 +196,7 @@
 		</div>
 	{:else if error}
 		<p class="text-destructive">Error: {error}</p>
-	{:else if watchlist.length === 0}
+	{:else if watched.length === 0}
 		<div
 			class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-16 text-center"
 		>
@@ -228,14 +213,7 @@
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
 			{#each sortedWatchlist as item (item.watchlist.id)}
 				<div animate:flip={{ duration: 250 }} in:fly={{ y: 12, duration: 200 }}>
-					<ProductCard
-						{item}
-						variant="watchlist"
-						history={priceHistories[item.product.id] ?? []}
-						target={item.watchlist.target_price}
-						onremove={() => remove(item)}
-						ontarget={() => setTarget(item)}
-					/>
+					<ProductCard {item} history={priceHistories[item.product.id] ?? []} />
 				</div>
 			{/each}
 		</div>
