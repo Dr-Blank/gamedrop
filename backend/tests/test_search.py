@@ -173,9 +173,15 @@ def test_search_nonsense_returns_empty(client: TestClient, session: Session):
     assert _titles(client, "zzzzqqqqwwww") == []
 
 
-def test_search_excludes_hidden_products(client: TestClient, session: Session):
+def test_search_sinks_hidden_products_below_visible_ones(
+    client: TestClient, session: Session
+):
+    """Hiding a game removes it from the feeds, not from search — searching by
+    name is how you find one again."""
     _seed(session, hidden={"Catan"})
-    assert "Catan" not in _titles(client, "catan")
+    titles = _titles(client, "catan")
+    assert "Catan" in titles
+    assert titles[-1] == "Catan"
 
 
 def test_search_respects_limit(client: TestClient, session: Session):

@@ -538,3 +538,5 @@ class BrowseQuery(BaseModel):
     page: int = Field(default=1, ge=1)
     limit: int = Field(default=48, ge=1, le=200)
     include_hidden: bool = False
+    # Keep hidden games in the result but behind every visible one.
+    hidden_last: bool = False

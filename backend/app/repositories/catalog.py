@@ -429,6 +429,7 @@ def query_products(
     page: int = 1,
     limit: int = 48,
     include_hidden: bool = False,
+    hidden_last: bool = False,
 ) -> list[CatalogRow]:
     """Filtered, sorted, paginated catalog rows, one per game.
 
@@ -452,11 +453,16 @@ def query_products(
     filter_on_hidden = filter_node is not None and filter_uses_field(
         filter_node, "hidden"
     )
-    if not include_hidden and not filter_on_hidden:
+    if not include_hidden and not hidden_last and not filter_on_hidden:
         stmt = stmt.where(Game.hidden == False)  # noqa: E712
 
     if filter_node is not None:
         stmt = stmt.where(apply_filter(filter_node, registry))
+
+    # Hidden games stay in the result, behind every visible one, so scrolling
+    # to the end still turns them up.
+    if hidden_last and not filter_on_hidden:
+        stmt = stmt.order_by(Game.hidden.asc())
 
     if sorts:
         stmt = apply_sorts(stmt, sorts, registry)
@@ -481,6 +487,7 @@ def count_products(
     *,
     filter_node: FilterNode | None = None,
     include_hidden: bool = False,
+    hidden_last: bool = False,
 ) -> int:
     """Total matching game count (for pagination) — distinct, to match query_products."""
     latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
@@ -511,7 +518,7 @@ def count_products(
     filter_on_hidden = filter_node is not None and filter_uses_field(
         filter_node, "hidden"
     )
-    if not include_hidden and not filter_on_hidden:
+    if not include_hidden and not hidden_last and not filter_on_hidden:
         stmt = stmt.where(Game.hidden == False)  # noqa: E712
     if filter_node is not None:
         stmt = stmt.where(apply_filter(filter_node, registry))
@@ -564,26 +571,31 @@ def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
     because SQLite `LIKE` can only do substrings, which makes a single typo
     return nothing at all. See app.text_search.
 
-    One listing per game, so a merged game appears once.
+    One listing per game, so a merged game appears once. Hidden games are
+    ranked too but always sink below the visible ones — a search for something
+    you hid should still find it.
     """
     if not q or not q.strip():
         return []
     candidates = session.exec(
-        select(Product.id, Game.title, Product.game_id)
-        .join(Game, Product.game_id == Game.id)
-        .where(Game.hidden == False)  # noqa: E712
+        select(Product.id, Game.title, Product.game_id, Game.hidden).join(
+            Game, Product.game_id == Game.id
+        )
     ).all()
 
     seen_games: set[int] = set()
     deduped: list[tuple[int, str]] = []
-    for product_id, title, game_id in candidates:
+    is_hidden: dict[int, bool] = {}
+    for product_id, title, game_id, hidden in candidates:
         if game_id in seen_games:
             continue
         seen_games.add(game_id)
         deduped.append((product_id, title))
+        is_hidden[product_id] = bool(hidden)
 
     ranked = rank_titles(q, deduped, limit=limit)
-    return cards_by_ids(session, [pid for pid, _ in ranked])
+    ordered = sorted(ranked, key=lambda r: is_hidden.get(r[0], False))
+    return cards_by_ids(session, [pid for pid, _ in ordered])
 
 
 def hidden_game_ids(session: Session) -> list[int]:

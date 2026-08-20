@@ -31,12 +31,32 @@ describe('browse page', () => {
 		await afterNavigate.mock.calls.at(-1)[0]({ type: 'load' });
 	}
 
-	it('queries without a preset and leaves hidden games out', async () => {
+	it('queries without a preset, with hidden games trailing the rest', async () => {
 		await renderPage();
 		expect(api.browseQuery.mock.calls[0][0]).toMatchObject({
 			filters: null,
-			include_hidden: false
+			hidden_last: true
 		});
+	});
+
+	it('marks off the hidden tail once the visible results run out', async () => {
+		const card = (id, title, hidden) => ({
+			product: { id, game_id: id, title, store_id: 'satyam', url: 'https://x/p' },
+			game: { id, title, hidden, bgg_id: null, note: null },
+			latest_price: { price: 610, available: true },
+			bgg: null,
+			override: null,
+			watchlist: null
+		});
+		api.browseQuery.mockResolvedValue({
+			items: [card(1, 'Azul', false), card(2, 'Catan', true), card(3, 'Dune', true)],
+			total: 3
+		});
+		await renderPage();
+
+		await screen.findByText('Azul');
+		// One divider, ahead of the first hidden card — not one per hidden card.
+		expect(screen.getAllByText('Hidden games')).toHaveLength(1);
 	});
 
 	it('keeps the controls a plain catalog view owns', async () => {

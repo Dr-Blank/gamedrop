@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Store, WatchlistItem
+from app.models import Game, PriceSnapshot, Store, WatchlistItem
 
 from .factories import make_product
 
@@ -127,6 +127,38 @@ def test_search_matches_title(client: TestClient, session: Session):
 def test_search_blank_returns_empty(client: TestClient, session: Session):
     _seed(session)
     assert client.get("/api/search?q=").json()["items"] == []
+
+
+def test_browse_keeps_hidden_games_behind_the_visible_ones(
+    client: TestClient, session: Session
+):
+    """Scrolling to the end of a view still turns up what you hid."""
+    products = _seed(session)
+    hidden_game = session.get(Game, products[0].game_id)
+    hidden_game.hidden = True
+    session.add(hidden_game)
+    session.commit()
+
+    body = {"hidden_last": True, "sorts": [{"field": "title", "dir": "asc"}]}
+    res = client.post("/api/browse/query", json=body).json()
+    titles = [i["product"]["title"] for i in res["items"]]
+    assert "Catan" in titles
+    assert titles[-1] == "Catan"  # hidden, so it sorts behind Azul and Pandemic
+    assert res["total"] == 3
+
+
+def test_browse_leaves_hidden_games_out_by_default(
+    client: TestClient, session: Session
+):
+    products = _seed(session)
+    game = session.get(Game, products[0].game_id)
+    game.hidden = True
+    session.add(game)
+    session.commit()
+
+    res = client.post("/api/browse/query", json={}).json()
+    assert "Catan" not in [i["product"]["title"] for i in res["items"]]
+    assert res["total"] == 2
 
 
 def test_browse_finds_watched_games(client: TestClient, session: Session):

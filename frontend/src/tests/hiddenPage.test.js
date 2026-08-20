@@ -54,10 +54,18 @@ describe('hidden page', () => {
 				op: 'and',
 				conditions: [{ type: 'condition', field: 'hidden', op: 'eq', value: true }]
 			},
-			include_hidden: true
+			hidden_last: false
 		});
 		expect(await screen.findByText('Catan')).toBeInTheDocument();
 		expect(screen.getByText('1 game hidden')).toBeInTheDocument();
+	});
+
+	it('skips the divider — every card here is hidden', async () => {
+		api.browseQuery.mockResolvedValue({ items: [card(5, 'Catan')], total: 1 });
+		await renderPage();
+
+		await screen.findByText('Catan');
+		expect(screen.queryByText('Hidden games')).not.toBeInTheDocument();
 	});
 
 	// Unhiding is undone on the card, so the row leaves without a refetch.

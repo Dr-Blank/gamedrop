@@ -63,7 +63,7 @@ describe('watchlist page', () => {
 				op: 'and',
 				conditions: [{ type: 'condition', field: 'is_watched', op: 'eq', value: true }]
 			},
-			include_hidden: true
+			hidden_last: true
 		});
 		expect(await screen.findByText('Catan')).toBeInTheDocument();
 		expect(screen.getByText('1 game tracked')).toBeInTheDocument();

@@ -22,6 +22,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import FilterGroup from '$lib/components/FilterGroup.svelte';
 	import SortMenu from '$lib/components/SortMenu.svelte';
+	import HiddenDivider from '$lib/components/HiddenDivider.svelte';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { shortcuts, BROWSE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
 	import { Compass, SlidersHorizontal, Plus, X, Bookmark, ArrowUpDown } from '@lucide/svelte';
@@ -32,7 +33,8 @@
 		basePath = '/browse',
 		/** Always ANDed into the query and never shown in the filter builder. */
 		preset = /** @type {any} */ (null),
-		includeHidden = false,
+		/** Hidden games trail the visible ones instead of dropping out. */
+		hiddenLast = true,
 		saveShelf = true,
 		/** One-click conditions this view keeps in its header. */
 		quickFilters = /** @type {Array<{label:string,icon:any,title?:string,condition:any}>} */ ([]),
@@ -179,7 +181,7 @@
 				sorts,
 				page: page_,
 				limit: LIMIT,
-				include_hidden: includeHidden
+				hidden_last: hiddenLast
 			};
 			const res = await browseQuery(body);
 			items = reset ? res.items : [...items, ...res.items];
@@ -480,7 +482,10 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-			{#each shown as item (item.product.id)}
+			{#each shown as item, i (item.product.id)}
+				{#if hiddenLast && item.game?.hidden && !shown[i - 1]?.game?.hidden}
+					<HiddenDivider />
+				{/if}
 				<ProductCard {item} onedit={openEdit} history={item.price_history ?? []} />
 			{/each}
 		</div>

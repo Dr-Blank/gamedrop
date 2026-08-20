@@ -29,11 +29,13 @@ def browse_query(
             page=body.page,
             limit=body.limit,
             include_hidden=body.include_hidden,
+            hidden_last=body.hidden_last,
         )
         total = repo.count_products(
             session,
             filter_node=body.filters,
             include_hidden=body.include_hidden,
+            hidden_last=body.hidden_last,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

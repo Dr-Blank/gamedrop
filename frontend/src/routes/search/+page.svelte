@@ -4,6 +4,7 @@
 	import { searchCatalog } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import ProductCard from '$lib/components/ProductCard.svelte';
+	import HiddenDivider from '$lib/components/HiddenDivider.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
@@ -93,7 +94,10 @@
 			{items.length} result{items.length === 1 ? '' : 's'} for “{q}”
 		</p>
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-			{#each items as item (item.product.id)}
+			{#each items as item, i (item.product.id)}
+				{#if item.game?.hidden && !items[i - 1]?.game?.hidden}
+					<HiddenDivider />
+				{/if}
 				<ProductCard {item} />
 			{/each}
 		</div>

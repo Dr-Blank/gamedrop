@@ -3,8 +3,8 @@
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import { Heart } from '@lucide/svelte';
 
-	// Hidden games are included on purpose: a watched game that is also hidden
-	// contradicts itself, and this is where it can be settled.
+	// A watched game that is also hidden contradicts itself; it trails the list
+	// so the contradiction is visible and can be settled.
 	const WATCHED = { type: 'condition', field: 'is_watched', op: 'eq', value: true };
 
 	// Un-hearting a card takes it off the page at once, without a refetch.
@@ -17,7 +17,6 @@
 	icon={Heart}
 	basePath="/watchlist"
 	preset={WATCHED}
-	includeHidden
 	saveShelf={false}
 	showUnmerged={false}
 	emptyTitle="Your watchlist is empty"

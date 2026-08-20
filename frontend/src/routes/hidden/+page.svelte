@@ -14,7 +14,7 @@
 	icon={EyeOff}
 	basePath="/hidden"
 	preset={IS_HIDDEN}
-	includeHidden
+	hiddenLast={false}
 	saveShelf={false}
 	showUnmerged={false}
 	subtitle="Games you've hidden from browse, drops, new and search. Unhide to bring one back."
