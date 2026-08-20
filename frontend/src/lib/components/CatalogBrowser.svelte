@@ -24,15 +24,7 @@
 	import SortMenu from '$lib/components/SortMenu.svelte';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { shortcuts, BROWSE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
-	import {
-		Compass,
-		SlidersHorizontal,
-		Plus,
-		X,
-		Bookmark,
-		Unlink,
-		ArrowUpDown
-	} from '@lucide/svelte';
+	import { Compass, SlidersHorizontal, Plus, X, Bookmark, ArrowUpDown } from '@lucide/svelte';
 
 	let {
 		title = 'Browse',
@@ -42,7 +34,10 @@
 		preset = /** @type {any} */ (null),
 		includeHidden = false,
 		saveShelf = true,
-		showUnmerged = true,
+		/** One-click conditions this view keeps in its header. */
+		quickFilters = /** @type {Array<{label:string,icon:any,title?:string,condition:any}>} */ ([]),
+		/** Ordering the view opens with, until the URL says otherwise. */
+		defaultSorts = /** @type {Array<{field:string,dir:string}>} */ ([]),
 		subtitle = '',
 		emptyTitle = 'No results',
 		emptyHint = 'Try adjusting your filters.',
@@ -93,18 +88,20 @@
 	const hasFilters = $derived(filterTree.conditions.length > 0);
 	const hasSorts = $derived(sorts.length > 0);
 
-	// A game sold by one shop has nothing merged into it.
-	const UNMERGED = { type: 'condition', field: 'store_count', op: 'eq', value: 1 };
-	const unmergedOnly = $derived(
-		filterTree.conditions.some(
-			(c) => c.type === 'condition' && c.field === 'store_count' && c.op === 'eq' && c.value === 1
-		)
-	);
+	/** @param {any} condition */
+	function quickFilterOn(condition) {
+		return filterTree.conditions.some(
+			(c) => c.type === 'condition' && c.field === condition.field && c.op === condition.op
+		);
+	}
 
-	function toggleUnmerged() {
-		filterTree.conditions = unmergedOnly
-			? filterTree.conditions.filter((c) => !(c.type === 'condition' && c.field === 'store_count'))
-			: [...filterTree.conditions, { ...UNMERGED }];
+	/** @param {any} condition */
+	function toggleQuickFilter(condition) {
+		filterTree.conditions = quickFilterOn(condition)
+			? filterTree.conditions.filter(
+					(c) => !(c.type === 'condition' && c.field === condition.field && c.op === condition.op)
+				)
+			: [...filterTree.conditions, { ...condition }];
 		pushUrl();
 	}
 
@@ -140,6 +137,8 @@
 			try {
 				sorts = JSON.parse(atob(s));
 			} catch {}
+		} else if (defaultSorts.length && !sorts.length) {
+			sorts = defaultSorts.map((sort) => ({ ...sort }));
 		}
 	}
 
@@ -365,17 +364,19 @@
 			{/if}
 		</div>
 		<div class="flex gap-2">
-			{#if showUnmerged}
+			{#each quickFilters as quick (quick.label)}
+				{@const QuickIcon = quick.icon}
 				<Button
-					variant={unmergedOnly ? 'default' : 'outline'}
+					variant={quickFilterOn(quick.condition) ? 'default' : 'outline'}
 					size="sm"
-					onclick={toggleUnmerged}
-					aria-pressed={unmergedOnly}
-					title="Games only one shop sells"
+					onclick={() => toggleQuickFilter(quick.condition)}
+					aria-pressed={quickFilterOn(quick.condition)}
+					title={quick.title ?? quick.label}
 				>
-					<Unlink class="size-4" /> Not merged
+					<QuickIcon class="size-4" />
+					{quick.label}
 				</Button>
-			{/if}
+			{/each}
 			<Button
 				variant="outline"
 				size="sm"

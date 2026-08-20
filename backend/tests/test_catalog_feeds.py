@@ -89,6 +89,35 @@ def test_feed_new_orders_by_first_seen(client: TestClient, session: Session):
     assert items[0]["product"]["title"] == "Azul"
 
 
+def test_browse_preset_matches_the_drops_feed(client: TestClient, session: Session):
+    """The drops page is a browse query, so the filter must pick the same games."""
+    _seed(session)
+    feed = {i["game"]["id"] for i in client.get("/api/feed/drops").json()["items"]}
+    browsed = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "condition",
+                "field": "price_pct_change",
+                "op": "lt",
+                "value": 0,
+            },
+            "sorts": [{"field": "price_pct_change", "dir": "asc"}],
+        },
+    ).json()["items"]
+    assert {i["game"]["id"] for i in browsed} == feed
+
+
+def test_browse_sort_matches_the_new_feed(client: TestClient, session: Session):
+    _seed(session)
+    feed = [i["game"]["id"] for i in client.get("/api/feed/new").json()["items"]]
+    browsed = client.post(
+        "/api/browse/query",
+        json={"sorts": [{"field": "first_seen", "dir": "desc"}]},
+    ).json()["items"]
+    assert [i["game"]["id"] for i in browsed] == feed
+
+
 def test_feed_discounts_only_positive(client: TestClient, session: Session):
     _seed(session)
     items = client.get("/api/feed/discounts").json()["items"]
