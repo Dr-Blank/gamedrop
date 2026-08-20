@@ -14,7 +14,7 @@ def active_items(session: Session) -> list[WatchlistItem]:
 
 
 def cards(session: Session, *, limit: int | None = None) -> list[dict]:
-    """Active watchlist as enriched cards, each carrying `watchlist` + `store`.
+    """Active watchlist as enriched cards, each carrying its `store`.
 
     The card shows the cheapest buyable listing of the game, so a watched game
     appears once however many shops sell it.
@@ -39,10 +39,7 @@ def cards(session: Session, *, limit: int | None = None) -> list[dict]:
         if product is None:
             continue
         rows.append((product, _latest(session, product.id), game))
-        meta[product.id] = {
-            "watchlist": item,
-            "store": session.get(Store, product.store_id),
-        }
+        meta[product.id] = {"store": session.get(Store, product.store_id)}
 
     return catalog.make_cards(session, rows, extra=meta)
 

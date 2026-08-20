@@ -353,6 +353,17 @@ def make_cards(
         for c in session.exec(select(BggCache).where(BggCache.bgg_id.in_(bgg_ids))):
             bgg_cache[c.bgg_id] = c
 
+    # The watch rides on every card so a target can be set wherever the game
+    # shows up, not only on the watchlist page.
+    watches: dict[int, WatchlistItem] = {}
+    if game_ids:
+        for w in session.exec(
+            select(WatchlistItem).where(
+                WatchlistItem.game_id.in_(game_ids), WatchlistItem.active
+            )
+        ):
+            watches[w.game_id] = w
+
     compares = _compare_summaries(session, game_ids)
 
     # Sibling listings are included so a multi-shop card can graph the offer it
@@ -381,6 +392,7 @@ def make_cards(
             # Only when more than one shop sells it — otherwise there is nothing
             # to compare and every card would carry a redundant payload.
             "compare": compare if compare and compare["listing_count"] > 1 else None,
+            "watchlist": watches.get(game.id),
         }
         if extra and product.id in extra:
             card.update(extra[product.id])

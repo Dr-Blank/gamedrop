@@ -74,6 +74,36 @@ def test_watching_one_shop_watches_the_game(client: TestClient, session: Session
     assert {pid, other.id} <= offer_ids
 
 
+def test_cards_carry_the_watch_wherever_the_game_appears(
+    client: TestClient, session: Session
+):
+    """A target can be set from any grid, so every card names its watch."""
+    pid = _seed(session)
+    unwatched = make_product(session, external_id="ext-2", title="Azul")
+    session.add(PriceSnapshot(product_id=unwatched.id, price=40.0))
+    session.commit()
+    client.post("/api/watchlist/", json={"product_id": pid, "target_price": 20.0})
+
+    items = client.post("/api/browse/query", json={}).json()["items"]
+    by_game = {i["game"]["id"]: i for i in items}
+
+    watched = by_game[session.get(Product, pid).game_id]
+    assert watched["watchlist"]["target_price"] == 20.0
+    assert by_game[unwatched.game_id]["watchlist"] is None
+
+
+def test_cards_forget_the_watch_once_it_is_removed(
+    client: TestClient, session: Session
+):
+    """Removal is a soft delete, so an inactive row must not resurface."""
+    pid = _seed(session)
+    item = client.post("/api/watchlist/", json={"product_id": pid}).json()
+    client.delete(f"/api/watchlist/{item['id']}")
+
+    items = client.post("/api/browse/query", json={}).json()["items"]
+    assert items[0]["watchlist"] is None
+
+
 def test_add_nonexistent_product(client: TestClient):
     r = client.post("/api/watchlist/", json={"product_id": 999})
     assert r.status_code == 404
