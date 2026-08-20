@@ -98,8 +98,7 @@ export const clearOverride = (productId) =>
 	req(`/products/${productId}/override`, { method: 'DELETE' });
 
 // Hide / unhide — hiding is a decision about the game, applied via a listing
-export const getHidden = (page = 1, limit = 48) =>
-	req(`/products/hidden?page=${page}&limit=${limit}`);
+export const getHidden = () => req('/products/hidden');
 export const hideProduct = (productId) => req(`/products/${productId}/hide`, { method: 'PUT' });
 export const unhideProduct = (productId) =>
 	req(`/products/${productId}/hide`, { method: 'DELETE' });

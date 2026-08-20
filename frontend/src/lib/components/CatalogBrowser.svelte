@@ -43,9 +43,12 @@
 		includeHidden = false,
 		saveShelf = true,
 		showUnmerged = true,
+		subtitle = '',
 		emptyTitle = 'No results',
 		emptyHint = 'Try adjusting your filters.',
-		countLabel = /** @type {((n:number)=>string)|null} */ (null)
+		countLabel = /** @type {((n:number)=>string)|null} */ (null),
+		/** Cards stop matching the preset the moment it is undone on the card. */
+		stillMatches = /** @type {((item:any)=>boolean)|null} */ (null)
 	} = $props();
 
 	// ---------------------------------------------------------------------------
@@ -83,6 +86,8 @@
 	);
 
 	const PageIcon = $derived(icon);
+
+	const shown = $derived(stillMatches ? items.filter(stillMatches) : items);
 
 	const LIMIT = 48;
 	const hasFilters = $derived(filterTree.conditions.length > 0);
@@ -350,10 +355,15 @@
 <div class="space-y-5">
 	<!-- Header -->
 	<div class="flex items-center justify-between gap-3">
-		<h1 class="flex items-center gap-2 text-2xl font-bold tracking-tight">
-			<PageIcon class="size-6 text-primary" />
-			{title}
-		</h1>
+		<div>
+			<h1 class="flex items-center gap-2 text-2xl font-bold tracking-tight">
+				<PageIcon class="size-6 text-primary" />
+				{title}
+			</h1>
+			{#if subtitle}
+				<p class="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+			{/if}
+		</div>
 		<div class="flex gap-2">
 			{#if showUnmerged}
 				<Button
@@ -461,7 +471,7 @@
 				</div>
 			{/each}
 		</div>
-	{:else if items.length === 0 && !loading}
+	{:else if shown.length === 0 && !loading}
 		<div class="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">
 			<PageIcon class="size-10 text-muted-foreground/40" />
 			<p class="font-medium">{emptyTitle}</p>
@@ -469,7 +479,7 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-			{#each items as item (item.product.id)}
+			{#each shown as item (item.product.id)}
 				<ProductCard {item} onedit={openEdit} history={item.price_history ?? []} />
 			{/each}
 		</div>

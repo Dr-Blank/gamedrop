@@ -735,6 +735,23 @@ def test_hiding_a_listing_hides_the_game_everywhere(
     assert items[0]["compare"]["listing_count"] == 2
 
 
+def test_hidden_endpoint_lists_game_ids(client: TestClient, session: Session):
+    """The client only needs to know which games are hidden; cards come from
+    browse, which serves them once the filter names the field."""
+    _stores(session)
+    a = _listing(session, "shopify-a", "Catan", price=400)
+    _listing(session, "woo-b", "Azul", price=600)
+    client.put(f"/api/products/{a.id}/hide")
+
+    assert client.get("/api/products/hidden").json() == {"game_ids": [a.game_id]}
+
+    hidden_filter = {
+        "filters": {"type": "condition", "field": "hidden", "op": "eq", "value": True}
+    }
+    items = client.post("/api/browse/query", json=hidden_filter).json()["items"]
+    assert [i["game"]["id"] for i in items] == [a.game_id]
+
+
 # --- watch + BGG follow the game -----------------------------------------
 
 

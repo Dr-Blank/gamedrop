@@ -15,6 +15,10 @@ vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn() }
 }));
 
+vi.mock('$lib/watchlist.svelte.js', () => ({
+	watchlist: { ready: true, has: () => true, toggle: vi.fn() }
+}));
+
 import Watchlist from '../routes/watchlist/+page.svelte';
 import * as api from '$lib/api.js';
 

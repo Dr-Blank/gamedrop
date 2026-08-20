@@ -4,7 +4,7 @@ import { toast } from './toast.svelte.js';
 /**
  * App-wide "hidden games" state, keyed on the game — hiding covers every shop
  * that sells it. The backend already excludes hidden games from feeds; this
- * store lets rendered cards disappear immediately without a refetch.
+ * store lets a card show its hidden state without a refetch.
  */
 class HiddenState {
 	ready = $state(false);
@@ -13,8 +13,8 @@ class HiddenState {
 
 	async load() {
 		try {
-			const res = await getHidden(1, 500);
-			this.ids = new Set(res.items.map((c) => c.game.id));
+			const res = await getHidden();
+			this.ids = new Set(res.game_ids);
 		} catch {
 			// Non-fatal: nothing gets hidden client-side until next load.
 		} finally {

@@ -434,7 +434,7 @@ def query_products(
     """Filtered, sorted, paginated catalog rows, one per game.
 
     A merged game keeps every listing row in the join, so duplicates are
-    collapsed per page (same approach as hidden_games/search): a merged
+    collapsed per page (same approach as search): a merged
     game whose listings straddle a page boundary can make that page come
     back short of `limit`.
     """
@@ -641,33 +641,11 @@ def search(session: Session, *, q: str, limit: int = 24) -> list[dict]:
     return cards_by_ids(session, [pid for pid, _ in ranked])
 
 
-def hidden_games(session: Session, *, page: int = 1, limit: int = 48) -> list[dict]:
-    """Enriched cards for hidden games, one listing each."""
-    latest = _latest_snapshot_subq()
-    stmt = (
-        select(Product, PriceSnapshot, Game)
-        .join(Game, Product.game_id == Game.id)
-        .join(latest, Product.id == latest.c.product_id, isouter=True)
-        .join(
-            PriceSnapshot,
-            (PriceSnapshot.product_id == latest.c.product_id)
-            & (PriceSnapshot.recorded_at == latest.c.max_date),
-            isouter=True,
-        )
-        .where(Game.hidden == True)  # noqa: E712
-        .order_by(Product.updated_at.desc())
+def hidden_game_ids(session: Session) -> list[int]:
+    """Every hidden game id — the client marks its cards from this."""
+    return list(
+        session.exec(select(Game.id).where(Game.hidden == True))  # noqa: E712
     )
-    offset = (page - 1) * limit
-    rows = session.exec(stmt.offset(offset).limit(limit)).all()
-
-    seen: set[int] = set()
-    unique: list[CatalogRow] = []
-    for product, snap, game in rows:
-        if game.id in seen:
-            continue
-        seen.add(game.id)
-        unique.append((product, snap, game))
-    return make_cards(session, unique)
 
 
 def enabled_stores(session: Session) -> list[Store]:

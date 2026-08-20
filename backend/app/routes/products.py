@@ -19,13 +19,9 @@ class MergeBody(BaseModel):
 
 
 @router.get("/hidden")
-def list_hidden(
-    page: int = 1,
-    limit: int = 48,
-    session: Session = Depends(get_session),
-):
-    items = repo.hidden_games(session, page=page, limit=limit)
-    return {"items": items, "page": page, "limit": limit}
+def list_hidden(session: Session = Depends(get_session)):
+    """Which games are hidden. Cards for them come from a browse query."""
+    return {"game_ids": repo.hidden_game_ids(session)}
 
 
 def _set_hidden(product_id: int, value: bool, session: Session):
