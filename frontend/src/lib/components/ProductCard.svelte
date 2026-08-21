@@ -32,7 +32,6 @@
 
 	let {
 		item,
-		history = /** @type {Array<{price:number}>} */ ([]),
 		onedit = /** @type {((item:any)=>void)|null} */ (null),
 		onlinked = /** @type {((bggId:number)=>void)|null} */ (null)
 	} = $props();
@@ -64,8 +63,11 @@
 	const href = $derived(`/games/${gameId}?store=${encodeURIComponent(item.product.store_id)}`);
 	const storeUrl = $derived(pricing?.primary.url || item.override?.url || item.product.url || '');
 
-	// Hover trend follows whichever offer the card is quoting.
-	const trendHistory = $derived(pricing ? (pricing.primary.price_history ?? []) : (history ?? []));
+	// Hover trend follows whichever offer the card is quoting. A one-shop game
+	// has no `compare`, so it reads the listing's own readings off the card.
+	const trendHistory = $derived(
+		pricing ? (pricing.primary.price_history ?? []) : (item.price_history ?? [])
+	);
 
 	// The shop the quoted price comes from — its colour is what marks it as best.
 	const quotedStore = $derived(pricing ? pricing.primary.store_id : item.product.store_id);

@@ -114,7 +114,7 @@ describe('ProductCard price line', () => {
 	];
 
 	it('says how long the price has stood instead of quoting an MRP', () => {
-		render(ProductCard, { props: { item, history } });
+		render(ProductCard, { props: { item: { ...item, price_history: history } } });
 		expect(screen.queryByText('₹2,000')).not.toBeInTheDocument();
 		expect(screen.queryByText(/off MRP/)).not.toBeInTheDocument();
 		expect(screen.getByText('changed 3 days ago')).toBeInTheDocument();
@@ -122,13 +122,27 @@ describe('ProductCard price line', () => {
 
 	it('leaves the price age off a card whose history has no timestamps', () => {
 		render(ProductCard, {
-			props: { item, history: [{ price: 610 }, { price: 900 }] }
+			props: { item: { ...item, price_history: [{ price: 610 }, { price: 900 }] } }
 		});
 		expect(screen.queryByText(/changed|same for/)).not.toBeInTheDocument();
 	});
 
+	it('draws the trend for a one-shop card straight off the item', () => {
+		// Regression: the card used to read a `history` prop that only the browse
+		// grid passed, so search and the home shelves drew no line at all.
+		const { container } = render(ProductCard, {
+			props: { item: { ...item, price_history: history } }
+		});
+		expect(container.querySelector('svg polyline')).toBeInTheDocument();
+	});
+
+	it('draws nothing when the listing has no readings', () => {
+		const { container } = render(ProductCard, { props: { item } });
+		expect(container.querySelector('svg polyline')).toBeNull();
+	});
+
 	it('says how far the price sits above its own low', () => {
-		render(ProductCard, { props: { item, history } });
+		render(ProductCard, { props: { item: { ...item, price_history: history } } });
 		expect(screen.getByText('cheapest it has been')).toBeInTheDocument();
 	});
 

@@ -486,7 +486,7 @@
 				{#if hiddenLast && item.game?.hidden && !shown[i - 1]?.game?.hidden}
 					<HiddenDivider />
 				{/if}
-				<ProductCard {item} onedit={openEdit} history={item.price_history ?? []} />
+				<ProductCard {item} onedit={openEdit} />
 			{/each}
 		</div>
 		<InfiniteScroll
