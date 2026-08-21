@@ -15,7 +15,11 @@
 		hideProduct,
 		unhideProduct,
 		unmergeProduct,
-		patchWatchlistItem
+		patchWatchlistItem,
+		ignoreSnapshot,
+		restoreSnapshot,
+		addSnapshot,
+		deleteSnapshot
 	} from '$lib/api.js';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
@@ -32,6 +36,7 @@
 	import StoreOffers from '$lib/components/StoreOffers.svelte';
 	import StoreFilter from '$lib/components/StoreFilter.svelte';
 	import PriceTimeline from '$lib/components/PriceTimeline.svelte';
+	import AddPriceForm from '$lib/components/AddPriceForm.svelte';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
 	import { gamePricing, inr } from '$lib/gamePricing.js';
@@ -135,6 +140,49 @@
 	const visibleSeries = $derived(chartSeries.filter((s) => !hiddenStores.has(s.store_id)));
 	const chartPoints = $derived(visibleSeries.reduce((n, s) => n + (s.history?.length ?? 0), 0));
 	const timeline = $derived(buildTimeline(chartSeries, { hidden: hiddenStores }));
+
+	const ignoredReadings = $derived(
+		(data?.series ?? [])
+			.filter((s) => !hiddenStores.has(s.store_id))
+			.flatMap((s) => (s.ignored ?? []).map((r) => ({ ...r, store_id: s.store_id })))
+			.sort((a, b) => new Date(b.recorded_at) - new Date(a.recorded_at))
+	);
+
+	let snapshotBusy = $state(new Set());
+
+	/** Run a snapshot edit, then reload so every stat reflects it. */
+	async function editSnapshot(id, fn, message) {
+		if (id == null) return;
+		snapshotBusy = new Set(snapshotBusy).add(id);
+		try {
+			await fn(id);
+			await loadGame({ keepSelection: true });
+			toast.success(message);
+		} catch (e) {
+			toast.error(e.message);
+		} finally {
+			const next = new Set(snapshotBusy);
+			next.delete(id);
+			snapshotBusy = next;
+		}
+	}
+
+	const ignoreReading = (e) =>
+		editSnapshot(e.snapshot_id, ignoreSnapshot, 'Reading ignored — it stays on the record');
+	const restoreReading = (s) => editSnapshot(s.id, restoreSnapshot, 'Reading restored');
+	const removeReading = (e) =>
+		editSnapshot(e.snapshot_id ?? e.id, deleteSnapshot, 'Reading deleted');
+
+	async function addReading(entry) {
+		const { product_id, ...body } = entry;
+		try {
+			await addSnapshot(product_id, body);
+			await loadGame({ keepSelection: true });
+			toast.success('Price added');
+		} catch (e) {
+			toast.error(e.message);
+		}
+	}
 
 	/** @param {string} storeId */
 	function toggleStore(storeId) {
@@ -832,7 +880,16 @@
 								ontoggle={toggleStore}
 							/>
 						{/if}
-						<PriceTimeline events={timeline} {multiStore} />
+						<PriceTimeline
+							events={timeline}
+							ignored={ignoredReadings}
+							{multiStore}
+							busy={snapshotBusy}
+							onignore={ignoreReading}
+							onrestore={restoreReading}
+							ondelete={removeReading}
+						/>
+						<AddPriceForm listings={offers} onadd={addReading} busy={refreshing} />
 					</Card.Content>
 				</Card.Root>
 			</div>

@@ -9,7 +9,7 @@ const stamp = (e) => new Date(e.at).getTime();
  * same price collapses into a single run — the reader wants the change, not the
  * chatter.
  *
- * @param {Array<{store_id?:string, product_id?:number, history?:Array<{price:number, available?:boolean, recorded_at:string}>}>} series
+ * @param {Array<{store_id?:string, product_id?:number, history?:Array<{id?:number, price:number, available?:boolean, source?:string, recorded_at:string}>}>} series
  * @param {{hidden?: Set<string>}} opts
  */
 export function buildTimeline(series, { hidden = new Set() } = {}) {
@@ -23,6 +23,8 @@ export function buildTimeline(series, { hidden = new Set() } = {}) {
 			const event = {
 				store_id: s.store_id ?? null,
 				product_id: s.product_id ?? null,
+				snapshot_id: snap.id ?? null,
+				source: snap.source ?? 'scrape',
 				at: snap.recorded_at,
 				price: snap.price,
 				prevPrice: prev ? prev.price : null,

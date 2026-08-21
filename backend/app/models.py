@@ -78,6 +78,13 @@ class MergeRejection(SQLModel, table=True):
 
 
 class PriceSnapshot(SQLModel, table=True):
+    """One price reading for a listing.
+
+    `ignored` keeps a bogus reading on the record while dropping it out of every
+    chart, statistic, filter and alert — a shop's typo is not a price, but
+    deleting it would lose the fact that it was published.
+    """
+
     id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="product.id")
     variant_id: str | None = None
@@ -85,6 +92,8 @@ class PriceSnapshot(SQLModel, table=True):
     price: float
     compare_at_price: float | None = None
     available: bool = True
+    ignored: bool = Field(default=False)
+    source: str = Field(default="scrape")  # "scrape" | "manual"
     recorded_at: datetime = Field(default_factory=datetime.utcnow)
 
 

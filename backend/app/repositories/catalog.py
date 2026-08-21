@@ -30,6 +30,7 @@ from ..models import (
     Store,
     WatchlistItem,
 )
+from ..snapshots import effective
 from ..text_search import rank_titles
 
 #: (listing, latest snapshot, game) — what every read in here returns.
@@ -47,6 +48,7 @@ def _latest_snapshot_subq():
             PriceSnapshot.product_id,
             func.max(PriceSnapshot.recorded_at).label("max_date"),
         )
+        .where(effective())
         .group_by(PriceSnapshot.product_id)
         .subquery()
     )
@@ -59,6 +61,7 @@ def _first_seen_subq():
             PriceSnapshot.product_id,
             func.min(PriceSnapshot.recorded_at).label("first_date"),
         )
+        .where(effective())
         .group_by(PriceSnapshot.product_id)
         .subquery()
     )
@@ -66,17 +69,21 @@ def _first_seen_subq():
 
 def _prev_snapshot_subq():
     """(product_id, prev_price, prev_available) — second-most-recent snapshot."""
-    ranked = select(
-        PriceSnapshot.product_id,
-        PriceSnapshot.price.label("prev_price"),
-        PriceSnapshot.available.label("prev_available"),
-        func.row_number()
-        .over(
-            partition_by=PriceSnapshot.product_id,
-            order_by=PriceSnapshot.recorded_at.desc(),
+    ranked = (
+        select(
+            PriceSnapshot.product_id,
+            PriceSnapshot.price.label("prev_price"),
+            PriceSnapshot.available.label("prev_available"),
+            func.row_number()
+            .over(
+                partition_by=PriceSnapshot.product_id,
+                order_by=PriceSnapshot.recorded_at.desc(),
+            )
+            .label("rn"),
         )
-        .label("rn"),
-    ).subquery()
+        .where(effective())
+        .subquery()
+    )
     return select(ranked).where(ranked.c.rn == 2).subquery()
 
 
@@ -124,7 +131,8 @@ def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist, store_coun
         .join(
             PriceSnapshot,
             (PriceSnapshot.product_id == latest.c.product_id)
-            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            & (PriceSnapshot.recorded_at == latest.c.max_date)
+            & effective(),
             isouter=True,
         )
         .join(bgg, Game.bgg_id == bgg.c.bgg_id, isouter=True)
@@ -249,7 +257,8 @@ def _compare_summaries(session: Session, game_ids: set[int]) -> dict[int, dict]:
         .join(
             PriceSnapshot,
             (PriceSnapshot.product_id == latest.c.product_id)
-            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            & (PriceSnapshot.recorded_at == latest.c.max_date)
+            & effective(),
             isouter=True,
         )
         .where(Product.game_id.in_(game_ids))
@@ -314,7 +323,7 @@ def _price_histories(session: Session, product_ids: set[int]) -> dict[int, list[
             PriceSnapshot.recorded_at,
             rn_col,
         )
-        .where(PriceSnapshot.product_id.in_(product_ids))
+        .where(PriceSnapshot.product_id.in_(product_ids), effective())
         .subquery()
     )
     histories: dict[int, list[dict]] = {}
@@ -506,7 +515,8 @@ def count_products(
         .join(
             PriceSnapshot,
             (PriceSnapshot.product_id == latest.c.product_id)
-            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            & (PriceSnapshot.recorded_at == latest.c.max_date)
+            & effective(),
             isouter=True,
         )
         .join(bgg, Game.bgg_id == bgg.c.bgg_id, isouter=True)

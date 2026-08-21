@@ -38,6 +38,14 @@ export const unlinkBgg = (productId) => req(`/bgg/link/${productId}`, { method: 
 export const priceSearch = (q, storeId) =>
 	req(`/prices/search?q=${encodeURIComponent(q)}${storeId ? `&store_id=${storeId}` : ''}`);
 export const priceHistory = (productId) => req(`/prices/product/${productId}`);
+export const ignoreSnapshot = (snapshotId) =>
+	req(`/prices/snapshot/${snapshotId}/ignore`, { method: 'PUT' });
+export const restoreSnapshot = (snapshotId) =>
+	req(`/prices/snapshot/${snapshotId}/ignore`, { method: 'DELETE' });
+export const addSnapshot = (productId, body) =>
+	req(`/prices/product/${productId}/snapshot`, { method: 'POST', body: JSON.stringify(body) });
+export const deleteSnapshot = (snapshotId) =>
+	req(`/prices/snapshot/${snapshotId}`, { method: 'DELETE' });
 
 // Watchlist
 export const getWatchlist = () => req('/watchlist/');

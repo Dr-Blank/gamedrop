@@ -147,11 +147,12 @@ def build_field_registry(
     # Auto: game fields (title, bgg_id, hidden, note)
     reg.update(auto_register_model(Game, skip={"id", "created_at"}))
 
-    # Auto: PriceSnapshot (latest) fields
+    # Auto: PriceSnapshot (latest) fields. `ignored` is skipped because the
+    # latest reading is by definition one that counts.
     reg.update(
         auto_register_model(
             PriceSnapshot,
-            skip={"id", "product_id"},  # internal FKs
+            skip={"id", "product_id", "ignored"},
         )
     )
 
@@ -404,12 +405,14 @@ def _apply_store_compare(node: StoreCompare) -> Any:
         raise ValueError(f"Unknown store_compare op: {node.op!r}")
 
     from .models import Game, PriceSnapshot, Product
+    from .snapshots import effective
 
     latest = (
         select(
             PriceSnapshot.product_id,
             func.max(PriceSnapshot.recorded_at).label("max_date"),
         )
+        .where(effective())
         .group_by(PriceSnapshot.product_id)
         .subquery()
     )
@@ -423,7 +426,8 @@ def _apply_store_compare(node: StoreCompare) -> Any:
         .join(
             PriceSnapshot,
             (PriceSnapshot.product_id == latest.c.product_id)
-            & (PriceSnapshot.recorded_at == latest.c.max_date),
+            & (PriceSnapshot.recorded_at == latest.c.max_date)
+            & effective(),
         )
     )
     a = per_store_stmt.subquery("store_a")

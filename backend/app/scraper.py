@@ -24,6 +24,7 @@ from .notifier import (
     notify_price_increase,
     notify_target_reached,
 )
+from .snapshots import effective
 
 log = get_logger(__name__)
 
@@ -272,7 +273,7 @@ async def sync_store(store: Store) -> dict:
                     variant_id = v.get("variant_id")
                     latest_q = (
                         select(PriceSnapshot)
-                        .where(PriceSnapshot.product_id == product.id)
+                        .where(PriceSnapshot.product_id == product.id, effective())
                         .order_by(desc(PriceSnapshot.recorded_at))
                         .limit(1)
                     )

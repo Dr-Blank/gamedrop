@@ -23,6 +23,7 @@ from ..models import (
     WatchlistItem,
 )
 from ..repositories import catalog as repo
+from ..snapshots import split_ignored
 from ..text_search import MERGE_CUTOFF, match_key, rank_titles, similarity
 
 log = get_logger(__name__)
@@ -496,8 +497,22 @@ def game_payload(session: Session, game_id: int) -> dict:
     }
 
 
+def _reading(snap: PriceSnapshot) -> dict:
+    return {
+        "id": snap.id,
+        "price": snap.price,
+        "available": snap.available,
+        "source": snap.source,
+        "recorded_at": snap.recorded_at,
+    }
+
+
 def _series(session: Session, product_ids: list[int], limit: int = 180) -> list[dict]:
-    """Per-shop price history, oldest first."""
+    """Per-shop price history, oldest first, with the ignored readings alongside.
+
+    `ignored` is carried so the page can offer to restore one; it is empty when
+    a listing has nothing else, since those readings then count.
+    """
     if not product_ids:
         return []
     rows = session.exec(
@@ -506,26 +521,24 @@ def _series(session: Session, product_ids: list[int], limit: int = 180) -> list[
         .where(Product.id.in_(product_ids))
         .order_by(PriceSnapshot.recorded_at.asc())
     ).all()
+    snaps: dict[int, list[PriceSnapshot]] = {}
     by_product: dict[int, dict] = {}
     for product, snap in rows:
-        entry = by_product.setdefault(
+        by_product.setdefault(
             product.id,
             {
                 "product_id": product.id,
                 "store_id": product.store_id,
                 "listing_title": product.title,
                 "history": [],
+                "ignored": [],
             },
         )
-        entry["history"].append(
-            {
-                "price": snap.price,
-                "available": snap.available,
-                "recorded_at": snap.recorded_at,
-            }
-        )
-    for entry in by_product.values():
-        entry["history"] = entry["history"][-limit:]
+        snaps.setdefault(product.id, []).append(snap)
+    for pid, entry in by_product.items():
+        kept, ignored = split_ignored(snaps[pid])
+        entry["history"] = [_reading(s) for s in kept[-limit:]]
+        entry["ignored"] = [_reading(s) for s in reversed(ignored)]
     return [by_product[pid] for pid in product_ids if pid in by_product]
 
 

@@ -1,10 +1,19 @@
 <script>
-	import { ChevronDown } from '@lucide/svelte';
+	import { ChevronDown, EyeOff, RotateCcw, Trash2 } from '@lucide/svelte';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { inr } from '$lib/gamePricing.js';
 	import { fmtDateParts } from '$lib/dateFormat.svelte.js';
 
-	let { events = /** @type {Array<any>} */ ([]), multiStore = false, limit = 12 } = $props();
+	let {
+		events = /** @type {Array<any>} */ ([]),
+		ignored = /** @type {Array<any>} */ ([]),
+		multiStore = false,
+		limit = 12,
+		busy = /** @type {Set<number>} */ (new Set()),
+		onignore = /** @type {((e: any) => void) | null} */ (null),
+		onrestore = /** @type {((e: any) => void) | null} */ (null),
+		ondelete = /** @type {((e: any) => void) | null} */ (null)
+	} = $props();
 
 	let showAll = $state(false);
 	let open = $state(new Set());
@@ -38,9 +47,17 @@
 			: '';
 </script>
 
+{#snippet manualTag()}
+	<span
+		class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase"
+	>
+		Added by hand
+	</span>
+{/snippet}
+
 {#snippet row(e, nested = false)}
 	{@const color = storeColors.of(e.store_id)}
-	<li class="relative flex gap-3 py-2.5 {nested ? 'pl-6' : ''}">
+	<li class="group relative flex gap-3 py-2.5 {nested ? 'pl-6' : ''}">
 		<span
 			class="mt-1.5 size-2.5 shrink-0 rounded-full"
 			style:background-color={e.available ? color : 'transparent'}
@@ -90,6 +107,9 @@
 				{#if multiStore}
 					<span class="text-xs" style:color>{storeColors.name(e.store_id)}</span>
 				{/if}
+				{#if e.source === 'manual'}
+					{@render manualTag()}
+				{/if}
 			</div>
 			<div class="text-xs text-muted-foreground">
 				{e.kind === 'flaps' ? `${when(e.since)} — ${when(e.at)}` : when(e.at)}
@@ -102,6 +122,36 @@
 				</ul>
 			{/if}
 		</div>
+
+		<!-- A wrong reading is dismissed here, never deleted: the shop did publish it. -->
+		{#if e.kind !== 'flaps' && e.snapshot_id != null}
+			<div
+				class="flex shrink-0 items-start gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+			>
+				{#if onignore}
+					<button
+						onclick={() => onignore(e)}
+						disabled={busy.has(e.snapshot_id)}
+						title="Ignore this reading"
+						aria-label="Ignore this reading"
+						class="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+					>
+						<EyeOff class="size-3.5" />
+					</button>
+				{/if}
+				{#if ondelete && e.source === 'manual'}
+					<button
+						onclick={() => ondelete(e)}
+						disabled={busy.has(e.snapshot_id)}
+						title="Delete this hand-added reading"
+						aria-label="Delete this hand-added reading"
+						class="rounded p-1 text-muted-foreground hover:bg-muted hover:text-rose-500 disabled:opacity-40"
+					>
+						<Trash2 class="size-3.5" />
+					</button>
+				{/if}
+			</div>
+		{/if}
 	</li>
 {/snippet}
 
@@ -122,4 +172,50 @@
 	{/if}
 {:else}
 	<p class="text-sm text-muted-foreground">Nothing has changed yet — no price moves recorded.</p>
+{/if}
+
+{#if ignored.length}
+	<div class="mt-4 rounded-lg border border-dashed p-3">
+		<div class="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+			<EyeOff class="size-3.5" />
+			Ignored — left out of the chart, stats and alerts
+		</div>
+		<ul class="space-y-1.5">
+			{#each ignored as s (s.id)}
+				<li class="flex items-center gap-2 text-sm">
+					<span class="tabular-nums line-through opacity-60">{inr(s.price)}</span>
+					<span class="text-xs text-muted-foreground">{when(s.recorded_at)}</span>
+					{#if multiStore}
+						<span class="text-xs" style:color={storeColors.of(s.store_id)}>
+							{storeColors.name(s.store_id)}
+						</span>
+					{/if}
+					{#if s.source === 'manual'}
+						{@render manualTag()}
+					{/if}
+					<span class="flex-1"></span>
+					{#if onrestore}
+						<button
+							onclick={() => onrestore(s)}
+							disabled={busy.has(s.id)}
+							class="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-40"
+						>
+							<RotateCcw class="size-3" /> Restore
+						</button>
+					{/if}
+					{#if ondelete && s.source === 'manual'}
+						<button
+							onclick={() => ondelete(s)}
+							disabled={busy.has(s.id)}
+							title="Delete this hand-added reading"
+							aria-label="Delete this hand-added reading"
+							class="rounded p-1 text-muted-foreground hover:text-rose-500 disabled:opacity-40"
+						>
+							<Trash2 class="size-3" />
+						</button>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	</div>
 {/if}

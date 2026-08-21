@@ -118,6 +118,7 @@ def listing_detail(
     from sqlmodel import desc, select
 
     from ..models import PriceSnapshot, ProductOverride
+    from ..snapshots import split_ignored
 
     listing = session.get(Product, product_id)
     resolved = service.resolve_game_id(session, game_id)
@@ -127,11 +128,12 @@ def listing_detail(
         select(PriceSnapshot)
         .where(PriceSnapshot.product_id == product_id)
         .order_by(desc(PriceSnapshot.recorded_at))
-        .limit(limit)
     ).all()
+    kept, ignored = split_ignored(list(snapshots))
     return {
         "product": listing,
-        "history": snapshots,
+        "history": kept[:limit],
+        "ignored": ignored,
         "override": session.get(ProductOverride, product_id),
         "updated_at": datetime.utcnow(),
     }
