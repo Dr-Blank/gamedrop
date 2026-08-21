@@ -10,7 +10,8 @@
 	import Sparkline from './Sparkline.svelte';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
-	import { gamePricing, inr } from '$lib/gamePricing.js';
+	import { gamePricing } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
 	import { linkBgg, updateWatchlist } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
@@ -95,9 +96,6 @@
 		return { min, max, trend, atLow: price != null && price <= min + 0.01 };
 	});
 
-	const fmt = (/** @type {number} */ n) =>
-		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-
 	// The line under the price answers "is this a good price?" — against the
 	// other shops when there are any, against its own history when there aren't.
 	const standing = $derived.by(() => {
@@ -106,12 +104,12 @@
 			const worst = offers.reduce((a, b) => (b.price > a.price ? b : a));
 			const saved = worst.price - price;
 			return saved > 0
-				? { text: `${fmt(saved)} less than ${worst.store_id}`, store: worst.store_id, good: true }
+				? { text: `${inr(saved)} less than ${worst.store_id}`, store: worst.store_id, good: true }
 				: { text: 'same price at every shop', store: null, good: false };
 		}
 		if (!range || price == null) return null;
 		if (range.atLow) return { text: 'cheapest it has been', store: null, good: true };
-		return { text: `${fmt(price - range.min)} above its low`, store: null, good: false };
+		return { text: `${inr(price - range.min)} above its low`, store: null, good: false };
 	});
 
 	function open() {
@@ -295,7 +293,7 @@
 				>
 					<Sparkline history={trendHistory} width={200} height={34} class="w-full" />
 					<div class="mt-0.5 flex items-center justify-between text-[0.7rem] text-muted-foreground">
-						<span>{range.trend < 0 ? `High ${fmt(range.max)}` : `Low ${fmt(range.min)}`}</span>
+						<span>{range.trend < 0 ? `High ${inr(range.max)}` : `Low ${inr(range.min)}`}</span>
 						<span
 							class="inline-flex items-center gap-0.5 {range.trend < 0
 								? 'text-green-600 dark:text-green-400'
@@ -306,9 +304,9 @@
 							{#if range.trend < 0}<TrendingDown
 									class="size-3"
 								/>{:else if range.trend > 0}<TrendingUp class="size-3" />{/if}
-							{range.trend !== 0 ? fmt(Math.abs(range.trend)) : 'flat'}
+							{range.trend !== 0 ? inr(Math.abs(range.trend)) : 'flat'}
 						</span>
-						<span>{range.trend < 0 ? `Low ${fmt(range.min)}` : `High ${fmt(range.max)}`}</span>
+						<span>{range.trend < 0 ? `Low ${inr(range.min)}` : `High ${inr(range.max)}`}</span>
 					</div>
 				</div>
 			{/if}
@@ -378,7 +376,7 @@
 						title="Set target price"
 					>
 						<Target class="size-3" />
-						{target != null ? `₹${target.toFixed(0)}` : 'any drop'}
+						{target != null ? inr(target) : 'any drop'}
 					</button>
 				{/if}
 			</div>

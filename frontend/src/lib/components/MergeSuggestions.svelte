@@ -7,7 +7,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import ProductImage from './ProductImage.svelte';
 	import Skeleton from './Skeleton.svelte';
-	import { inr } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import { Check, X, Link2, Search } from '@lucide/svelte';
 
 	let { productId, onmerged = /** @type {((payload:any)=>void)|null} */ (null) } = $props();

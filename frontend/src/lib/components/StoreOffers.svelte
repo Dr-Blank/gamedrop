@@ -2,7 +2,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import Sparkline from './Sparkline.svelte';
-	import { inr } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { ExternalLink, Check, Unlink, TrendingDown } from '@lucide/svelte';
 

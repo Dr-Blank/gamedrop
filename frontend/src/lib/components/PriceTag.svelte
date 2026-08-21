@@ -1,5 +1,6 @@
 <script>
 	import { Badge } from '$lib/components/ui/badge';
+	import { inr } from '$lib/priceFormat.svelte.js';
 
 	let {
 		price = /** @type {number|null} */ (null),
@@ -9,8 +10,6 @@
 	} = $props();
 
 	const cls = { sm: 'text-sm', md: 'text-base', lg: 'text-2xl' };
-	const fmt = (/** @type {number} */ n) =>
-		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 	const showStrike = $derived(compareAt != null && price != null && compareAt > price);
 	const pct = $derived(
 		discountPct ?? (showStrike ? Math.round(((compareAt - price) / compareAt) * 100) : null)
@@ -19,9 +18,9 @@
 
 <div class="flex flex-wrap items-baseline gap-1.5">
 	{#if price != null}
-		<span class="font-bold tabular-nums {cls[size]}">{fmt(price)}</span>
+		<span class="font-bold tabular-nums {cls[size]}">{inr(price)}</span>
 		{#if showStrike}
-			<span class="text-xs text-muted-foreground tabular-nums line-through">{fmt(compareAt)}</span>
+			<span class="text-xs text-muted-foreground tabular-nums line-through">{inr(compareAt)}</span>
 			{#if pct}
 				<Badge
 					class="border-green-500/25 bg-green-500/15 text-[0.7rem] text-green-600 dark:text-green-400"

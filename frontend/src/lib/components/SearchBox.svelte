@@ -3,7 +3,8 @@
 	import { searchCatalog } from '$lib/api.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
-	import { gamePricing, inr } from '$lib/gamePricing.js';
+	import { gamePricing } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import ProductImage from './ProductImage.svelte';
 	import { Search, Heart } from '@lucide/svelte';
 

@@ -1,7 +1,7 @@
 <script>
 	import { ChevronDown, EyeOff, RotateCcw, Trash2 } from '@lucide/svelte';
 	import { storeColors } from '$lib/storeColors.svelte.js';
-	import { inr } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import { fmtDateParts } from '$lib/dateFormat.svelte.js';
 
 	let {

@@ -12,6 +12,7 @@
 	import { theme } from '$lib/theme.svelte.js';
 	import { alignSeries, formatDay, segmentInStock } from '$lib/priceSeries.js';
 	import { storeColors, DEFAULT_PALETTE, tint } from '$lib/storeColors.svelte.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 
 	Chart.register(
 		LineController,
@@ -77,9 +78,6 @@
 			atLow: best.price != null && best.price <= min + 0.01
 		};
 	});
-
-	const fmt = (/** @type {number} */ n) =>
-		`₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
 	let canvas = $state(/** @type {HTMLCanvasElement | null} */ (null));
 	let chart;
@@ -151,7 +149,7 @@
 						callbacks: {
 							label: (c) => {
 								const d = aligned.datasets[c.datasetIndex];
-								const head = multi ? `${c.dataset.label}: ${fmt(c.parsed.y)}` : fmt(c.parsed.y);
+								const head = multi ? `${c.dataset.label}: ${inr(c.parsed.y)}` : inr(c.parsed.y);
 								if (d?.available[c.dataIndex] === false) return `${head} · out of stock`;
 								return d?.real[c.dataIndex] ? head : `${head} · last seen`;
 							}
@@ -168,7 +166,12 @@
 					y: {
 						grid: { color: border },
 						border: { display: false },
-						ticks: { color: muted, callback: (v) => `₹${v}`, font: { size: 11 }, maxTicksLimit: 6 }
+						ticks: {
+							color: muted,
+							callback: (v) => inr(v),
+							font: { size: 11 },
+							maxTicksLimit: 6
+						}
 					}
 				}
 			}
@@ -195,7 +198,7 @@
 				<div>
 					<div class="text-xs text-muted-foreground">{multi ? 'Best now' : 'Current'}</div>
 					<div class="text-lg font-bold tabular-nums">
-						{stats.best.price != null ? fmt(stats.best.price) : '—'}
+						{stats.best.price != null ? inr(stats.best.price) : '—'}
 					</div>
 					{#if multi && stats.best.label}
 						<div class="text-[0.7rem] text-muted-foreground">{stats.best.label}</div>
@@ -204,12 +207,12 @@
 				<div>
 					<div class="text-xs text-muted-foreground">Lowest</div>
 					<div class="text-lg font-bold text-green-600 tabular-nums dark:text-green-400">
-						{fmt(stats.min)}
+						{inr(stats.min)}
 					</div>
 				</div>
 				<div>
 					<div class="text-xs text-muted-foreground">Highest</div>
-					<div class="text-lg font-bold tabular-nums">{fmt(stats.max)}</div>
+					<div class="text-lg font-bold tabular-nums">{inr(stats.max)}</div>
 				</div>
 				<div>
 					<div class="text-xs text-muted-foreground">Change</div>

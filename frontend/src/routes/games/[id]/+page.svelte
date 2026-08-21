@@ -39,7 +39,8 @@
 	import AddPriceForm from '$lib/components/AddPriceForm.svelte';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
-	import { gamePricing, inr } from '$lib/gamePricing.js';
+	import { gamePricing } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
 	import { buildTimeline } from '$lib/priceTimeline.js';
 	import { parseBggId, bggGameUrl, bggSearchUrl } from '$lib/bgg.js';

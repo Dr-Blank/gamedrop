@@ -5,7 +5,7 @@
 	import { fly } from 'svelte/transition';
 	import { mergeQueue, decideMerges, rejectedQueue, fetchProductImage } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
-	import { inr } from '$lib/gamePricing.js';
+	import { inr } from '$lib/priceFormat.svelte.js';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import { shortcuts, MERGE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
 	import * as Card from '$lib/components/ui/card';

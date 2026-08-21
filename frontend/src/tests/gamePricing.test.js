@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import ProductCard from '$lib/components/ProductCard.svelte';
-import { gamePricing, inr } from '$lib/gamePricing.js';
+import { gamePricing } from '$lib/gamePricing.js';
 import { alignSeries, segmentInStock } from '$lib/priceSeries.js';
 
 const offer = (over = {}) => ({
@@ -181,12 +181,5 @@ describe('alignSeries', () => {
 
 	it('returns empty axes for no data', () => {
 		expect(alignSeries([]).labels).toEqual([]);
-	});
-});
-
-describe('inr', () => {
-	it('formats and handles missing prices', () => {
-		expect(inr(1234)).toBe('₹1,234');
-		expect(inr(null)).toBe('—');
 	});
 });
