@@ -11,7 +11,7 @@
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 	import { gamePricing } from '$lib/gamePricing.js';
-	import { inr } from '$lib/priceFormat.svelte.js';
+	import { inr, roundPrice } from '$lib/priceFormat.svelte.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
 	import { linkBgg, updateWatchlist } from '$lib/api.js';
 	import { toast } from '$lib/toast.svelte.js';
@@ -92,7 +92,8 @@
 		if (ps.length < 2) return null;
 		const min = Math.min(...ps);
 		const max = Math.max(...ps);
-		const trend = ps[0] - ps[ps.length - 1]; // history is newest-first: now - oldest
+		// Rounded on each side, so the delta agrees with the High/Low it sits between.
+		const trend = roundPrice(ps[0]) - roundPrice(ps[ps.length - 1]); // newest-first: now - oldest
 		return { min, max, trend, atLow: price != null && price <= min + 0.01 };
 	});
 
@@ -102,14 +103,18 @@
 		const offers = (item.compare?.offers ?? []).filter((o) => o.price != null);
 		if (pricing && offers.length > 1) {
 			const worst = offers.reduce((a, b) => (b.price > a.price ? b : a));
-			const saved = worst.price - price;
+			const saved = roundPrice(worst.price) - roundPrice(price);
 			return saved > 0
 				? { text: `${inr(saved)} less than ${worst.store_id}`, store: worst.store_id, good: true }
 				: { text: 'same price at every shop', store: null, good: false };
 		}
 		if (!range || price == null) return null;
 		if (range.atLow) return { text: 'cheapest it has been', store: null, good: true };
-		return { text: `${inr(price - range.min)} above its low`, store: null, good: false };
+		// A gap that rounds away must not claim the low that `atLow` reserves.
+		const above = roundPrice(price) - roundPrice(range.min);
+		return above > 0
+			? { text: `${inr(above)} above its low`, store: null, good: false }
+			: { text: 'near its lowest', store: null, good: false };
 	});
 
 	function open() {

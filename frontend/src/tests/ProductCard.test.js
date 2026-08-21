@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import ProductCard from '$lib/components/ProductCard.svelte';
+import { priceFormat } from '$lib/priceFormat.svelte.js';
 
 const linkBgg = vi.fn(async () => ({}));
 vi.mock('$lib/api.js', async (original) => ({
@@ -69,6 +70,51 @@ describe('ProductCard target chip', () => {
 		const unwatched = { ...item, watchlist: null };
 		render(ProductCard, { props: { item: unwatched } });
 		expect(screen.queryByTitle('Set target price')).not.toBeInTheDocument();
+	});
+});
+
+describe('ProductCard price rounding', () => {
+	const charm = { ...item, latest_price: { price: 1999, available: true } };
+
+	beforeEach(() => {
+		priceFormat.mode = 'nearest-10';
+	});
+
+	it('rounds a charm price off by default', () => {
+		render(ProductCard, { props: { item: charm } });
+		expect(screen.getByText('₹2,000')).toBeInTheDocument();
+	});
+
+	it('quotes it exactly once rounding is off', () => {
+		priceFormat.mode = 'off';
+		render(ProductCard, { props: { item: charm } });
+		expect(screen.getByText('₹1,999')).toBeInTheDocument();
+	});
+
+	it('rounds both sides before subtracting, so the gap matches the prices shown', () => {
+		const twoShops = {
+			...charm,
+			latest_price: { price: 990, available: true },
+			compare: {
+				listing_count: 2,
+				store_ids: ['satyam', 'other'],
+				cheapest: { product_id: 2, store_id: 'satyam', price: 990, available: true },
+				cheapest_in_stock: { product_id: 2, store_id: 'satyam', price: 990, available: true },
+				offers: [
+					{ product_id: 2, store_id: 'satyam', price: 990, available: true },
+					{ product_id: 3, store_id: 'other', price: 999, available: true }
+				]
+			}
+		};
+		render(ProductCard, { props: { item: twoShops } });
+		expect(screen.getByText('₹10 less than other')).toBeInTheDocument();
+		expect(screen.queryByText('₹9 less than other')).not.toBeInTheDocument();
+	});
+
+	it('rounds the target chip too', () => {
+		const withTarget = { ...charm, watchlist: { id: 1, target_price: 1499 } };
+		render(ProductCard, { props: { item: withTarget } });
+		expect(screen.getByText('₹1,500')).toBeInTheDocument();
 	});
 });
 

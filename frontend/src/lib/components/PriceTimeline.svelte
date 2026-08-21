@@ -1,7 +1,7 @@
 <script>
 	import { ChevronDown, EyeOff, RotateCcw, Trash2 } from '@lucide/svelte';
 	import { storeColors } from '$lib/storeColors.svelte.js';
-	import { inr } from '$lib/priceFormat.svelte.js';
+	import { inrExact } from '$lib/priceFormat.svelte.js';
 	import { fmtDateParts } from '$lib/dateFormat.svelte.js';
 
 	let {
@@ -67,14 +67,14 @@
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				{#if e.kind === 'drop' || e.kind === 'rise'}
 					<span class="text-sm text-muted-foreground tabular-nums line-through">
-						{inr(e.prevPrice)}
+						{inrExact(e.prevPrice)}
 					</span>
 					<span
 						class="text-sm font-semibold tabular-nums {e.kind === 'drop'
 							? 'text-green-600 dark:text-green-400'
 							: 'text-rose-500'}"
 					>
-						{inr(e.price)}
+						{inrExact(e.price)}
 					</span>
 					<span
 						class="text-xs tabular-nums {e.kind === 'drop'
@@ -93,7 +93,7 @@
 						/>
 						In and out of stock {e.count}×
 					</button>
-					<span class="text-sm tabular-nums">{inr(e.price)}</span>
+					<span class="text-sm tabular-nums">{inrExact(e.price)}</span>
 				{:else}
 					<span class="text-sm">
 						{e.kind === 'listed'
@@ -102,7 +102,7 @@
 								? 'Out of stock'
 								: 'Back in stock'}
 					</span>
-					<span class="text-sm font-semibold tabular-nums">{inr(e.price)}</span>
+					<span class="text-sm font-semibold tabular-nums">{inrExact(e.price)}</span>
 				{/if}
 				{#if multiStore}
 					<span class="text-xs" style:color>{storeColors.name(e.store_id)}</span>
@@ -183,7 +183,7 @@
 		<ul class="space-y-1.5">
 			{#each ignored as s (s.id)}
 				<li class="flex items-center gap-2 text-sm">
-					<span class="tabular-nums line-through opacity-60">{inr(s.price)}</span>
+					<span class="tabular-nums line-through opacity-60">{inrExact(s.price)}</span>
 					<span class="text-xs text-muted-foreground">{when(s.recorded_at)}</span>
 					{#if multiStore}
 						<span class="text-xs" style:color={storeColors.of(s.store_id)}>

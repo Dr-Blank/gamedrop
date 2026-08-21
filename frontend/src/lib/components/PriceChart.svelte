@@ -12,7 +12,7 @@
 	import { theme } from '$lib/theme.svelte.js';
 	import { alignSeries, formatDay, segmentInStock } from '$lib/priceSeries.js';
 	import { storeColors, DEFAULT_PALETTE, tint } from '$lib/storeColors.svelte.js';
-	import { inr } from '$lib/priceFormat.svelte.js';
+	import { inr, priceFormat } from '$lib/priceFormat.svelte.js';
 
 	Chart.register(
 		LineController,
@@ -183,6 +183,7 @@
 		aligned;
 		theme.isDark;
 		storeColors.saved;
+		priceFormat.mode;
 		build();
 		return () => {
 			chart?.destroy();

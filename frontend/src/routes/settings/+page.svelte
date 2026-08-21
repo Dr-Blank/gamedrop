@@ -4,6 +4,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { dateFormat, fmtDate } from '$lib/dateFormat.svelte.js';
+	import { priceFormat, inr } from '$lib/priceFormat.svelte.js';
 
 	const API = '/api/settings';
 
@@ -11,6 +12,7 @@
 		{ id: 'bgg', label: 'BoardGameGeek API' },
 		{ id: 'ntfy', label: 'Push notifications' },
 		{ id: 'dates', label: 'Date & time' },
+		{ id: 'prices', label: 'Prices' },
 		{ id: 'headless', label: 'Headless deployment' }
 	];
 
@@ -19,6 +21,11 @@
 		{ value: 'dmy', label: 'dd/mm/yyyy', hint: '' },
 		{ value: 'mdy', label: 'mm/dd/yyyy', hint: '' },
 		{ value: 'ymd', label: 'yyyy-mm-dd', hint: '' }
+	];
+
+	const PRICE_ROUNDING = [
+		{ value: 'nearest-10', label: 'Rounded', hint: '₹1,999 → ₹2,000' },
+		{ value: 'off', label: 'Exact', hint: '₹1,999' }
 	];
 
 	const CLOCK_FORMATS = [
@@ -273,6 +280,45 @@
 
 				<p class="border-t pt-3 text-sm text-muted-foreground">
 					Preview: <span class="font-medium text-foreground">{fmtDate(now)}</span>
+				</p>
+			</Card.Content>
+		</Card.Root>
+
+		<!-- Prices -->
+		<Card.Root id="prices" class="scroll-mt-6">
+			<Card.Header>
+				<Card.Title>Prices</Card.Title>
+				<Card.Description>
+					A price ending in 9 reads smaller than it is, because the eye latches onto the leading
+					digit. Rounding to the nearest ten takes that lean out. The price snapshot log keeps every
+					reading exact either way, and nothing here changes what is stored, sorted, or alerted on.
+				</Card.Description>
+			</Card.Header>
+			<Card.Content class="space-y-4">
+				<div class="space-y-1.5">
+					<p class="text-xs font-medium text-muted-foreground">Displayed prices</p>
+					<div class="flex flex-wrap gap-2">
+						{#each PRICE_ROUNDING as option}
+							<button
+								onclick={() => priceFormat.set(option.value)}
+								class="rounded-md border px-3 py-1.5 text-sm transition-colors {priceFormat.mode ===
+								option.value
+									? 'border-primary bg-primary/10 font-medium'
+									: 'hover:bg-muted/50'}"
+							>
+								{option.label}
+								{#if option.hint}
+									<span class="block text-[0.7rem] font-normal text-muted-foreground">
+										{option.hint}
+									</span>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<p class="border-t pt-3 text-sm text-muted-foreground">
+					Preview: <span class="font-medium text-foreground">{inr(1999)}</span>
 				</p>
 			</Card.Content>
 		</Card.Root>

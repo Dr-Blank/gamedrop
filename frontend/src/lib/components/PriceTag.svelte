@@ -1,6 +1,6 @@
 <script>
 	import { Badge } from '$lib/components/ui/badge';
-	import { inr } from '$lib/priceFormat.svelte.js';
+	import { inr, roundPrice } from '$lib/priceFormat.svelte.js';
 
 	let {
 		price = /** @type {number|null} */ (null),
@@ -10,7 +10,10 @@
 	} = $props();
 
 	const cls = { sm: 'text-sm', md: 'text-base', lg: 'text-2xl' };
-	const showStrike = $derived(compareAt != null && price != null && compareAt > price);
+	// Rounding can pull an MRP down onto the very price it is meant to sit above.
+	const showStrike = $derived(
+		compareAt != null && price != null && roundPrice(compareAt) > roundPrice(price)
+	);
 	const pct = $derived(
 		discountPct ?? (showStrike ? Math.round(((compareAt - price) / compareAt) * 100) : null)
 	);
