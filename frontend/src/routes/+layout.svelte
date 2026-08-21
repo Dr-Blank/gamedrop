@@ -30,6 +30,8 @@
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
 	import SearchBox from '$lib/components/SearchBox.svelte';
+	import GithubIcon from '$lib/components/GithubIcon.svelte';
+	import { REPO_URL } from '$lib/repo.js';
 	import { notifications } from '$lib/notifications.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 
@@ -50,7 +52,8 @@
 		{ href: '/bgg-link', label: 'BGG Link', icon: Link2 },
 		{ href: '/settings', label: 'Settings', icon: Settings },
 		{ href: '/logs', label: 'Logs', icon: ScrollText },
-		{ href: '/shortcuts', label: 'Shortcuts', icon: Keyboard }
+		{ href: '/shortcuts', label: 'Shortcuts', icon: Keyboard },
+		{ href: REPO_URL, label: 'GitHub', icon: GithubIcon, external: true }
 	];
 
 	let mobileOpen = $state(false);
@@ -173,6 +176,8 @@
 								{@const Icon = link.icon}
 								<a
 									href={link.href}
+									target={link.external ? '_blank' : undefined}
+									rel={link.external ? 'noreferrer' : undefined}
 									class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors {isActive(
 										link.href
 									)
@@ -220,6 +225,8 @@
 						{@const Icon = link.icon}
 						<a
 							href={link.href}
+							target={link.external ? '_blank' : undefined}
+							rel={link.external ? 'noreferrer' : undefined}
 							onclick={() => (mobileOpen = false)}
 							class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors {isActive(
 								link.href

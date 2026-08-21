@@ -5,6 +5,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import { getAppLogs, getGithubIssueExport } from '$lib/api.js';
 	import { fmtDateParts, fmtRelative } from '$lib/dateFormat.svelte.js';
+	import { NEW_ISSUE_URL } from '$lib/repo.js';
 
 	/** Log lines are scanned, not read — keep them fixed-width and second-precise. */
 	const fmtLogTime = (ts) =>
@@ -23,7 +24,6 @@
 	let copied = $state(false);
 	let logsCopied = $state(false);
 
-	const NEW_ISSUE_URL = 'https://github.com/Dr-Blank/gamedrop/issues/new';
 	const LEVELS = ['', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 	const LEVEL_CLASS = {
 		DEBUG: 'text-muted-foreground',
