@@ -1571,3 +1571,109 @@ def test_store_compare_bad_mode_returns_422(client: TestClient, session: Session
         },
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Datetime filter values
+# ---------------------------------------------------------------------------
+
+
+def _dt_products(session: Session):
+    """Two listings a day apart, so a boundary filter must include exactly one."""
+    _store(session)
+    _product(session, "Old", 10.0, updated_at=datetime(2026, 6, 1))
+    _product(session, "New", 10.0, updated_at=datetime(2026, 6, 2))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-06-02T00:00:00",
+        "2026-06-02 00:00:00",
+        "2026-06-02",
+        "2026-06-02T00:00:00Z",
+        "2026-06-02T00:00:00+00:00",
+        datetime(2026, 6, 2),
+    ],
+)
+def test_datetime_gte_matches_the_boundary_row(session: Session, value):
+    """SQLite compares datetimes as text, so every ISO spelling must bind alike."""
+    _dt_products(session)
+    rows = query_products(
+        session, filter_node=Condition(field="updated_at", op="gte", value=value)
+    )
+    assert [g.title for _, _, g in rows] == ["New"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-06-01T00:00:00", "2026-06-01 00:00:00", "2026-06-01", datetime(2026, 6, 1)],
+)
+def test_datetime_lte_matches_the_boundary_row(session: Session, value):
+    _dt_products(session)
+    rows = query_products(
+        session, filter_node=Condition(field="updated_at", op="lte", value=value)
+    )
+    assert [g.title for _, _, g in rows] == ["Old"]
+
+
+def test_datetime_eq_matches_the_exact_reading(session: Session):
+    _dt_products(session)
+    rows = query_products(
+        session,
+        filter_node=Condition(field="updated_at", op="eq", value="2026-06-01T00:00:00"),
+    )
+    assert [g.title for _, _, g in rows] == ["Old"]
+
+
+def test_datetime_offset_is_converted_to_utc(session: Session):
+    """+05:30 at 05:30 is midnight UTC, so the boundary row still counts."""
+    _dt_products(session)
+    rows = query_products(
+        session,
+        filter_node=Condition(
+            field="updated_at", op="gte", value="2026-06-02T05:30:00+05:30"
+        ),
+    )
+    assert [g.title for _, _, g in rows] == ["New"]
+
+
+def test_datetime_null_ops_need_no_value(session: Session):
+    _dt_products(session)
+    rows = query_products(
+        session, filter_node=Condition(field="updated_at", op="is_not_null")
+    )
+    assert len(rows) == 2
+
+
+def test_unparseable_datetime_is_rejected():
+    from app.repositories.catalog import _bgg_subq, _first_seen_subq
+
+    reg = build_field_registry(_bgg_subq(), _first_seen_subq())
+    node = Condition(field="updated_at", op="gte", value="last tuesday")
+    with pytest.raises(ValueError, match="Not a date or datetime"):
+        apply_filter(node, reg)
+
+
+def test_first_seen_filters_on_the_boundary(session: Session):
+    """The derived first_seen column takes the same coercion as a plain one."""
+    from sqlmodel import select
+
+    _store(session)
+    old = _product(session, "Old", 10.0)
+    new = _product(session, "New", 10.0)
+    for pid, day in [(old.id, datetime(2026, 6, 1)), (new.id, datetime(2026, 6, 2))]:
+        for snap in session.exec(
+            select(PriceSnapshot).where(PriceSnapshot.product_id == pid)
+        ):
+            snap.recorded_at = day
+            session.add(snap)
+    session.commit()
+
+    rows = query_products(
+        session,
+        filter_node=Condition(
+            field="first_seen", op="gte", value="2026-06-02T00:00:00"
+        ),
+    )
+    assert [g.title for _, _, g in rows] == ["New"]

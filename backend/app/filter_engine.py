@@ -20,7 +20,7 @@ import operator
 import types
 import typing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
@@ -447,6 +447,32 @@ def _apply_store_compare(node: StoreCompare) -> Any:
     return Game.id.in_(matching_games)
 
 
+_NO_VALUE_OPS = frozenset({"is_null", "is_not_null"})
+
+
+def _to_datetime(value: Any) -> datetime:
+    """Parse a filter value into a real datetime.
+
+    SQLite has no datetime type and compares the stored text, so a string bound
+    as-is is matched against `YYYY-MM-DD HH:MM:SS.ffffff` character by
+    character — a `T` separator or missing microseconds silently flips the
+    result. Only a datetime object binds in the stored format.
+    """
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if text.endswith(("Z", "z")):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError as e:
+            raise ValueError(f"Not a date or datetime: {value!r}") from e
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
 def _apply_condition(cond: Condition, registry: dict[str, FieldDef]) -> Any:
     if cond.field not in registry:
         raise ValueError(f"Unknown filter field: {cond.field!r}")
@@ -458,6 +484,8 @@ def _apply_condition(cond: Condition, registry: dict[str, FieldDef]) -> Any:
 
     expr = fd.expr
     v = cond.value
+    if fd.type == "datetime" and cond.op not in _NO_VALUE_OPS:
+        v = [_to_datetime(x) for x in v] if isinstance(v, list) else _to_datetime(v)
 
     match cond.op:
         case "eq":
