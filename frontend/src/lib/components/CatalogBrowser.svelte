@@ -90,20 +90,27 @@
 	const hasFilters = $derived(filterTree.conditions.length > 0);
 	const hasSorts = $derived(sorts.length > 0);
 
-	/** @param {any} condition */
-	function quickFilterOn(condition) {
-		return filterTree.conditions.some(
-			(c) => c.type === 'condition' && c.field === condition.field && c.op === condition.op
-		);
+	/** What a quick filter occupies: same slot means same question, other answer. */
+	function slotKey(node) {
+		return node.type === 'condition' ? `condition:${node.field}:${node.op}` : node.type;
 	}
 
 	/** @param {any} condition */
+	function quickFilterOn(condition) {
+		return filterTree.conditions.some(
+			(c) => slotKey(c) === slotKey(condition) && JSON.stringify(c) === JSON.stringify(condition)
+		);
+	}
+
+	/**
+	 * Quick filters sharing a field and operator are alternatives, not
+	 * additions — picking "last week" replaces "last day" instead of ANDing it.
+	 * @param {any} condition
+	 */
 	function toggleQuickFilter(condition) {
-		filterTree.conditions = quickFilterOn(condition)
-			? filterTree.conditions.filter(
-					(c) => !(c.type === 'condition' && c.field === condition.field && c.op === condition.op)
-				)
-			: [...filterTree.conditions, { ...condition }];
+		const on = quickFilterOn(condition);
+		const rest = filterTree.conditions.filter((c) => slotKey(c) !== slotKey(condition));
+		filterTree.conditions = on ? rest : [...rest, { ...condition }];
 		pushUrl();
 	}
 
@@ -241,7 +248,8 @@
 			await createShelf({
 				name: saveName.trim(),
 				icon: saveIcon,
-				filters: hasFilters ? filterTree : null,
+				// The preset goes in too, or the shelf drops the view's own identity.
+				filters: queryFilters(),
 				sorts
 			});
 			toast.success('Shelf saved!');

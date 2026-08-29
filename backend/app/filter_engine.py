@@ -17,10 +17,11 @@ Sort schema:
 from __future__ import annotations
 
 import operator
+import re
 import types
 import typing
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
@@ -267,6 +268,17 @@ def build_field_registry(
             label="Back in Stock",
         )
 
+        # A listing's first reading is not a change, so this stays NULL until a
+        # second one lands — which is what separates a change from an arrival.
+        reg["last_change_at"] = FieldDef(
+            expr=case(
+                (prev_snap_subq.c.product_id.is_not(None), PriceSnapshot.recorded_at),
+                else_=None,
+            ),
+            type="datetime",
+            label="Last Changed",
+        )
+
     # store_count: shops selling this game — 1 means it is merged with nothing
     if store_count_subq is not None:
         reg["store_count"] = FieldDef(
@@ -352,13 +364,29 @@ class StoreCompare(BaseModel):
     mode: Literal["abs", "pct"] = "abs"
 
 
+class ChangeWindow(BaseModel):
+    """Games with at least one price or stock change inside a time window.
+
+    A window is one node rather than two conditions because two conditions
+    would be free to match two different readings — one after `since`, another
+    before `until` — and report a game that never changed inside the window.
+    Bounds accept the same relative values as any other date filter.
+    """
+
+    type: Literal["change_window"] = "change_window"
+    since: str | None = None
+    until: str | None = None
+
+
 class Group(BaseModel):
     type: Literal["group"] = "group"
     op: Literal["and", "or", "not"]
     conditions: list[FilterNode]
 
 
-FilterNode = Annotated[Condition | Group | StoreCompare, Field(discriminator="type")]
+FilterNode = Annotated[
+    Condition | Group | StoreCompare | ChangeWindow, Field(discriminator="type")
+]
 
 Group.model_rebuild()  # resolve forward ref
 
@@ -378,24 +406,69 @@ class SortSpec(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def filter_uses_field(node: Condition | Group | StoreCompare, field: str) -> bool:
+def filter_uses_field(
+    node: Condition | Group | StoreCompare | ChangeWindow, field: str
+) -> bool:
     """Return True if the filter tree references a specific field anywhere."""
     if isinstance(node, Condition):
         return node.field == field
-    if isinstance(node, StoreCompare):
+    if isinstance(node, StoreCompare | ChangeWindow):
         return False
     return any(filter_uses_field(c, field) for c in node.conditions)
 
 
 def apply_filter(
-    node: Condition | Group | StoreCompare, registry: dict[str, FieldDef]
+    node: Condition | Group | StoreCompare | ChangeWindow,
+    registry: dict[str, FieldDef],
 ) -> Any:
     """Recursively convert a FilterNode into a SQLAlchemy WHERE clause."""
     if isinstance(node, Condition):
         return _apply_condition(node, registry)
     if isinstance(node, StoreCompare):
         return _apply_store_compare(node)
+    if isinstance(node, ChangeWindow):
+        return _apply_change_window(node)
     return _apply_group(node, registry)
+
+
+def _apply_change_window(node: ChangeWindow) -> Any:
+    """Game.id IN (games with a change recorded inside the window)."""
+    from .models import Game, PriceSnapshot, Product
+    from .snapshots import effective
+
+    ranked = (
+        select(
+            PriceSnapshot.product_id,
+            PriceSnapshot.recorded_at.label("recorded_at"),
+            func.row_number()
+            .over(
+                partition_by=PriceSnapshot.product_id,
+                order_by=PriceSnapshot.recorded_at.asc(),
+            )
+            .label("rn"),
+        )
+        .where(effective())
+        .subquery()
+    )
+    since = _to_datetime(node.since) if node.since is not None else None
+    until = _to_datetime(node.until) if node.until is not None else None
+    # A range, not a sequence: given both, the earlier bound is the start.
+    if since is not None and until is not None and since > until:
+        since, until = until, since
+
+    # A listing's first reading is an arrival, not a change.
+    clauses = [ranked.c.rn > 1]
+    if since is not None:
+        clauses.append(ranked.c.recorded_at >= since)
+    if until is not None:
+        clauses.append(ranked.c.recorded_at <= until)
+
+    changed_games = (
+        select(Product.game_id)
+        .join(ranked, ranked.c.product_id == Product.id)
+        .where(*clauses)
+    )
+    return Game.id.in_(changed_games)
 
 
 def _apply_store_compare(node: StoreCompare) -> Any:
@@ -449,9 +522,40 @@ def _apply_store_compare(node: StoreCompare) -> Any:
 
 _NO_VALUE_OPS = frozenset({"is_null", "is_not_null"})
 
+_RELATIVE_RE = re.compile(r"^(?:now)?\s*([+-])\s*(\d+)\s*(mo|[mhdwy])$")
+_RELATIVE_UNITS = {
+    "m": timedelta(minutes=1),
+    "h": timedelta(hours=1),
+    "d": timedelta(days=1),
+    "w": timedelta(weeks=1),
+    "mo": timedelta(days=30),
+    "y": timedelta(days=365),
+}
+
+
+def _relative_datetime(text: str) -> datetime | None:
+    """Resolve `now`, `today` or an offset like `-7d`, or None if it is neither.
+
+    Stored filters keep the offset rather than the date it once resolved to, so
+    a saved "changed this week" shelf still means this week a month from now.
+    Months and years are fixed 30- and 365-day spans.
+    """
+    key = text.strip().lower()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    if key == "now":
+        return now
+    if key == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    match = _RELATIVE_RE.match(key)
+    if match is None:
+        return None
+    sign, amount, unit = match.groups()
+    delta = _RELATIVE_UNITS[unit] * int(amount)
+    return now + delta if sign == "+" else now - delta
+
 
 def _to_datetime(value: Any) -> datetime:
-    """Parse a filter value into a real datetime.
+    """Parse a filter value into a real datetime, relative offsets included.
 
     SQLite has no datetime type and compares the stored text, so a string bound
     as-is is matched against `YYYY-MM-DD HH:MM:SS.ffffff` character by
@@ -462,6 +566,9 @@ def _to_datetime(value: Any) -> datetime:
         parsed = value
     else:
         text = str(value).strip()
+        relative = _relative_datetime(text)
+        if relative is not None:
+            return relative
         if text.endswith(("Z", "z")):
             text = f"{text[:-1]}+00:00"
         try:

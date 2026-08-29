@@ -9,6 +9,7 @@
 		Compass,
 		TrendingDown,
 		Sparkles,
+		History,
 		Heart,
 		Store,
 		Settings,
@@ -42,6 +43,7 @@
 		{ href: '/browse', label: 'Browse', icon: Compass },
 		{ href: DROPS_URL, label: 'Drops', icon: TrendingDown },
 		{ href: NEW_URL, label: 'New', icon: Sparkles },
+		{ href: '/changes', label: 'Changes', icon: History },
 		{ href: '/watchlist', label: 'Watchlist', icon: Heart }
 	];
 	const more = [

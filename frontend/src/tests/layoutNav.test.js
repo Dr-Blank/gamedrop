@@ -25,6 +25,14 @@ const openMore = async () => {
 	await fireEvent.click(screen.getByRole('button', { name: 'More' }));
 };
 
+describe('primary navigation', () => {
+	it('offers the changes feed alongside the other feeds', () => {
+		renderLayout();
+		const links = screen.getAllByRole('link', { name: /changes/i });
+		expect(links.some((l) => l.getAttribute('href') === '/changes')).toBe(true);
+	});
+});
+
 describe('layout overflow menu', () => {
 	it('links to the source repository in a new tab', async () => {
 		renderLayout();

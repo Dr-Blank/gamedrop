@@ -40,6 +40,12 @@ describe('keyboard shortcuts', () => {
 		expect(shortcuts.pending).toBe('');
 	});
 
+	it('g c goes to the changes feed', () => {
+		press('g');
+		press('c');
+		expect(goto).toHaveBeenCalledWith('/changes');
+	});
+
 	it('abandons a chord on an unknown second key', () => {
 		press('g');
 		press('q');

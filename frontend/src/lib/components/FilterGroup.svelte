@@ -1,6 +1,7 @@
 <script>
-	import { X, Plus, GitBranch, ArrowLeftRight } from '@lucide/svelte';
+	import { X, Plus, GitBranch, ArrowLeftRight, CalendarClock } from '@lucide/svelte';
 	import FilterGroup from './FilterGroup.svelte';
+	import DateValue from './DateValue.svelte';
 
 	/** @type {{ group: any, fields: any[], stores?: any[], depth?: number, onremove?: () => void }} */
 	let { group = $bindable(), fields, stores = [], depth = 0, onremove } = $props();
@@ -44,6 +45,8 @@
 		const f = fieldDef(fieldName);
 		if (!f) return '';
 		if (f.type === 'bool') return true;
+		// A date condition opens relative: an absolute one goes stale the day after.
+		if (f.type === 'datetime') return '-1d';
 		return '';
 	}
 
@@ -60,6 +63,10 @@
 
 	function addGroup() {
 		group.conditions.push({ type: 'group', op: 'and', conditions: [] });
+	}
+
+	function addChangeWindow() {
+		group.conditions.push({ type: 'change_window', since: '-1w', until: 'now' });
 	}
 
 	function addStoreCompare() {
@@ -212,11 +219,7 @@
 							class="h-7 w-24 rounded border bg-background px-2 text-xs"
 						/>
 					{:else if fieldType(cond.field) === 'datetime'}
-						<input
-							type="date"
-							bind:value={cond.value}
-							class="h-7 rounded border bg-background px-2 text-xs"
-						/>
+						<DateValue bind:value={cond.value} label="Date" />
 					{:else}
 						<!-- data-field: lets a shortcut jump straight to a condition's value. -->
 						<input
@@ -235,6 +238,23 @@
 					<X class="size-3.5" />
 				</button>
 			</div>
+		{:else if cond.type === 'change_window'}
+			<div class="flex flex-wrap items-center gap-1.5 pl-2">
+				<span class="text-xs">changed between</span>
+				<DateValue bind:value={group.conditions[i].since} label="Window start" />
+				<span class="text-xs text-muted-foreground">and</span>
+				<DateValue bind:value={group.conditions[i].until} label="Window end" />
+
+				<button
+					onclick={() => removeChild(i)}
+					class="rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+				>
+					<X class="size-3.5" />
+				</button>
+			</div>
+			<p class="pl-2 text-[11px] text-muted-foreground">
+				any price or stock move inside the window, not only the latest one
+			</p>
 		{:else if cond.type === 'store_compare'}
 			<div class="flex flex-wrap items-center gap-1.5 pl-2">
 				<!-- Store A -->
@@ -306,6 +326,12 @@
 			class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
 		>
 			<Plus class="size-3" /> condition
+		</button>
+		<button
+			onclick={addChangeWindow}
+			class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+		>
+			<CalendarClock class="size-3" /> change window
 		</button>
 		{#if stores.length >= 2}
 			<button

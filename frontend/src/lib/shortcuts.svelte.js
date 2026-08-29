@@ -184,6 +184,7 @@ export const GLOBAL_SHORTCUTS = [
 	{ keys: 'g b', label: 'Browse', group: 'Go to', run: () => goto('/browse') },
 	{ keys: 'g d', label: 'Price drops', group: 'Go to', run: () => goto(DROPS_URL) },
 	{ keys: 'g n', label: 'New additions', group: 'Go to', run: () => goto(NEW_URL) },
+	{ keys: 'g c', label: 'Recent changes', group: 'Go to', run: () => goto('/changes') },
 	{ keys: 'g w', label: 'Watchlist', group: 'Go to', run: () => goto('/watchlist') },
 	{ keys: 'g s', label: 'Stores', group: 'Go to', run: () => goto('/stores') },
 	{ keys: 'g a', label: 'Alerts', group: 'Go to', run: () => goto('/notifications') },

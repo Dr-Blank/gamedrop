@@ -2,13 +2,16 @@ import contextlib
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..filter_engine import FilterNode, SortSpec
 from ..models import Shelf
 from ..repositories import catalog as repo
+
+#: Parses any saved node, not only the two the builder started with.
+_FILTER_NODE = TypeAdapter(FilterNode)
 
 router = APIRouter(prefix="/shelves", tags=["shelves"])
 
@@ -123,12 +126,7 @@ def shelves_preview(limit: int = 8, session: Session = Depends(get_session)):
         sorts = None
         if shelf.filters:
             with contextlib.suppress(Exception):
-                from ..filter_engine import Condition, Group
-
-                raw = json.loads(shelf.filters)
-                filter_node = (
-                    Condition(**raw) if raw.get("type") == "condition" else Group(**raw)
-                )
+                filter_node = _FILTER_NODE.validate_python(json.loads(shelf.filters))
         if shelf.sorts:
             with contextlib.suppress(Exception):
                 sorts = [SortSpec(**s) for s in json.loads(shelf.sorts)]

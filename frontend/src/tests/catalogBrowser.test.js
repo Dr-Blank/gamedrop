@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import { afterNavigate } from '$app/navigation';
 
 vi.mock('$lib/api.js', () => ({
@@ -57,6 +57,21 @@ describe('browse page', () => {
 		await screen.findByText('Azul');
 		// One divider, ahead of the first hidden card — not one per hidden card.
 		expect(screen.getAllByText('Hidden games')).toHaveLength(1);
+	});
+
+	it('adds and drops its quick filter on repeated clicks', async () => {
+		await renderPage();
+		const button = screen.getByRole('button', { name: /Not merged/ });
+
+		await fireEvent.click(button);
+		await afterNavigate.mock.calls.at(-1)[0]({ type: 'link' });
+		expect(api.browseQuery.mock.calls.at(-1)[0].filters.conditions).toEqual([
+			{ type: 'condition', field: 'store_count', op: 'eq', value: 1 }
+		]);
+
+		await fireEvent.click(button);
+		await afterNavigate.mock.calls.at(-1)[0]({ type: 'link' });
+		expect(api.browseQuery.mock.calls.at(-1)[0].filters).toBeNull();
 	});
 
 	it('keeps the controls a plain catalog view owns', async () => {
