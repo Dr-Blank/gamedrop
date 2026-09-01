@@ -40,7 +40,7 @@
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
 	import { gamePricing } from '$lib/gamePricing.js';
-	import { inr } from '$lib/priceFormat.svelte.js';
+	import { inr, inrDelta } from '$lib/priceFormat.svelte.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
 	import { buildTimeline } from '$lib/priceTimeline.js';
 	import { parseBggId, bggGameUrl, bggSearchUrl } from '$lib/bgg.js';
@@ -125,6 +125,17 @@
 	const ath = $derived(history.length ? Math.max(...history.map((h) => h.price)) : null);
 	const atLowest = $derived(
 		!!selected && atl !== null && selected.price != null && selected.price <= atl
+	);
+	// Distance from each extreme, so the pair reads as money and not as trivia.
+	const fromAtl = $derived(
+		selected?.price != null && atl !== null && selected.price > atl
+			? inrDelta(selected.price - atl)
+			: ''
+	);
+	const fromAth = $derived(
+		selected?.price != null && ath !== null && selected.price < ath
+			? inrDelta(selected.price - ath)
+			: ''
 	);
 	const priceChange = $derived(lastPriceChange(history));
 
@@ -370,6 +381,18 @@
 		}
 	}
 
+	/** @param {HTMLElement} node */
+	function focused(node) {
+		node.focus();
+	}
+
+	/** One click: the search opens, the field is ready for the link it comes back with. */
+	function findOnBgg() {
+		showBggInput = true;
+		bggUrl = '';
+		window.open(bggSearchUrl(game.title), '_blank', 'noopener');
+	}
+
 	async function linkGame(id) {
 		linking = true;
 		try {
@@ -570,8 +593,16 @@
 							<p class="text-xs text-rose-500">Out of stock at every store</p>
 						{/if}
 						{#if atl !== null && ath !== null && atl !== ath}
-							<p class="text-xs text-muted-foreground">
-								ATL {inr(atl)} · ATH {inr(ath)} at {selected.store_id}
+							<p class="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+								<span>ATL {inr(atl)}</span>
+								{#if fromAtl}
+									<span class="text-rose-500 tabular-nums">{fromAtl}</span>
+								{/if}
+								<span>· ATH {inr(ath)}</span>
+								{#if fromAth}
+									<span class="text-green-600 tabular-nums dark:text-green-400">{fromAth}</span>
+								{/if}
+								<span>at {selected.store_id}</span>
 							</p>
 						{/if}
 						{#if priceChange}
@@ -648,8 +679,14 @@
 
 					<div class="flex flex-wrap gap-2">
 						{#if selected?.url}
-							<Button variant="outline" href={selected.url} target="_blank">
-								<ExternalLink class="size-4" /> View at {selected.store_id}
+							{@const accent = storeColors.of(selected.store_id)}
+							<Button
+								variant="outline"
+								href={selected.url}
+								target="_blank"
+								style="border-color:{tint(accent, 0.55)}; background:{tint(accent, 0.08)}"
+							>
+								<ExternalLink class="size-4" /> View at {storeColors.name(selected.store_id)}
 							</Button>
 						{/if}
 						{#if bgg?.bgg_url || game.bgg_id}
@@ -663,17 +700,20 @@
 							<Button
 								variant="ghost"
 								size="sm"
-								onclick={() => {
-									showBggInput = !showBggInput;
-									bggUrl = '';
-								}}>Re-link</Button
+								onclick={() => (showBggInput ? (showBggInput = false) : findOnBgg())}
+								title="Search BoardGameGeek and paste the link">Re-link</Button
 							>
 							<Button variant="ghost" size="sm" onclick={doRefreshBgg} disabled={bggRefreshing}>
 								<RefreshCw class="size-4 {bggRefreshing ? 'animate-spin' : ''}" />
 								{bggRefreshing ? 'Refreshing…' : 'Refresh BGG'}
 							</Button>
 						{:else}
-							<Button variant="ghost" size="sm" onclick={() => (showBggInput = !showBggInput)}>
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() => (showBggInput ? (showBggInput = false) : findOnBgg())}
+								title="Search BoardGameGeek and paste the link"
+							>
 								<Link2 class="size-4" /> Link BGG
 							</Button>
 						{/if}
@@ -685,6 +725,7 @@
 					{#if showBggInput}
 						<div class="flex gap-2" transition:fly={{ y: -4, duration: 150 }}>
 							<input
+								use:focused
 								bind:value={bggUrl}
 								placeholder="Paste BGG URL…"
 								class="h-9 flex-1 rounded-lg border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
@@ -694,10 +735,6 @@
 								}}
 								disabled={linking}
 							/>
-							<Button
-								variant="outline"
-								onclick={() => window.open(bggSearchUrl(game.title), '_blank')}>Google ↗</Button
-							>
 							{#if game.bgg_id}
 								<Button
 									variant="ghost"
