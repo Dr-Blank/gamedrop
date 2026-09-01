@@ -1,8 +1,26 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import PriceTag from '$lib/components/PriceTag.svelte';
 import PriceChart from '$lib/components/PriceChart.svelte';
-import { priceFormat, roundPrice, inr, inrExact } from '$lib/priceFormat.svelte.js';
+import { priceFormat, roundPrice, inr, inrDelta, inrExact } from '$lib/priceFormat.svelte.js';
+
+// jsdom has no canvas context, so the chart itself is stubbed — the tiles are the subject.
+vi.mock('chart.js', () => {
+	class Chart {
+		static register() {}
+		destroy() {}
+	}
+	return {
+		Chart,
+		LineController: {},
+		LineElement: {},
+		PointElement: {},
+		LinearScale: {},
+		CategoryScale: {},
+		Filler: {},
+		Tooltip: {}
+	};
+});
 
 describe('price rounding preference', () => {
 	beforeEach(() => {
@@ -39,6 +57,19 @@ describe('price rounding preference', () => {
 		expect(inrExact(1999)).toBe('₹1,999');
 		priceFormat.set('off');
 		expect(inrExact(1999)).toBe('₹1,999');
+	});
+});
+
+describe('inrDelta', () => {
+	beforeEach(() => {
+		priceFormat.mode = 'nearest-10';
+	});
+
+	it('signs a move and keeps it exact', () => {
+		expect(inrDelta(-1499)).toBe('−₹1,499');
+		expect(inrDelta(1499)).toBe('+₹1,499');
+		expect(inrDelta(0)).toBe('₹0');
+		expect(inrDelta(null)).toBe('—');
 	});
 });
 
@@ -83,5 +114,23 @@ describe('PriceChart', () => {
 		priceFormat.mode = 'off';
 		render(PriceChart, { props: { series } });
 		expect(screen.getAllByText('₹999').length).toBeGreaterThan(0);
+	});
+
+	it('states the change in rupees, not in percent', () => {
+		HTMLCanvasElement.prototype.getContext = () => ({
+			createLinearGradient: () => ({ addColorStop: () => {} })
+		});
+		const moved = [
+			{
+				store_id: 'a',
+				history: [
+					{ price: 1999, recorded_at: '2026-08-01T00:00:00' },
+					{ price: 1799, recorded_at: '2026-08-05T00:00:00' }
+				]
+			}
+		];
+		render(PriceChart, { props: { series: moved } });
+		expect(screen.getByText('−₹200')).toBeInTheDocument();
+		expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
 	});
 });

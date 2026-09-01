@@ -42,6 +42,12 @@ export function inr(n) {
 	return inrExact(roundPrice(n));
 }
 
+/** A move is money moved, so it stays exact and signed — never a charm price. */
+export function inrDelta(/** @type {number|null|undefined} */ n) {
+	if (n == null) return '—';
+	return `${n > 0 ? '+' : n < 0 ? '−' : ''}${inrExact(Math.abs(n))}`;
+}
+
 /** For the snapshot log, where each reading is the record and has to stand as taken. */
 export function inrExact(/** @type {number|null|undefined} */ n) {
 	if (n == null) return '—';

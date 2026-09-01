@@ -1,7 +1,7 @@
 <script>
 	import { ChevronDown, EyeOff, RotateCcw, Trash2 } from '@lucide/svelte';
 	import { storeColors } from '$lib/storeColors.svelte.js';
-	import { inrExact } from '$lib/priceFormat.svelte.js';
+	import { inrDelta, inrExact } from '$lib/priceFormat.svelte.js';
 	import { fmtDateParts } from '$lib/dateFormat.svelte.js';
 
 	let {
@@ -40,6 +40,9 @@
 			minute: '2-digit'
 		});
 
+	/** A move reads as money, not as a share of a price nobody remembers. */
+	const delta = (e) => (e.prevPrice ? inrDelta(e.price - e.prevPrice) : '');
+
 	/** @param {any} e */
 	const pct = (e) =>
 		e.prevPrice
@@ -77,11 +80,12 @@
 						{inrExact(e.price)}
 					</span>
 					<span
+						title={pct(e)}
 						class="text-xs tabular-nums {e.kind === 'drop'
 							? 'text-green-600 dark:text-green-400'
 							: 'text-rose-500'}"
 					>
-						{pct(e)}
+						{delta(e)}
 					</span>
 				{:else if e.kind === 'flaps'}
 					<button

@@ -12,7 +12,7 @@
 	import { theme } from '$lib/theme.svelte.js';
 	import { alignSeries, formatDay, segmentInStock } from '$lib/priceSeries.js';
 	import { storeColors, DEFAULT_PALETTE, tint } from '$lib/storeColors.svelte.js';
-	import { inr, priceFormat } from '$lib/priceFormat.svelte.js';
+	import { inr, inrDelta, priceFormat } from '$lib/priceFormat.svelte.js';
 
 	Chart.register(
 		LineController,
@@ -218,13 +218,14 @@
 				<div>
 					<div class="text-xs text-muted-foreground">Change</div>
 					<div
+						title="{stats.changePct > 0 ? '+' : ''}{stats.changePct.toFixed(1)}%"
 						class="text-lg font-bold tabular-nums {stats.change < 0
 							? 'text-green-600 dark:text-green-400'
 							: stats.change > 0
 								? 'text-rose-500'
 								: ''}"
 					>
-						{stats.change > 0 ? '+' : ''}{stats.changePct.toFixed(1)}%
+						{inrDelta(stats.change)}
 					</div>
 				</div>
 			</div>

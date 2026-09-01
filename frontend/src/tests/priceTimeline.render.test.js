@@ -34,7 +34,8 @@ describe('PriceTimeline', () => {
 		renderTimeline();
 		// Once as the listing price, once struck through by the drop that replaced it.
 		expect(screen.getAllByText('₹2,999')).toHaveLength(2);
-		expect(screen.getByText('-0.5%')).toBeInTheDocument();
+		expect(screen.getByText('−₹14')).toBeInTheDocument();
+		expect(screen.queryByText('-0.5%')).not.toBeInTheDocument();
 	});
 });
 
