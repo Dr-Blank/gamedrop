@@ -17,6 +17,7 @@
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import { fmtDate, fmtRelative } from '$lib/dateFormat.svelte.js';
+	import { syncRunUrl } from '$lib/browse.js';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -558,6 +559,14 @@
 												</div>
 												{#if log.error}
 													<div class="break-words text-destructive">{log.error}</div>
+												{:else if log.price_changes > 0}
+													<a
+														href={syncRunUrl(store.id, log)}
+														title="Show the games that changed in this sync"
+														class="text-muted-foreground hover:text-foreground hover:underline"
+													>
+														+{log.new_products} new · {log.price_changes} price changes
+													</a>
 												{:else}
 													<div class="text-muted-foreground">
 														+{log.new_products} new · {log.price_changes} price changes

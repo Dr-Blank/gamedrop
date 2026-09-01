@@ -36,9 +36,22 @@ def _store(session: Session, sid: str = "s1"):
     session.commit()
 
 
-def _listing(session: Session, title: str, readings: list[tuple[float, datetime]]):
+def _listing(
+    session: Session,
+    title: str,
+    readings: list[tuple[float, datetime]],
+    *,
+    store_id: str = "s1",
+    game: Game | None = None,
+):
     """A listing with the given (price, recorded_at) history, oldest first."""
-    product = make_product(session, store_id="s1", external_id=title, title=title)
+    product = make_product(
+        session,
+        store_id=store_id,
+        external_id=f"{store_id}-{title}",
+        title=title,
+        game=game,
+    )
     for price, recorded_at in readings:
         session.add(
             PriceSnapshot(product_id=product.id, price=price, recorded_at=recorded_at)
@@ -336,6 +349,61 @@ def test_a_change_at_any_shop_counts_for_the_game(session: Session):
     session.commit()
 
     assert _titles(session, ChangeWindow(since="-1d")) == ["Azul"]
+
+
+def test_a_window_can_be_scoped_to_one_shop(session: Session):
+    """A sync log links into its own shop's window, not the merged game's."""
+    _store(session)
+    _store(session, "s2")
+    quiet = _listing(session, "Azul", [(30.0, _now() - timedelta(days=30))])
+    _listing(
+        session,
+        "Azul",
+        [(30.0, _now() - timedelta(days=30)), (28.0, _now() - timedelta(hours=6))],
+        store_id="s2",
+        game=quiet_game(session, quiet),
+    )
+
+    assert _titles(session, ChangeWindow(since="-1d", store_id="s2")) == ["Azul"]
+    assert _titles(session, ChangeWindow(since="-1d", store_id="s1")) == []
+
+
+def test_a_scoped_window_holds_to_its_bounds(session: Session):
+    """The bounds of one sync run keep a later run's changes out."""
+    _store(session)
+    started = _now() - timedelta(hours=2)
+    _listing(
+        session,
+        "Moved",
+        [(30.0, _now() - timedelta(days=2)), (25.0, started + timedelta(seconds=5))],
+    )
+    _listing(session, "Later", [(30.0, _now() - timedelta(days=2)), (25.0, _now())])
+
+    window = ChangeWindow(
+        since=started.isoformat(),
+        until=(started + timedelta(minutes=1)).isoformat(),
+        store_id="s1",
+    )
+    assert _titles(session, window) == ["Moved"]
+
+
+def test_the_query_endpoint_takes_a_store_scoped_window(client, session: Session):
+    _store(session)
+    _store(session, "s2")
+    _listing(session, "Azul", [(30.0, _now() - timedelta(days=3)), (25.0, _now())])
+    _listing(
+        session,
+        "Catan",
+        [(40.0, _now() - timedelta(days=3)), (35.0, _now())],
+        store_id="s2",
+    )
+
+    res = client.post(
+        "/api/browse/query",
+        json={"filters": {"type": "change_window", "since": "-1d", "store_id": "s2"}},
+    )
+    assert res.status_code == 200
+    assert [i["game"]["title"] for i in res.json()["items"]] == ["Catan"]
 
 
 def test_newest_change_sorts_first(session: Session):

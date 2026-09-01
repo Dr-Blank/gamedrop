@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 
 vi.mock('$lib/api.js', () => ({
 	getStores: vi.fn(),
@@ -34,6 +34,32 @@ function store(overrides = {}) {
 		last_sync_error: null,
 		...overrides
 	};
+}
+
+function syncLog(overrides = {}) {
+	return {
+		store_id: 'shop-a',
+		started_at: '2026-08-31T06:00:00',
+		finished_at: '2026-08-31T06:00:08',
+		new_products: 0,
+		updated_products: 0,
+		price_changes: 2,
+		error: null,
+		...overrides
+	};
+}
+
+async function openLogs(logs) {
+	api.getStores.mockResolvedValue([store()]);
+	api.getStoreLogs.mockResolvedValue(logs);
+	render(StoresPage);
+	await fireEvent.click(await screen.findByRole('button', { name: 'Logs' }));
+	return await screen.findByText(/price changes/);
+}
+
+function decodeFilters(href) {
+	const f = new URL(href, 'http://localhost').searchParams.get('f');
+	return JSON.parse(atob(f));
 }
 
 describe('stores page', () => {
@@ -95,6 +121,42 @@ describe('stores page', () => {
 		render(StoresPage);
 
 		expect(await screen.findByText(/Synced/)).toBeInTheDocument();
+	});
+
+	it('links a sync run to the changes that run recorded', async () => {
+		const summary = await openLogs([syncLog()]);
+		const link = summary.closest('a');
+
+		expect(link.getAttribute('href')).toMatch(/^\/changes\?/);
+		expect(decodeFilters(link.getAttribute('href'))).toEqual({
+			type: 'group',
+			op: 'and',
+			conditions: [
+				{
+					type: 'change_window',
+					since: '2026-08-31T06:00:00',
+					until: '2026-08-31T06:00:08',
+					store_id: 'shop-a'
+				},
+				{ type: 'condition', field: 'store_id', op: 'eq', value: 'shop-a' }
+			]
+		});
+	});
+
+	it('leaves the window open-ended while a run has not finished', async () => {
+		const summary = await openLogs([syncLog({ finished_at: null })]);
+
+		expect(decodeFilters(summary.closest('a').getAttribute('href')).conditions[0]).toEqual({
+			type: 'change_window',
+			since: '2026-08-31T06:00:00',
+			store_id: 'shop-a'
+		});
+	});
+
+	it('does not link a run that changed nothing', async () => {
+		const summary = await openLogs([syncLog({ price_changes: 0 })]);
+
+		expect(summary.closest('a')).toBeNull();
 	});
 
 	it('surfaces a sync error instead of a timestamp', async () => {
