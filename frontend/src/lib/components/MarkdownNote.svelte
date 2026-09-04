@@ -73,6 +73,22 @@
 {/if}
 
 <style>
+	/* Carta ships a light-only theme; map it onto the app tokens. */
+	.markdown-note :global(.carta-theme__default) {
+		--border-color: var(--border);
+		--hover-color: var(--muted);
+		--caret-color: var(--foreground);
+		--text-color: var(--foreground);
+		--focus-outline: var(--ring);
+	}
+	/* Shiki emits dual-theme output with the dark colors parked in custom
+	   properties; nothing swaps them in unless we do it here. */
+	:global(html.dark) .markdown-note :global(.shiki),
+	:global(html.dark) .markdown-note :global(.shiki span) {
+		color: var(--shiki-dark) !important;
+		background-color: transparent !important;
+	}
+
 	/* Carta ships unstyled prose; give it the density the rest of the app uses. */
 	.markdown-note :global(.carta-font-code) {
 		font-family: inherit;
@@ -119,12 +135,28 @@
 		padding-left: 0.6rem;
 		color: var(--muted-foreground);
 	}
+	/* The theme pins both panes to 600px; let them track the note instead. */
 	.markdown-note :global(.carta-input),
 	.markdown-note :global(.carta-renderer) {
-		min-height: 7rem;
+		height: auto;
+		min-height: 4rem;
+		max-height: 60vh;
+		overflow-y: auto;
 		padding: 0.6rem 0.75rem;
+	}
+	.markdown-note :global(.carta-wrapper) {
+		padding: 0;
+	}
+	.markdown-note :global(.carta-container > *) {
+		margin: 0;
+	}
+	.markdown-note :global(.carta-input textarea::placeholder) {
+		color: var(--muted-foreground);
 	}
 	.markdown-note :global(.carta-toolbar) {
 		background: var(--muted);
+	}
+	.markdown-note :global(.carta-toolbar-left button.carta-active) {
+		border-bottom-color: var(--primary);
 	}
 </style>
