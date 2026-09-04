@@ -135,6 +135,8 @@ def build_field_registry(
     prev_snap_subq: Any | None = None,
     watchlist_subq: Any | None = None,
     store_count_subq: Any | None = None,
+    cart_subq: Any | None = None,
+    owned_subq: Any | None = None,
 ) -> dict[str, FieldDef]:
     """Build the full field registry for a single query execution."""
     from .models import Game, PriceSnapshot, Product
@@ -297,6 +299,20 @@ def build_field_registry(
             expr=is_watched,
             type="bool",
             label="In Watchlist",
+        )
+
+    # is_in_cart / is_owned: the buy queue, and what has already been bought
+    if cart_subq is not None:
+        reg["is_in_cart"] = FieldDef(
+            expr=case((cart_subq.c.game_id.is_not(None), True), else_=False),
+            type="bool",
+            label="In Buy Queue",
+        )
+    if owned_subq is not None:
+        reg["is_owned"] = FieldDef(
+            expr=case((owned_subq.c.game_id.is_not(None), True), else_=False),
+            type="bool",
+            label="Already Bought",
         )
 
     # random: pseudo-random ordering (sort-only, not filterable)

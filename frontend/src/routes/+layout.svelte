@@ -17,6 +17,7 @@
 		EyeOff,
 		Link2,
 		Merge,
+		ShoppingCart,
 		Menu,
 		X,
 		Keyboard,
@@ -30,6 +31,7 @@
 	import { shortcuts } from '$lib/shortcuts.svelte.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
+	import { cart } from '$lib/cart.svelte.js';
 	import SearchBox from '$lib/components/SearchBox.svelte';
 	import GithubIcon from '$lib/components/GithubIcon.svelte';
 	import { REPO_URL } from '$lib/repo.js';
@@ -44,7 +46,8 @@
 		{ href: DROPS_URL, label: 'Drops', icon: TrendingDown },
 		{ href: NEW_URL, label: 'New', icon: Sparkles },
 		{ href: '/changes', label: 'Changes', icon: History },
-		{ href: '/watchlist', label: 'Watchlist', icon: Heart }
+		{ href: '/watchlist', label: 'Watchlist', icon: Heart },
+		{ href: '/cart', label: 'Cart', icon: ShoppingCart }
 	];
 	const more = [
 		{ href: '/merges', label: 'Merges', icon: Merge },
@@ -113,6 +116,7 @@
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 		watchlist.load();
 		hidden.load();
+		cart.load();
 		notifications.load();
 		storeColors.load();
 	});
@@ -144,6 +148,12 @@
 					>
 						<Icon class="size-4" />
 						{link.label}
+						{#if link.href === '/cart' && cart.count > 0}
+							<span
+								class="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary tabular-nums"
+								>{cart.count}</span
+							>
+						{/if}
 					</a>
 				{/each}
 			</nav>
@@ -258,6 +268,12 @@
 								</span>
 							{/if}
 							{link.label}
+							{#if link.href === '/cart' && cart.count > 0}
+								<span
+									class="ml-auto rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary tabular-nums"
+									>{cart.count}</span
+								>
+							{/if}
 							{#if link.href === '/notifications' && notifications.unread > 0}
 								<span
 									class="ml-auto rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white"

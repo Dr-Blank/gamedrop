@@ -23,6 +23,7 @@ from ..filter_engine import (
 )
 from ..models import (
     BggCache,
+    CartItem,
     Game,
     PriceSnapshot,
     Product,
@@ -123,7 +124,30 @@ def _store_count_subq():
 # ---------------------------------------------------------------------------
 
 
-def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist, store_count):
+def _cart_subq():
+    """Distinct queued game ids. A purchased row leaves the queue but stays on
+    the record, so it must not count as still in the cart."""
+    return (
+        select(CartItem.game_id)
+        .where(CartItem.purchased_at.is_(None))
+        .distinct()
+        .subquery()
+    )
+
+
+def _owned_subq():
+    """Distinct game ids marked bought."""
+    return (
+        select(CartItem.game_id)
+        .where(CartItem.purchased_at.is_not(None))
+        .distinct()
+        .subquery()
+    )
+
+
+def _build_joined_stmt(
+    latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned
+):
     return (
         select(Product, PriceSnapshot, Game)
         .join(Game, Product.game_id == Game.id)
@@ -140,6 +164,8 @@ def _build_joined_stmt(latest, bgg, first_seen, prev_snap, watchlist, store_coun
         .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
         .join(watchlist, Product.game_id == watchlist.c.game_id, isouter=True)
         .join(store_count, Product.game_id == store_count.c.game_id, isouter=True)
+        .join(cart, Product.game_id == cart.c.game_id, isouter=True)
+        .join(owned, Product.game_id == owned.c.game_id, isouter=True)
     )
 
 
@@ -150,18 +176,22 @@ def _subqueries():
     prev_snap = _prev_snapshot_subq()
     watchlist = _watchlist_subq()
     store_count = _store_count_subq()
-    return latest, bgg, first_seen, prev_snap, watchlist, store_count
+    cart = _cart_subq()
+    owned = _owned_subq()
+    return latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned
 
 
 def get_field_registry():
     """Registry for the introspection endpoint — subqueries are never executed."""
-    _, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
+    _, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned = _subqueries()
     return build_field_registry(
         bgg_subq=bgg,
         first_seen_subq=first_seen,
         prev_snap_subq=prev_snap,
         watchlist_subq=watchlist,
         store_count_subq=store_count,
+        cart_subq=cart,
+        owned_subq=owned,
     )
 
 
@@ -294,6 +324,11 @@ def _compare_summaries(session: Session, game_ids: set[int]) -> dict[int, dict]:
             "images": _offer_images(ordered),
         }
     return summaries
+
+
+def compare_summaries(session: Session, game_ids: set[int]) -> dict[int, dict]:
+    """Cross-shop comparison for many games at once, keyed by game id."""
+    return _compare_summaries(session, game_ids)
 
 
 def compare_summary(session: Session, game_id: int) -> dict | None:
@@ -447,16 +482,20 @@ def query_products(
     game whose listings straddle a page boundary can make that page come
     back short of `limit`.
     """
-    latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
+    latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned = (
+        _subqueries()
+    )
     registry = build_field_registry(
         bgg_subq=bgg,
         first_seen_subq=first_seen,
         prev_snap_subq=prev_snap,
         watchlist_subq=watchlist,
         store_count_subq=store_count,
+        cart_subq=cart,
+        owned_subq=owned,
     )
     stmt = _build_joined_stmt(
-        latest, bgg, first_seen, prev_snap, watchlist, store_count
+        latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned
     )
 
     filter_on_hidden = filter_node is not None and filter_uses_field(
@@ -499,13 +538,17 @@ def count_products(
     hidden_last: bool = False,
 ) -> int:
     """Total matching game count (for pagination) — distinct, to match query_products."""
-    latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
+    latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned = (
+        _subqueries()
+    )
     registry = build_field_registry(
         bgg_subq=bgg,
         first_seen_subq=first_seen,
         prev_snap_subq=prev_snap,
         watchlist_subq=watchlist,
         store_count_subq=store_count,
+        cart_subq=cart,
+        owned_subq=owned,
     )
     stmt = (
         select(func.count(func.distinct(Game.id)))
@@ -524,6 +567,8 @@ def count_products(
         .join(prev_snap, Product.id == prev_snap.c.product_id, isouter=True)
         .join(watchlist, Product.game_id == watchlist.c.game_id, isouter=True)
         .join(store_count, Product.game_id == store_count.c.game_id, isouter=True)
+        .join(cart, Product.game_id == cart.c.game_id, isouter=True)
+        .join(owned, Product.game_id == owned.c.game_id, isouter=True)
     )
     filter_on_hidden = filter_node is not None and filter_uses_field(
         filter_node, "hidden"
@@ -561,9 +606,11 @@ def _rows_by_ids(session: Session, ids: list[int]) -> list[CatalogRow]:
     """Catalog rows for the given listing ids, in the given order."""
     if not ids:
         return []
-    latest, bgg, first_seen, prev_snap, watchlist, store_count = _subqueries()
+    latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned = (
+        _subqueries()
+    )
     stmt = _build_joined_stmt(
-        latest, bgg, first_seen, prev_snap, watchlist, store_count
+        latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned
     ).where(Product.id.in_(ids))
     by_id = {r[0].id: (r[0], r[1], r[2]) for r in session.exec(stmt).all()}
     return [by_id[i] for i in ids if i in by_id]

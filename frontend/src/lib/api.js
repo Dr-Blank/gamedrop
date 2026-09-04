@@ -63,6 +63,20 @@ export const updateWatchlist = (id, targetPrice) =>
 export const patchWatchlistItem = (id, body) =>
 	req(`/watchlist/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+// Cart (buy queue)
+export const getCart = () => req('/cart/');
+export const getPurchased = () => req('/cart/purchased');
+export const addToCart = (body) => req('/cart/', { method: 'POST', body: JSON.stringify(body) });
+export const patchCartItem = (id, body) =>
+	req(`/cart/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const removeFromCart = (id) => req(`/cart/${id}`, { method: 'DELETE' });
+export const reorderCart = (ids) =>
+	req('/cart/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
+export const markCartPurchased = (id) => req(`/cart/${id}/purchase`, { method: 'POST' });
+export const unmarkCartPurchased = (id) => req(`/cart/${id}/purchase`, { method: 'DELETE' });
+export const setCartBudget = (amount) =>
+	req('/cart/budget', { method: 'PUT', body: JSON.stringify({ amount }) });
+
 // Settings
 export const getSettings = () => req('/settings/');
 export const saveSettings = (body) =>

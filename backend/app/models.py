@@ -187,3 +187,27 @@ class NotificationLog(SQLModel, table=True):
     product_url: str | None = None
     read_at: datetime | None = None
     sent_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CartItem(SQLModel, table=True):
+    """A game shortlisted to buy, in the order it is meant to be bought.
+
+    Keyed on the game like a watch is, so the queue position survives switching
+    shops; `product_id` is the shop chosen for it, and null means whichever
+    offer is cheapest in stock at the time of looking.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    game_id: int = Field(foreign_key="game.id", index=True)
+    product_id: int | None = Field(default=None, foreign_key="product.id")
+    position: int = 0
+    quantity: int = 1
+    priority: str = "normal"  # must | normal | someday
+    #: Buy-at ceiling for this row, separate from the watch's alert target.
+    max_price: float | None = None
+    note: str | None = None  # markdown
+    #: What the quoted offer cost when it was queued, so the row can show the move.
+    added_price: float | None = None
+    purchased_at: datetime | None = None
+    purchased_price: float | None = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)

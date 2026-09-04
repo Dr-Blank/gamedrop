@@ -10,6 +10,7 @@
 	import Sparkline from './Sparkline.svelte';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { hidden } from '$lib/hidden.svelte.js';
+	import { cart } from '$lib/cart.svelte.js';
 	import { gamePricing } from '$lib/gamePricing.js';
 	import { inr, roundPrice } from '$lib/priceFormat.svelte.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
@@ -28,7 +29,8 @@
 		EyeOff,
 		Store,
 		XCircle,
-		Dices
+		Dices,
+		ShoppingCart
 	} from '@lucide/svelte';
 
 	let {
@@ -40,6 +42,7 @@
 	const gameId = $derived(item.game?.id ?? item.product.game_id);
 	const watched = $derived(watchlist.has(gameId));
 	const isHidden = $derived(hidden.has(gameId));
+	const queued = $derived(cart.has(gameId));
 
 	// The name is the game's; the shop's own title stays on the listing.
 	const title = $derived(item.game?.title || item.product.title);
@@ -263,10 +266,30 @@
 						<EyeOff class="size-3" /> Hidden
 					</Badge>
 				{/if}
+				{#if queued}
+					<Badge
+						variant="outline"
+						class="gap-1 bg-background/80 text-[0.7rem] text-primary backdrop-blur"
+					>
+						<ShoppingCart class="size-3" /> In cart
+					</Badge>
+				{/if}
 			</div>
 
-			<!-- watch + hide toggles -->
+			<!-- queue + watch + hide toggles -->
 			<div class="absolute top-2 right-2 flex items-center gap-1">
+				<button
+					data-action="cart"
+					onclick={(e) => act(e, () => cart.toggle(item))}
+					class="grid size-8 place-items-center rounded-full bg-background/80 shadow-sm backdrop-blur transition-all hover:scale-110 hover:bg-background active:scale-95 {queued
+						? 'text-primary'
+						: 'text-muted-foreground hover:text-primary'}"
+					title={queued ? 'Remove from your cart' : 'Add to your cart'}
+					aria-label={queued ? 'Remove from cart' : 'Add to cart'}
+					aria-pressed={queued}
+				>
+					<ShoppingCart class="size-4" fill={queued ? 'currentColor' : 'none'} />
+				</button>
 				<button
 					data-action="hide"
 					onclick={(e) => act(e, () => (isHidden ? hidden.unhide(item) : hidden.hide(item)))}

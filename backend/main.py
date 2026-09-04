@@ -14,6 +14,7 @@ from app.logger import get_logger, setup_logging  # noqa: E402
 from app.routes import (  # noqa: E402
     bgg,
     browse,
+    cart,
     catalog,
     prices,
     settings,
@@ -303,6 +304,7 @@ app.include_router(bgg.router, prefix="/api")
 app.include_router(prices.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(browse.router, prefix="/api")
+app.include_router(cart.router, prefix="/api")
 app.include_router(catalog.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(products_router, prefix="/api")
