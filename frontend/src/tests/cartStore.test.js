@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('$lib/api.js', () => ({
 	getCart: vi.fn(),
 	addToCart: vi.fn(),
-	removeFromCart: vi.fn()
+	removeFromCart: vi.fn(),
+	patchCartItem: vi.fn()
 }));
 vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn() }
@@ -20,12 +21,14 @@ describe('cart store', () => {
 		cart.map = new Map();
 	});
 
-	it('load() builds a game_id -> cart_id map', async () => {
+	it('load() keys the queued rows by game', async () => {
 		api.getCart.mockResolvedValue({
 			items: [{ cart: { id: 5, game_id: 7 } }, { cart: { id: 6, game_id: 8 } }]
 		});
 		await cart.load();
 		expect(cart.has(7)).toBe(true);
+		expect(cart.item(7)).toEqual({ id: 5, game_id: 7 });
+		expect(cart.item(9)).toBe(null);
 		expect(cart.count).toBe(2);
 	});
 
@@ -37,7 +40,7 @@ describe('cart store', () => {
 	});
 
 	it('toggle() removes when already queued', async () => {
-		cart.map = new Map([[7, 5]]);
+		cart.map = new Map([[7, { id: 5, game_id: 7 }]]);
 		api.removeFromCart.mockResolvedValue({ ok: true });
 		await cart.toggle(item);
 		expect(api.removeFromCart).toHaveBeenCalledWith(5);
@@ -55,5 +58,18 @@ describe('cart store', () => {
 		cart.sync([{ cart: { id: 9, game_id: 3 } }]);
 		expect(cart.has(3)).toBe(true);
 		expect(cart.count).toBe(1);
+	});
+
+	it('patch() edits the queued row in place', async () => {
+		cart.map = new Map([[7, { id: 5, game_id: 7, priority: 'normal' }]]);
+		api.patchCartItem.mockResolvedValue({ id: 5, game_id: 7, priority: 'must' });
+		await cart.patch(7, { priority: 'must' });
+		expect(api.patchCartItem).toHaveBeenCalledWith(5, { priority: 'must' });
+		expect(cart.item(7).priority).toBe('must');
+	});
+
+	it('patch() ignores a game that is not queued', async () => {
+		await cart.patch(99, { priority: 'must' });
+		expect(api.patchCartItem).not.toHaveBeenCalled();
 	});
 });

@@ -1,4 +1,4 @@
-import { getCart, addToCart, removeFromCart } from './api.js';
+import { getCart, addToCart, removeFromCart, patchCartItem } from './api.js';
 import { toast } from './toast.svelte.js';
 
 /**
@@ -8,13 +8,13 @@ import { toast } from './toast.svelte.js';
  */
 class CartState {
 	ready = $state(false);
-	/** game_id -> cart item id @type {Map<number, number>} */
+	/** game_id -> queued cart item @type {Map<number, any>} */
 	map = $state(new Map());
 
 	async load() {
 		try {
 			const { items } = await getCart();
-			this.map = new Map(items.map((row) => [row.cart.game_id, row.cart.id]));
+			this.map = new Map(items.map((row) => [row.cart.game_id, row.cart]));
 		} catch {
 			// Non-fatal: cards render as un-queued until the next load.
 		} finally {
@@ -31,6 +31,12 @@ class CartState {
 		return gameId != null && this.map.has(gameId);
 	}
 
+	/** The queued row itself, for panels that edit it where the game is shown. */
+	/** @param {number|null|undefined} gameId */
+	item(gameId) {
+		return (gameId != null && this.map.get(gameId)) || null;
+	}
+
 	/**
 	 * Queue or unqueue the game this card belongs to. Adding from a card pins
 	 * nothing — the row follows the cheapest buyable offer until the cart page
@@ -44,13 +50,13 @@ class CartState {
 		const next = new Map(this.map);
 		try {
 			if (this.map.has(gameId)) {
-				await removeFromCart(this.map.get(gameId));
+				await removeFromCart(this.map.get(gameId).id);
 				next.delete(gameId);
 				this.map = next;
 				toast.success(`Removed ${title} from your cart`);
 			} else {
 				const created = await addToCart({ product_id: item.product.id });
-				next.set(gameId, created.id);
+				next.set(gameId, created);
 				this.map = next;
 				toast.success(`Queued ${title}`);
 			}
@@ -59,10 +65,28 @@ class CartState {
 		}
 	}
 
+	/**
+	 * Edit the queued row from wherever the game is shown.
+	 * @param {number} gameId
+	 * @param {any} body
+	 */
+	async patch(gameId, body) {
+		const row = this.map.get(gameId);
+		if (!row) return;
+		try {
+			const updated = await patchCartItem(row.id, body);
+			const next = new Map(this.map);
+			next.set(gameId, updated);
+			this.map = next;
+		} catch (e) {
+			toast.error(e.message);
+		}
+	}
+
 	/** The cart page edits rows directly; this keeps the card buttons honest. */
 	/** @param {any[]} rows */
 	sync(rows) {
-		this.map = new Map(rows.map((row) => [row.cart.game_id, row.cart.id]));
+		this.map = new Map(rows.map((row) => [row.cart.game_id, row.cart]));
 		this.ready = true;
 	}
 }

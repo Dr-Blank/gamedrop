@@ -22,6 +22,7 @@
 		deleteSnapshot
 	} from '$lib/api.js';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
+	import { cart } from '$lib/cart.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
@@ -39,6 +40,7 @@
 	import AddPriceForm from '$lib/components/AddPriceForm.svelte';
 	import { storeColors, tint } from '$lib/storeColors.svelte.js';
 	import MergeSuggestions from '$lib/components/MergeSuggestions.svelte';
+	import CartControls from '$lib/components/CartControls.svelte';
 	import { gamePricing } from '$lib/gamePricing.js';
 	import { inr, inrDelta } from '$lib/priceFormat.svelte.js';
 	import { lastPriceChange } from '$lib/priceChange.js';
@@ -57,6 +59,7 @@
 		EyeOff,
 		RefreshCw,
 		Store,
+		ShoppingCart,
 		Loader
 	} from '@lucide/svelte';
 
@@ -97,6 +100,8 @@
 	const pricing = $derived(gamePricing(data));
 	const watchlistItem = $derived(data?.watchlist_item ?? null);
 	const watched = $derived(watchStore.has(gameId));
+	const queued = $derived(cart.has(gameId));
+	const cartItem = $derived(cart.item(gameId));
 	const multiStore = $derived(offers.length > 1);
 
 	const selected = $derived(offers.find((o) => o.product_id === selectedId) ?? offers[0] ?? null);
@@ -642,6 +647,16 @@
 				<!-- Actions -->
 				<div class="mt-auto space-y-3">
 					<div class="flex flex-wrap items-center gap-2">
+						<Button
+							onclick={() => cart.toggle({ game, product: { id: selectedId, game_id: gameId } })}
+							variant={queued ? 'secondary' : 'outline'}
+							disabled={!selected}
+							aria-pressed={queued}
+							aria-label={queued ? 'Remove from cart' : 'Add to cart'}
+						>
+							<ShoppingCart class="size-4" fill={queued ? 'currentColor' : 'none'} />
+							{queued ? 'In cart' : 'Add to cart'}
+						</Button>
 						<Button onclick={toggleWatch} variant={watched ? 'secondary' : 'default'}>
 							<Heart class="size-4" fill={watched ? 'currentColor' : 'none'} />
 							{watched ? 'Watching' : 'Watch'}
@@ -933,6 +948,20 @@
 			</div>
 
 			<aside class="space-y-6">
+				{#if cartItem}
+					<Card.Root>
+						<Card.Header class="flex-row items-center justify-between pb-3">
+							<Card.Title class="flex items-center gap-2 text-base">
+								<ShoppingCart class="size-4" /> In your cart
+							</Card.Title>
+							<a href="/cart" class="text-xs text-muted-foreground hover:underline">Open cart</a>
+						</Card.Header>
+						<Card.Content>
+							<CartControls item={cartItem} onpatch={(body) => cart.patch(gameId, body)} />
+						</Card.Content>
+					</Card.Root>
+				{/if}
+
 				{#if multiStore}
 					<Card.Root>
 						<Card.Header class="pb-3">

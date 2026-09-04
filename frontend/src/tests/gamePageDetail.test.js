@@ -25,7 +25,10 @@ vi.mock('$lib/api.js', () => ({
 	removeWatchlist: vi.fn(),
 	getStores: vi.fn().mockResolvedValue([]),
 	mergeSuggestions: vi.fn().mockResolvedValue([]),
-	mergeProducts: vi.fn()
+	mergeProducts: vi.fn(),
+	getCart: vi.fn().mockResolvedValue({ items: [] }),
+	addToCart: vi.fn(),
+	removeFromCart: vi.fn()
 }));
 vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }
