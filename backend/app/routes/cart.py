@@ -115,16 +115,30 @@ def add_to_cart(body: CartAdd, session: Session = Depends(get_session)):
 
     offer = cart_repo.pick_offer(catalog_repo.compare_summary(session, game_id), pinned)
 
-    item = CartItem(
-        game_id=game_id,
-        product_id=pinned,
-        position=cart_repo.next_position(session),
-        quantity=max(1, body.quantity),
-        priority=body.priority,
-        max_price=body.max_price,
-        note=body.note,
-        added_price=offer["price"] if offer else None,
-    )
+    # A game queued before keeps what was set on it; anything named in this
+    # request still wins.
+    previous = cart_repo.previous_for_game(session, game_id)
+    carried = {
+        field: getattr(previous, field)
+        for field in cart_repo.CARRIED_FIELDS
+        if previous is not None and field not in body.model_fields_set
+    }
+
+    position = cart_repo.next_position(session)
+    if previous is not None and previous.purchased_at is None:
+        item = previous
+        item.removed_at = None
+    else:
+        item = CartItem(game_id=game_id)
+
+    item.product_id = pinned
+    item.position = position
+    item.added_price = offer["price"] if offer else None
+    item.quantity = max(1, carried.get("quantity", body.quantity))
+    item.priority = carried.get("priority", body.priority)
+    item.max_price = carried.get("max_price", body.max_price)
+    item.note = carried.get("note", body.note)
+
     session.add(item)
     session.commit()
     session.refresh(item)
@@ -224,10 +238,12 @@ def unmark_purchased(item_id: int, session: Session = Depends(get_session)):
 
 @router.delete("/{item_id}")
 def remove_from_cart(item_id: int, session: Session = Depends(get_session)):
+    """Archive the row rather than drop it, so re-queuing the game restores it."""
     item = session.get(CartItem, item_id)
     if not item:
         raise HTTPException(404, "Not found")
-    session.delete(item)
+    item.removed_at = datetime.utcnow()
+    session.add(item)
     session.commit()
     log.info("cart removed: item %s (game %s)", item_id, item.game_id)
     return {"ok": True}

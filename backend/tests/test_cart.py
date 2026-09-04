@@ -314,7 +314,72 @@ def test_remove_from_cart(client: TestClient, session: Session):
     item = client.post("/api/cart/", json={"product_id": product.id}).json()
     assert client.delete(f"/api/cart/{item['id']}").json() == {"ok": True}
     assert client.get("/api/cart/").json()["items"] == []
-    assert session.get(CartItem, item["id"]) is None
+
+    archived = session.get(CartItem, item["id"])
+    session.refresh(archived)
+    assert archived.removed_at is not None
+
+
+def test_re_adding_restores_the_removed_row(client: TestClient, session: Session):
+    product = _seed_one(session)
+    item = client.post("/api/cart/", json={"product_id": product.id}).json()
+    client.patch(
+        f"/api/cart/{item['id']}",
+        json={
+            "note": "second edition",
+            "priority": "must",
+            "max_price": 999,
+            "quantity": 3,
+        },
+    )
+    client.delete(f"/api/cart/{item['id']}")
+
+    back = client.post("/api/cart/", json={"product_id": product.id}).json()
+    assert back["id"] == item["id"]
+    assert back["note"] == "second edition"
+    assert back["priority"] == "must"
+    assert back["max_price"] == 999
+    assert back["quantity"] == 3
+    assert len(client.get("/api/cart/").json()["items"]) == 1
+
+
+def test_re_adding_prefers_what_the_request_asks_for(
+    client: TestClient, session: Session
+):
+    product = _seed_one(session)
+    item = client.post("/api/cart/", json={"product_id": product.id}).json()
+    client.patch(f"/api/cart/{item['id']}", json={"note": "old", "priority": "must"})
+    client.delete(f"/api/cart/{item['id']}")
+
+    back = client.post(
+        "/api/cart/", json={"product_id": product.id, "note": "new"}
+    ).json()
+    assert back["note"] == "new"
+    assert back["priority"] == "must"
+
+
+def test_re_adding_after_a_purchase_keeps_the_note(
+    client: TestClient, session: Session
+):
+    product = _seed_one(session)
+    item = client.post("/api/cart/", json={"product_id": product.id}).json()
+    client.patch(f"/api/cart/{item['id']}", json={"note": "for the shelf"})
+    client.post(f"/api/cart/{item['id']}/purchase")
+
+    back = client.post("/api/cart/", json={"product_id": product.id}).json()
+    assert back["id"] != item["id"]
+    assert back["note"] == "for the shelf"
+    assert len(client.get("/api/cart/purchased").json()["items"]) == 1
+
+
+def test_removed_rows_stay_out_of_the_purchased_list(
+    client: TestClient, session: Session
+):
+    product = _seed_one(session)
+    item = client.post("/api/cart/", json={"product_id": product.id}).json()
+    client.post(f"/api/cart/{item['id']}/purchase")
+    client.delete(f"/api/cart/{item['id']}")
+    assert client.get("/api/cart/purchased").json()["items"] == []
 
 
 def test_remove_not_found(client: TestClient):

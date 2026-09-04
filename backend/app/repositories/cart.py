@@ -13,13 +13,16 @@ from ..models import CartItem
 from . import catalog as catalog_repo
 
 PRIORITIES = ("must", "normal", "someday")
+#: Row settings that follow a game back into the queue when it is re-added.
+CARRIED_FIELDS = ("quantity", "priority", "max_price", "note")
 
 
 def _ordered(session: Session, *, purchased: bool) -> list[CartItem]:
     stmt = select(CartItem).where(
+        CartItem.removed_at.is_(None),
         CartItem.purchased_at.is_not(None)
         if purchased
-        else CartItem.purchased_at.is_(None)
+        else CartItem.purchased_at.is_(None),
     )
     if purchased:
         return list(session.exec(stmt.order_by(CartItem.purchased_at.desc())))
@@ -38,15 +41,33 @@ def by_game(session: Session, game_id: int) -> CartItem | None:
     """The un-purchased row for a game, if it is queued."""
     return session.exec(
         select(CartItem).where(
-            CartItem.game_id == game_id, CartItem.purchased_at.is_(None)
+            CartItem.game_id == game_id,
+            CartItem.purchased_at.is_(None),
+            CartItem.removed_at.is_(None),
         )
+    ).first()
+
+
+def previous_for_game(session: Session, game_id: int) -> CartItem | None:
+    """The most recent row for a game that is no longer in the queue.
+
+    Queuing the game again starts from this row rather than a blank one, so a
+    note survives a removal or a purchase.
+    """
+    return session.exec(
+        select(CartItem)
+        .where(
+            CartItem.game_id == game_id,
+            CartItem.removed_at.is_not(None) | CartItem.purchased_at.is_not(None),
+        )
+        .order_by(CartItem.id.desc())
     ).first()
 
 
 def next_position(session: Session) -> int:
     last = session.exec(
         select(CartItem)
-        .where(CartItem.purchased_at.is_(None))
+        .where(CartItem.purchased_at.is_(None), CartItem.removed_at.is_(None))
         .order_by(CartItem.position.desc())
     ).first()
     return (last.position + 1) if last else 0

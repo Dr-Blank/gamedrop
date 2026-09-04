@@ -210,4 +210,7 @@ class CartItem(SQLModel, table=True):
     added_price: float | None = None
     purchased_at: datetime | None = None
     purchased_price: float | None = None
+    #: Removal archives the row so re-queuing the game brings its note and
+    #: settings back instead of starting from a blank one.
+    removed_at: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
