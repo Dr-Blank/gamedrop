@@ -386,14 +386,16 @@ class ChangeWindow(BaseModel):
     A window is one node rather than two conditions because two conditions
     would be free to match two different readings — one after `since`, another
     before `until` — and report a game that never changed inside the window.
-    Bounds accept the same relative values as any other date filter, and
-    `store_id` narrows the window to one shop's readings.
+    Bounds accept the same relative values as any other date filter,
+    `store_id` narrows the window to one shop's readings, and `include_new`
+    counts a listing's first reading too, so arrivals join the changes.
     """
 
     type: Literal["change_window"] = "change_window"
     since: str | None = None
     until: str | None = None
     store_id: str | None = None
+    include_new: bool = False
 
 
 class Group(BaseModel):
@@ -474,8 +476,9 @@ def _apply_change_window(node: ChangeWindow) -> Any:
     if since is not None and until is not None and since > until:
         since, until = until, since
 
-    # A listing's first reading is an arrival, not a change.
-    clauses = [ranked.c.rn > 1]
+    # A listing's first reading is an arrival, not a change — unless arrivals
+    # were asked for, which is what makes a sync run's new listings visible.
+    clauses = [] if node.include_new else [ranked.c.rn > 1]
     if node.store_id is not None:
         clauses.append(Product.store_id == node.store_id)
     if since is not None:

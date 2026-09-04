@@ -12,12 +12,18 @@ export function browseUrl({ filters = null, sorts = [], basePath = '/browse' } =
 
 /**
  * The changes one sync run recorded, as a /changes URL. The window is scoped
- * to the store so a shared game moving elsewhere in the same minutes stays out.
+ * to the store so a shared game moving elsewhere in the same minutes stays out,
+ * and counts arrivals — a run that only added listings recorded something too.
  * @param {string} storeId
  * @param {{ started_at: string, finished_at?: string|null }} log
  */
 export function syncRunUrl(storeId, { started_at, finished_at }) {
-	const window = { type: 'change_window', since: started_at, store_id: storeId };
+	const window = {
+		type: 'change_window',
+		since: started_at,
+		store_id: storeId,
+		include_new: true
+	};
 	if (finished_at) window.until = finished_at;
 	return browseUrl({
 		basePath: '/changes',
@@ -26,7 +32,7 @@ export function syncRunUrl(storeId, { started_at, finished_at }) {
 			op: 'and',
 			conditions: [window, { type: 'condition', field: 'store_id', op: 'eq', value: storeId }]
 		},
-		sorts: [{ field: 'last_change_at', dir: 'desc' }]
+		sorts: [{ field: 'recorded_at', dir: 'desc' }]
 	});
 }
 

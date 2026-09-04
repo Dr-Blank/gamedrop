@@ -83,7 +83,9 @@ describe('date conditions', () => {
 });
 
 describe('change windows', () => {
-	const window_ = (since, until) => [{ type: 'change_window', since, until }];
+	const window_ = (since, until, include_new = false) => [
+		{ type: 'change_window', since, until, include_new }
+	];
 
 	it('adds a window spanning the last week', async () => {
 		const state = renderGroup();
@@ -91,7 +93,8 @@ describe('change windows', () => {
 		expect(state().conditions[0]).toEqual({
 			type: 'change_window',
 			since: '-1w',
-			until: 'now'
+			until: 'now',
+			include_new: true
 		});
 	});
 
@@ -111,8 +114,17 @@ describe('change windows', () => {
 		expect(state().conditions[0]).toEqual({
 			type: 'change_window',
 			since: '-2mo',
-			until: '-1d'
+			until: '-1d',
+			include_new: false
 		});
+	});
+
+	it("toggles whether a shop's new listings count as changes", async () => {
+		const state = renderGroup(window_('-1w', 'now'));
+
+		await fireEvent.click(screen.getByLabelText(/count new listings/));
+
+		expect(state().conditions[0].include_new).toBe(true);
 	});
 
 	it('explains what a window matches', () => {

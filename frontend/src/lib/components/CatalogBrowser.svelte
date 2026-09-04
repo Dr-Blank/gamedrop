@@ -40,6 +40,8 @@
 		quickFilters = /** @type {Array<{label:string,icon:any,title?:string,condition:any}>} */ ([]),
 		/** Ordering the view opens with, until the URL says otherwise. */
 		defaultSorts = /** @type {Array<{field:string,dir:string}>} */ ([]),
+		/** Conditions a fresh visit opens with — editable, unlike a preset. */
+		defaultFilters = /** @type {any[]} */ ([]),
 		subtitle = '',
 		emptyTitle = 'No results',
 		emptyHint = 'Try adjusting your filters.',
@@ -127,7 +129,8 @@
 		return params.toString();
 	}
 
-	function decodeFromUrl() {
+	/** @param {string} navType */
+	function decodeFromUrl(navType) {
 		const url = $page.url;
 		const f = url.searchParams.get('f');
 		const s = url.searchParams.get('s');
@@ -141,6 +144,14 @@
 					filterTree = parsed;
 				}
 			} catch {}
+		} else if (defaultFilters.length && navType !== 'goto') {
+			// A goto is the view pushing its own state — honour an emptied filter
+			// there, or a quick filter could never be switched off.
+			filterTree = {
+				type: 'group',
+				op: 'and',
+				conditions: defaultFilters.map((c) => ({ ...c }))
+			};
 		}
 		if (s) {
 			try {
@@ -351,7 +362,7 @@
 	// including initial mount and same-route param changes (nav links).
 	afterNavigate(async ({ type }) => {
 		const savedScroll = type === 'popstate' ? Number(sessionStorage.getItem(scrollKey) || '0') : 0;
-		decodeFromUrl();
+		decodeFromUrl(type);
 		await search();
 		if (savedScroll) {
 			sessionStorage.removeItem(scrollKey);

@@ -66,7 +66,12 @@
 	}
 
 	function addChangeWindow() {
-		group.conditions.push({ type: 'change_window', since: '-1w', until: 'now' });
+		group.conditions.push({
+			type: 'change_window',
+			since: '-1w',
+			until: 'now',
+			include_new: true
+		});
 	}
 
 	function addStoreCompare() {
@@ -245,6 +250,11 @@
 				<span class="text-xs text-muted-foreground">and</span>
 				<DateValue bind:value={group.conditions[i].until} label="Window end" />
 
+				<label class="flex items-center gap-1 text-xs text-muted-foreground">
+					<input type="checkbox" bind:checked={group.conditions[i].include_new} class="size-3" />
+					count new listings
+				</label>
+
 				<button
 					onclick={() => removeChild(i)}
 					class="rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
@@ -253,7 +263,8 @@
 				</button>
 			</div>
 			<p class="pl-2 text-[11px] text-muted-foreground">
-				any price or stock move inside the window, not only the latest one
+				any price or stock move inside the window, not only the latest one — with new listings
+				counted, a shop's first reading of a game counts too
 			</p>
 		{:else if cond.type === 'store_compare'}
 			<div class="flex flex-wrap items-center gap-1.5 pl-2">

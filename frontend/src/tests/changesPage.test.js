@@ -29,6 +29,8 @@ async function renderPage() {
 
 const lastCall = () => api.browseQuery.mock.calls.at(-1)[0];
 
+const WEEK = { type: 'change_window', since: '-1w', until: 'now', include_new: true };
+
 describe('changes page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -37,63 +39,63 @@ describe('changes page', () => {
 		api.browseQuery.mockResolvedValue({ items: [], total: 0 });
 	});
 
-	it('asks for games that moved at least once, most recent change first', async () => {
+	it('opens on the last week of activity, most recent first', async () => {
 		await renderPage();
 		expect(lastCall()).toMatchObject({
 			filters: {
 				type: 'group',
 				op: 'and',
-				conditions: [{ type: 'change_window' }]
+				conditions: [WEEK]
 			},
-			sorts: [{ field: 'last_change_at', dir: 'desc' }]
+			sorts: [{ field: 'recorded_at', dir: 'desc' }]
 		});
+	});
+
+	it('counts listings a shop just added as changes', async () => {
+		await renderPage();
+		expect(lastCall().filters.conditions[0].include_new).toBe(true);
 	});
 
 	it('narrows to a relative window from its header', async () => {
 		await renderPage();
 		await fireEvent.click(screen.getByRole('button', { name: /Last 24h/ }));
-		await navigated('link');
+		await navigated('goto');
 
-		expect(lastCall().filters.conditions).toContainEqual({
-			type: 'change_window',
-			since: '-1d',
-			until: 'now'
-		});
+		expect(lastCall().filters.conditions).toEqual([
+			{ type: 'change_window', since: '-1d', until: 'now', include_new: true }
+		]);
 	});
 
 	it('swaps one window for another instead of stacking them', async () => {
 		await renderPage();
 		await fireEvent.click(screen.getByRole('button', { name: /Last 24h/ }));
-		await navigated('link');
-		await fireEvent.click(screen.getByRole('button', { name: /Last week/ }));
-		await navigated('link');
+		await navigated('goto');
+		await fireEvent.click(screen.getByRole('button', { name: /Last month/ }));
+		await navigated('goto');
 
-		// The page's own preset rides along unbounded; only the picked window has bounds.
-		const windows = lastCall().filters.conditions.filter((c) => c.since);
-		expect(windows).toEqual([{ type: 'change_window', since: '-1w', until: 'now' }]);
+		expect(lastCall().filters.conditions).toEqual([
+			{ type: 'change_window', since: '-1mo', until: 'now', include_new: true }
+		]);
 	});
 
-	it('saves a shelf that keeps both the view and the chosen window', async () => {
+	it('saves a shelf carrying the chosen window', async () => {
 		await renderPage();
-		await fireEvent.click(screen.getByRole('button', { name: /Last week/ }));
-		await navigated('link');
+		await fireEvent.click(screen.getByRole('button', { name: /Last 24h/ }));
+		await navigated('goto');
 
 		await fireEvent.click(screen.getByRole('button', { name: /Save shelf/ }));
 		await fireEvent.input(screen.getByPlaceholderText(/Cheap gateway games/), {
-			target: { value: 'Moved this week' }
+			target: { value: 'Moved today' }
 		});
 		await fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
 		expect(api.createShelf).toHaveBeenCalledWith(
 			expect.objectContaining({
-				name: 'Moved this week',
+				name: 'Moved today',
 				filters: {
 					type: 'group',
 					op: 'and',
-					conditions: [
-						{ type: 'change_window' },
-						{ type: 'change_window', since: '-1w', until: 'now' }
-					]
+					conditions: [{ type: 'change_window', since: '-1d', until: 'now', include_new: true }]
 				}
 			})
 		);
@@ -102,10 +104,17 @@ describe('changes page', () => {
 	it('drops the window when the same one is clicked again', async () => {
 		await renderPage();
 		await fireEvent.click(screen.getByRole('button', { name: /Last week/ }));
-		await navigated('link');
-		await fireEvent.click(screen.getByRole('button', { name: /Last week/ }));
-		await navigated('link');
+		await navigated('goto');
 
-		expect(lastCall().filters.conditions).toEqual([{ type: 'change_window' }]);
+		expect(lastCall().filters).toBeNull();
+	});
+
+	it('marks the window it opened on as the active quick filter', async () => {
+		await renderPage();
+
+		expect(screen.getByRole('button', { name: /Last week/ })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
 	});
 });

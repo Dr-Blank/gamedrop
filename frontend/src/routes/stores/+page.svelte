@@ -559,10 +559,10 @@
 												</div>
 												{#if log.error}
 													<div class="break-words text-destructive">{log.error}</div>
-												{:else if log.price_changes > 0}
+												{:else if log.price_changes > 0 || log.new_products > 0}
 													<a
 														href={syncRunUrl(store.id, log)}
-														title="Show the games that changed in this sync"
+														title="Show the games this sync added or changed"
 														class="text-muted-foreground hover:text-foreground hover:underline"
 													>
 														+{log.new_products} new · {log.price_changes} price changes

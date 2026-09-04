@@ -136,7 +136,8 @@ describe('stores page', () => {
 					type: 'change_window',
 					since: '2026-08-31T06:00:00',
 					until: '2026-08-31T06:00:08',
-					store_id: 'shop-a'
+					store_id: 'shop-a',
+					include_new: true
 				},
 				{ type: 'condition', field: 'store_id', op: 'eq', value: 'shop-a' }
 			]
@@ -149,14 +150,21 @@ describe('stores page', () => {
 		expect(decodeFilters(summary.closest('a').getAttribute('href')).conditions[0]).toEqual({
 			type: 'change_window',
 			since: '2026-08-31T06:00:00',
-			store_id: 'shop-a'
+			store_id: 'shop-a',
+			include_new: true
 		});
 	});
 
-	it('does not link a run that changed nothing', async () => {
-		const summary = await openLogs([syncLog({ price_changes: 0 })]);
+	it('does not link a run that recorded nothing', async () => {
+		const summary = await openLogs([syncLog({ price_changes: 0, new_products: 0 })]);
 
 		expect(summary.closest('a')).toBeNull();
+	});
+
+	it('links a run that only added listings', async () => {
+		const summary = await openLogs([syncLog({ price_changes: 0, new_products: 7 })]);
+
+		expect(summary.closest('a').getAttribute('href')).toMatch(/^\/changes\?/);
 	});
 
 	it('surfaces a sync error instead of a timestamp', async () => {

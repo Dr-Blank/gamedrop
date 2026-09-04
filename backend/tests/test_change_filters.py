@@ -483,3 +483,71 @@ def test_a_shelf_keeps_filtering_by_its_window(client, session: Session):
     assert feed.status_code == 200
     shelf = next(s for s in feed.json() if s["shelf"]["name"] == "Changed today")
     assert [i["game"]["title"] for i in shelf["items"]] == ["Moved"]
+
+
+# ---------------------------------------------------------------------------
+# Arrivals inside a window
+# ---------------------------------------------------------------------------
+
+
+def test_an_arrival_is_not_a_change(session: Session):
+    _store(session)
+    _listing(session, "Fresh", [(30.0, _now() - timedelta(hours=2))])
+
+    assert _titles(session, ChangeWindow(since="-1d")) == []
+
+
+def test_include_new_counts_arrivals_in_the_window(session: Session):
+    """A run that only added listings still has something to show."""
+    _store(session)
+    _listing(session, "Fresh", [(30.0, _now() - timedelta(hours=2))])
+    _listing(session, "Moved", [(40.0, _now() - timedelta(days=9)), (35.0, _now())])
+
+    assert sorted(_titles(session, ChangeWindow(since="-1d", include_new=True))) == [
+        "Fresh",
+        "Moved",
+    ]
+
+
+def test_include_new_keeps_arrivals_outside_the_window_out(session: Session):
+    _store(session)
+    _listing(session, "Old arrival", [(30.0, _now() - timedelta(days=10))])
+    _listing(session, "New arrival", [(30.0, _now() - timedelta(hours=2))])
+
+    assert _titles(session, ChangeWindow(since="-1d", include_new=True)) == [
+        "New arrival"
+    ]
+
+
+def test_include_new_still_answers_to_the_shop_scope(session: Session):
+    _store(session)
+    _store(session, "s2")
+    _listing(session, "Fresh", [(30.0, _now() - timedelta(hours=2))], store_id="s2")
+
+    window = ChangeWindow(since="-1d", include_new=True, store_id="s2")
+    assert _titles(session, window) == ["Fresh"]
+    assert (
+        _titles(session, ChangeWindow(since="-1d", include_new=True, store_id="s1"))
+        == []
+    )
+
+
+def test_a_sync_run_window_shows_the_listings_it_added(client, session: Session):
+    _store(session)
+    started = _now() - timedelta(minutes=5)
+    _listing(session, "Fresh", [(30.0, started + timedelta(seconds=3))])
+
+    res = client.post(
+        "/api/browse/query",
+        json={
+            "filters": {
+                "type": "change_window",
+                "since": started.isoformat(),
+                "until": (started + timedelta(minutes=1)).isoformat(),
+                "store_id": "s1",
+                "include_new": True,
+            }
+        },
+    )
+    assert res.status_code == 200
+    assert [i["game"]["title"] for i in res.json()["items"]] == ["Fresh"]
