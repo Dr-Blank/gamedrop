@@ -23,10 +23,32 @@
 	let editing = $state(false);
 	let draft = $state('');
 	let saving = $state(false);
+	let host = $state(/** @type {HTMLElement | undefined} */ (undefined));
 
 	function edit() {
 		draft = value ?? '';
 		editing = true;
+	}
+
+	// Carta only focuses its textarea when clicked; opening the editor already
+	// was that click, so put the caret in it rather than asking for a second one.
+	$effect(() => {
+		if (!editing || !host) return;
+		const target = host;
+		requestAnimationFrame(() => {
+			const field = target.querySelector('textarea');
+			if (!field) return;
+			field.focus();
+			field.setSelectionRange(field.value.length, field.value.length);
+		});
+	});
+
+	/** @param {KeyboardEvent} e */
+	function keydown(e) {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			save();
+		}
 	}
 
 	async function save() {
@@ -41,12 +63,12 @@
 </script>
 
 {#if editing}
-	<div class="space-y-2">
-		<div class="markdown-note overflow-hidden rounded-lg border">
+	<div class="space-y-2" onkeydown={keydown} role="presentation">
+		<div class="markdown-note overflow-hidden rounded-lg border" bind:this={host}>
 			<MarkdownEditor {carta} bind:value={draft} mode="tabs" placeholder="Markdown supported…" />
 		</div>
 		<div class="flex items-center gap-2">
-			<Button size="sm" onclick={save} disabled={saving}>
+			<Button size="sm" onclick={save} disabled={saving} title="Ctrl+Enter">
 				<Check class="size-3.5" /> Save note
 			</Button>
 			<Button size="sm" variant="ghost" onclick={() => (editing = false)} disabled={saving}>

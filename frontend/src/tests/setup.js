@@ -10,6 +10,18 @@ class IntersectionObserver {
 }
 vi.stubGlobal('IntersectionObserver', IntersectionObserver);
 
+class ResizeObserver {
+	observe = vi.fn();
+	unobserve = vi.fn();
+	disconnect = vi.fn();
+}
+vi.stubGlobal('ResizeObserver', ResizeObserver);
+
+if (!Element.prototype.scroll) {
+	Element.prototype.scroll = () => {};
+	Element.prototype.scrollTo = () => {};
+}
+
 // Svelte transitions (in:fade) and animations (animate:flip) call
 // element.animate / element.getAnimations, which jsdom lacks.
 if (!Element.prototype.getAnimations) {
