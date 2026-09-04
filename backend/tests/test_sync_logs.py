@@ -1,11 +1,14 @@
 """Tests for SyncLog, GET /stores/{id}/logs, and last_synced_at / last_sync_error on Store."""
 
+import asyncio
 from datetime import datetime
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.models import Store, SyncLog
+from app.models import PriceSnapshot, Store, SyncLog
+from app.scraper import sync_store
 
 
 def _store(session: Session, sid: str = "s1") -> Store:
@@ -114,3 +117,69 @@ def test_store_last_synced_at_and_error_fields(client: TestClient, session: Sess
     store_data = r.json()[0]
     assert store_data["last_sync_error"] == "oops"
     assert store_data["last_synced_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# What a run counts
+# ---------------------------------------------------------------------------
+
+
+def _payload(price: float):
+    return [
+        {
+            "external_id": "e1",
+            "title": "Catan",
+            "handle": "catan",
+            "url": "https://s1.com/products/catan",
+            "image_url": None,
+            "variants": [
+                {
+                    "variant_id": "v1",
+                    "variant_title": "Default",
+                    "price": price,
+                    "compare_at_price": None,
+                    "available": True,
+                }
+            ],
+        }
+    ]
+
+
+class _FakeAdapter:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def fetch_products(self):
+        return self.payload
+
+
+def _sync(store: Store, price: float) -> dict:
+    with patch("app.scraper.get_adapter", return_value=_FakeAdapter(_payload(price))):
+        return asyncio.run(sync_store(store))
+
+
+def test_an_arrival_counts_as_new_only(session: Session):
+    """The first reading is the arrival — counting it twice inflates the run."""
+    store = _store(session)
+
+    result = _sync(store, 500.0)
+
+    assert (result["new_products"], result["price_changes"]) == (1, 0)
+
+
+def test_a_later_move_counts_as_a_price_change(session: Session):
+    store = _store(session)
+    _sync(store, 500.0)
+
+    result = _sync(store, 450.0)
+
+    assert (result["new_products"], result["price_changes"]) == (0, 1)
+
+
+def test_an_arrival_still_records_its_first_price(session: Session):
+    """The snapshot has to land anyway — first_seen and windows lean on it."""
+    store = _store(session)
+    _sync(store, 500.0)
+
+    prices = [s.price for s in session.exec(select(PriceSnapshot)).all()]
+    assert prices == [500.0]

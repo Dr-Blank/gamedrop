@@ -301,7 +301,10 @@ async def sync_store(store: Store) -> dict:
                         session.add(snap)
                         session.flush()
                         _check_watchlist(session, product, latest, snap, pending)
-                        price_changes += 1
+                        # A listing's first reading is its arrival, already
+                        # counted as a new product — not a price change too.
+                        if latest:
+                            price_changes += 1
 
             session.commit()
     except Exception as e:
