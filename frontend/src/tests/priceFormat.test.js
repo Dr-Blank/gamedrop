@@ -97,11 +97,13 @@ describe('PriceTag', () => {
 });
 
 describe('PriceChart', () => {
-	// One reading keeps the canvas out of it — the tiles render either way.
 	const series = [{ store_id: 'a', history: [{ price: 999, recorded_at: '2026-08-01T00:00:00' }] }];
 
 	beforeEach(() => {
 		priceFormat.mode = 'nearest-10';
+		HTMLCanvasElement.prototype.getContext = () => ({
+			createLinearGradient: () => ({ addColorStop: () => {} })
+		});
 	});
 
 	it('rounds every price it shows', () => {
@@ -117,9 +119,6 @@ describe('PriceChart', () => {
 	});
 
 	it('states the change in rupees, not in percent', () => {
-		HTMLCanvasElement.prototype.getContext = () => ({
-			createLinearGradient: () => ({ addColorStop: () => {} })
-		});
 		const moved = [
 			{
 				store_id: 'a',

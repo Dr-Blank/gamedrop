@@ -10,7 +10,13 @@
 		Tooltip
 	} from 'chart.js';
 	import { theme } from '$lib/theme.svelte.js';
-	import { alignSeries, formatDay, segmentInStock } from '$lib/priceSeries.js';
+	import {
+		alignSeries,
+		clipToWindow,
+		dayKey,
+		formatDay,
+		segmentInStock
+	} from '$lib/priceSeries.js';
 	import { storeColors, DEFAULT_PALETTE, tint } from '$lib/storeColors.svelte.js';
 	import { inr, inrDelta, priceFormat } from '$lib/priceFormat.svelte.js';
 
@@ -38,19 +44,21 @@
 	];
 	let rangeKey = $state('90');
 
-	const windowed = $derived.by(() => {
+	const view = $derived.by(() => {
 		const r = ranges.find((x) => x.key === rangeKey);
-		if (!r || r.days === Infinity) return sources;
+		const to = dayKey(Date.now());
+		if (!r || r.days === Infinity) {
+			const days = sources
+				.flatMap((s) => (s.history ?? []).map((h) => dayKey(h.recorded_at)))
+				.sort();
+			return { series: sources, bounds: days.length ? { from: days[0], to } : null };
+		}
 		const cutoff = Date.now() - r.days * 86400000;
-		const clipped = sources.map((s) => ({
-			...s,
-			history: (s.history ?? []).filter((h) => new Date(h.recorded_at).getTime() >= cutoff)
-		}));
-		const points = clipped.reduce((n, s) => n + s.history.length, 0);
-		return points >= 2 ? clipped : sources;
+		return { series: clipToWindow(sources, cutoff), bounds: { from: dayKey(cutoff), to } };
 	});
 
-	const aligned = $derived(alignSeries(windowed));
+	const windowed = $derived(view.series);
+	const aligned = $derived(alignSeries(view.series, view.bounds));
 
 	const stats = $derived.by(() => {
 		const all = windowed.flatMap((s) => (s.history ?? []).map((h) => h.price));
@@ -84,7 +92,7 @@
 
 	function build() {
 		const points = aligned.datasets.reduce((n, d) => n + d.data.filter((v) => v != null).length, 0);
-		if (!canvas || aligned.labels.length < 2 || points < 2) {
+		if (!canvas || !aligned.labels.length || !points) {
 			chart?.destroy();
 			chart = null;
 			return;
@@ -109,6 +117,7 @@
 				: DEFAULT_PALETTE[i % DEFAULT_PALETTE.length];
 			const scraped = (/** @type {any} */ ctx) => d.real[ctx.dataIndex];
 			const sold = (/** @type {any} */ ctx) => d.available[ctx.dataIndex] !== false;
+			const debut = (/** @type {any} */ ctx) => d.entry[ctx.dataIndex];
 			return {
 				label: d.label,
 				data: d.data,
@@ -120,9 +129,11 @@
 				borderWidth: 2,
 				// Only scraped days get a marker — a forward-filled price is the
 				// same reading, not a second one.
-				pointRadius: (ctx) => (scraped(ctx) ? (sold(ctx) ? (dense ? 2.5 : 3.5) : 4) : 0),
+				pointRadius: (ctx) =>
+					scraped(ctx) ? (debut(ctx) ? 5 : sold(ctx) ? (dense ? 2.5 : 3.5) : 4) : 0,
 				pointHoverRadius: (ctx) => (scraped(ctx) ? 6 : 0),
-				pointStyle: (ctx) => (sold(ctx) ? 'circle' : 'crossRot'),
+				// A diamond is the listing appearing for the first time, not a price move.
+				pointStyle: (ctx) => (debut(ctx) ? 'rectRot' : sold(ctx) ? 'circle' : 'crossRot'),
 				pointBackgroundColor: (ctx) => (sold(ctx) ? color : 'transparent'),
 				pointBorderColor: color,
 				pointBorderWidth: 2,
@@ -149,9 +160,15 @@
 						callbacks: {
 							label: (c) => {
 								const d = aligned.datasets[c.datasetIndex];
+								const i = c.dataIndex;
 								const head = multi ? `${c.dataset.label}: ${inr(c.parsed.y)}` : inr(c.parsed.y);
-								if (d?.available[c.dataIndex] === false) return `${head} · out of stock`;
-								return d?.real[c.dataIndex] ? head : `${head} · last seen`;
+								const notes = [];
+								if (d?.carried[i]) notes.push('carried in from before this range');
+								else if (d?.entry[i]) notes.push('first seen');
+								else if (!d?.real[i]) notes.push('last seen');
+								if (d?.available[i] === false) notes.push('out of stock');
+								if (d?.delta[i]) notes.push(`${inrDelta(d.delta[i])} vs previous`);
+								return notes.length ? `${head} · ${notes.join(' · ')}` : head;
 							}
 						},
 						padding: 10,
