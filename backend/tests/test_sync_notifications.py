@@ -26,6 +26,7 @@ from app.models import (
     PriceSnapshot,
     Product,
     Store,
+    StoreUrl,
     WatchlistItem,
 )
 from app.scraper import sync_store
@@ -98,6 +99,7 @@ def watched_store_fixture(file_engine):
         session.add(
             Store(id="s1", name="S1", type="shopify", base_url="https://s1.com")
         )
+        session.add(StoreUrl(store_id="s1", collection_path="/collections/board-games"))
         session.commit()
 
     _run_sync(file_engine, _payload(500.0))

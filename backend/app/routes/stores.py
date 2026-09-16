@@ -1,5 +1,6 @@
 import asyncio
 import re
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
@@ -8,7 +9,7 @@ from sqlmodel import Session, desc, select
 from ..adapters.detect import detect_platform
 from ..db import get_session
 from ..logger import get_logger
-from ..models import Product, Store, SyncLog
+from ..models import Product, Store, StoreUrl, SyncLog
 from ..scraper import ADAPTERS, sync_store
 
 router = APIRouter(prefix="/stores", tags=["stores"])
@@ -35,7 +36,7 @@ def normalize_color(v: str | None) -> str | None:
 #: silently syncs nothing.
 DEFAULT_COLLECTION_PATHS = {
     "shopify": "/collections/board-games",
-    "woocommerce": "/product-category/board-games/",
+    "woocommerce": "/product-category/board-games",
 }
 
 
@@ -50,6 +51,24 @@ def derive_store_id(base_url: str) -> str:
     host = host_of(base_url)
     label = host.split(".")[0] if host else ""
     return re.sub(r"[^a-z0-9-]", "-", label.lower()).strip("-")
+
+
+def split_url(raw: str) -> tuple[str, str]:
+    """A pasted URL as (origin, listing path). A blank path means none given."""
+    parts = urlsplit(raw.strip())
+    origin = f"{parts.scheme}://{parts.netloc}".rstrip("/")
+    path = parts.path.rstrip("/") if parts.path.strip("/") else ""
+    return origin, path
+
+
+def normalize_path(v: str | None) -> str:
+    """A listing path: leading slash, no trailing one. Blank means the whole catalog."""
+    v = (v or "").strip()
+    if not v:
+        return "/"
+    if not v.startswith("/"):
+        raise ValueError("collection_path must start with /")
+    return v.rstrip("/") or "/"
 
 
 def derive_store_name(base_url: str) -> str:
@@ -94,12 +113,7 @@ class StoreCreate(BaseModel):
     @field_validator("collection_path", mode="before")
     @classmethod
     def validate_collection_path(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.strip()
-        if v and not v.startswith("/"):
-            raise ValueError("collection_path must start with /")
-        return v
+        return None if v is None else normalize_path(v)
 
     @model_validator(mode="after")
     def fill_defaults(self):
@@ -122,7 +136,6 @@ class StorePatch(BaseModel):
     name: str | None = None
     type: str | None = None
     base_url: str | None = None
-    collection_path: str | None = None
     enabled: bool | None = None
     scrape_config: str | None = None
     color: str | None = None
@@ -164,15 +177,36 @@ class StorePatch(BaseModel):
             raise ValueError("base_url must start with http:// or https://")
         return v.rstrip("/")
 
+
+class StoreUrlCreate(BaseModel):
+    collection_path: str = "/"
+    label: str | None = None
+
+    @field_validator("collection_path", mode="before")
+    @classmethod
+    def validate_collection_path(cls, v: str | None) -> str:
+        return normalize_path(v)
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def validate_label(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        if not v:
+            return None
+        if len(v) > 128:
+            raise ValueError("label must be 128 characters or fewer")
+        return v
+
+
+class StoreUrlPatch(BaseModel):
+    collection_path: str | None = None
+    label: str | None = None
+    enabled: bool | None = None
+
     @field_validator("collection_path", mode="before")
     @classmethod
     def validate_collection_path(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.strip()
-        if v and not v.startswith("/"):
-            raise ValueError("collection_path must start with /")
-        return v
+        return None if v is None else normalize_path(v)
 
 
 class DetectBody(BaseModel):
@@ -188,12 +222,25 @@ class DetectBody(BaseModel):
             v = f"https://{v}"
         if not host_of(v):
             raise ValueError("base_url must include a hostname")
-        return v.rstrip("/")
+        return v
+
+
+def urls_of(session: Session, store_id: str) -> list[StoreUrl]:
+    return list(
+        session.exec(
+            select(StoreUrl).where(StoreUrl.store_id == store_id).order_by(StoreUrl.id)
+        ).all()
+    )
+
+
+def shaped(session: Session, store: Store) -> dict:
+    """A store with its listing URLs inlined, which is how the UI reads it."""
+    return {**store.model_dump(), "urls": urls_of(session, store.id)}
 
 
 @router.get("/")
 def list_stores(session: Session = Depends(get_session)):
-    return session.exec(select(Store)).all()
+    return [shaped(session, s) for s in session.exec(select(Store)).all()]
 
 
 @router.get("/types")
@@ -210,16 +257,28 @@ def list_store_types():
 
 @router.post("/detect")
 async def detect_store(body: DetectBody, session: Session = Depends(get_session)):
-    """Identify a shop's platform before it's added, and pre-fill the form."""
-    result = await detect_platform(body.base_url)
-    store_id = derive_store_id(body.base_url)
+    """Identify a shop's platform before it's added, and pre-fill the form.
+
+    `matches` names the stores already pointed at this host, so a second
+    category URL from a known shop can be attached instead of duplicating it.
+    """
+    base_url, pasted_path = split_url(body.base_url)
+    result = await detect_platform(base_url)
+    store_id = derive_store_id(base_url)
+    host = host_of(base_url)
+    matches = [
+        s.id for s in session.exec(select(Store)).all() if host_of(s.base_url) == host
+    ]
     return {
         **result,
-        "base_url": body.base_url,
+        "base_url": base_url,
         "id": store_id,
         "id_taken": bool(store_id) and session.get(Store, store_id) is not None,
-        "name": derive_store_name(body.base_url),
-        "collection_path": DEFAULT_COLLECTION_PATHS.get(result["type"] or "", ""),
+        "name": derive_store_name(base_url),
+        "collection_path": (
+            pasted_path or DEFAULT_COLLECTION_PATHS.get(result["type"] or "", "")
+        ),
+        "matches": matches,
     }
 
 
@@ -227,12 +286,15 @@ async def detect_store(body: DetectBody, session: Session = Depends(get_session)
 def create_store(body: StoreCreate, session: Session = Depends(get_session)):
     if session.get(Store, body.id):
         raise HTTPException(409, "Store ID already exists")
-    store = Store(**body.model_dump(exclude_none=True))
+    fields = body.model_dump(exclude_none=True)
+    collection_path = fields.pop("collection_path")
+    store = Store(**fields)
     session.add(store)
+    session.add(StoreUrl(store_id=store.id, collection_path=collection_path))
     session.commit()
     session.refresh(store)
     log.info("store created: %s", store.id, extra={"store_id": store.id})
-    return store
+    return shaped(session, store)
 
 
 @router.patch("/{store_id}")
@@ -251,7 +313,7 @@ def update_store(
     session.add(store)
     session.commit()
     session.refresh(store)
-    return store
+    return shaped(session, store)
 
 
 @router.delete("/{store_id}")
@@ -259,9 +321,96 @@ def delete_store(store_id: str, session: Session = Depends(get_session)):
     store = session.get(Store, store_id)
     if not store:
         raise HTTPException(404, "Store not found")
+    for url in urls_of(session, store_id):
+        session.delete(url)
     session.delete(store)
     session.commit()
     log.info("store deleted: %s", store_id, extra={"store_id": store_id})
+    return {"ok": True}
+
+
+@router.get("/{store_id}/urls")
+def list_store_urls(store_id: str, session: Session = Depends(get_session)):
+    if not session.get(Store, store_id):
+        raise HTTPException(404, "Store not found")
+    return urls_of(session, store_id)
+
+
+@router.post("/{store_id}/urls")
+def add_store_url(
+    store_id: str, body: StoreUrlCreate, session: Session = Depends(get_session)
+):
+    if not session.get(Store, store_id):
+        raise HTTPException(404, "Store not found")
+    existing = session.exec(
+        select(StoreUrl).where(
+            StoreUrl.store_id == store_id,
+            StoreUrl.collection_path == body.collection_path,
+        )
+    ).first()
+    if existing:
+        raise HTTPException(409, "Store already syncs that path")
+    url = StoreUrl(store_id=store_id, **body.model_dump())
+    session.add(url)
+    session.commit()
+    session.refresh(url)
+    log.info(
+        "store url added: %s %s",
+        store_id,
+        url.collection_path,
+        extra={"store_id": store_id},
+    )
+    return url
+
+
+@router.patch("/{store_id}/urls/{url_id}")
+def update_store_url(
+    store_id: str,
+    url_id: int,
+    body: StoreUrlPatch,
+    session: Session = Depends(get_session),
+):
+    url = session.get(StoreUrl, url_id)
+    if not url or url.store_id != store_id:
+        raise HTTPException(404, "Store URL not found")
+    fields = body.model_dump(exclude_unset=True)
+    # Checked before the change lands: a flushed clash raises as a 500, not a 409.
+    if fields.get("collection_path"):
+        clash = session.exec(
+            select(StoreUrl).where(
+                StoreUrl.store_id == store_id,
+                StoreUrl.collection_path == fields["collection_path"],
+                StoreUrl.id != url_id,
+            )
+        ).first()
+        if clash:
+            raise HTTPException(409, "Store already syncs that path")
+    # Null means "leave it alone", except for the label, where it clears it.
+    for field, val in fields.items():
+        if val is None and field != "label":
+            continue
+        setattr(url, field, val)
+    session.add(url)
+    session.commit()
+    session.refresh(url)
+    return url
+
+
+@router.delete("/{store_id}/urls/{url_id}")
+def delete_store_url(
+    store_id: str, url_id: int, session: Session = Depends(get_session)
+):
+    url = session.get(StoreUrl, url_id)
+    if not url or url.store_id != store_id:
+        raise HTTPException(404, "Store URL not found")
+    session.delete(url)
+    session.commit()
+    log.info(
+        "store url removed: %s %s",
+        store_id,
+        url.collection_path,
+        extra={"store_id": store_id},
+    )
     return {"ok": True}
 
 

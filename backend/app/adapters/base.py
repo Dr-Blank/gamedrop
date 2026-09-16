@@ -15,8 +15,10 @@ def store_cfg(store, key):
 
 
 class StoreAdapter(ABC):
-    def __init__(self, store):
+    def __init__(self, store, collection_path: str = "/"):
         self.store = store
+        #: The one listing page this instance walks; a store has several.
+        self.collection_path = collection_path or "/"
 
     @abstractmethod
     async def fetch_products(self) -> list[dict]:

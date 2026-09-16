@@ -141,7 +141,7 @@ class WooCommerceAdapter(StoreAdapter):
         self, client: httpx.AsyncClient, base: str
     ) -> int | None:
         """Category slug to term id, since the products route filters by id."""
-        slug = category_slug(self.store.collection_path)
+        slug = category_slug(self.collection_path)
         if not slug:
             return None
 

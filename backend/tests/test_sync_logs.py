@@ -7,13 +7,14 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app.models import PriceSnapshot, Store, SyncLog
+from app.models import PriceSnapshot, Store, StoreUrl, SyncLog
 from app.scraper import sync_store
 
 
 def _store(session: Session, sid: str = "s1") -> Store:
     s = Store(id=sid, name=sid, type="shopify", base_url=f"https://{sid}.com")
     session.add(s)
+    session.add(StoreUrl(store_id=sid, collection_path="/collections/board-games"))
     session.commit()
     session.refresh(s)
     return s

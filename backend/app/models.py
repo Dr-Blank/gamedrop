@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -8,7 +9,6 @@ class Store(SQLModel, table=True):
     name: str
     type: str  # "shopify" | "woocommerce"
     base_url: str
-    collection_path: str = "/collections/board-games"
     enabled: bool = True
     #: Hex accent for charts and store labels. Null means the derived default.
     color: str | None = None
@@ -19,6 +19,24 @@ class Store(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_synced_at: datetime | None = None
     last_sync_error: str | None = None
+
+
+class StoreUrl(SQLModel, table=True):
+    """One listing page a store syncs.
+
+    A shop splits its catalog across several category pages, so the paths are
+    rows rather than a column on `Store` — the listings they find all belong to
+    the one store.
+    """
+
+    __table_args__ = (UniqueConstraint("store_id", "collection_path"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    store_id: str = Field(foreign_key="store.id", index=True)
+    collection_path: str = "/"
+    label: str | None = None
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Product(SQLModel, table=True):

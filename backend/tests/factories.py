@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from sqlmodel import Session
 
-from app.models import Game, Product, Store, WatchlistItem
+from app.models import Game, Product, Store, StoreUrl, WatchlistItem
 
 
 def make_store(session: Session, store_id: str = "s1", **kwargs) -> Store:
+    """A store and the listing URL a sync would walk."""
+    paths = kwargs.pop("collection_paths", ["/collections/board-games"])
     store = Store(
         id=store_id,
         name=kwargs.pop("name", store_id.upper()),
@@ -16,6 +18,8 @@ def make_store(session: Session, store_id: str = "s1", **kwargs) -> Store:
         **kwargs,
     )
     session.add(store)
+    for path in paths:
+        session.add(StoreUrl(store_id=store_id, collection_path=path))
     session.commit()
     return store
 

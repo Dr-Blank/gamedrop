@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import PriceSnapshot, Product, Store
+from app.models import PriceSnapshot, Product, Store, StoreUrl
 
 from .factories import make_product
 
@@ -24,6 +24,9 @@ def _seed(session: Session, prices, store_id="s1", title="Catan", product=None):
                     type="shopify",
                     base_url=f"https://{store_id}.com",
                 )
+            )
+            session.add(
+                StoreUrl(store_id=store_id, collection_path="/collections/board-games")
             )
             session.commit()
         product = make_product(session, store_id=store_id, title=title)
@@ -392,6 +395,7 @@ def _sync(session: Session, price: float) -> None:
 def synced_product_fixture(session: Session):
     """Store s1 synced twice: a real 500, then a bogus 899 that gets ignored."""
     session.add(Store(id="s1", name="S1", type="shopify", base_url="https://s1.com"))
+    session.add(StoreUrl(store_id="s1", collection_path="/collections/board-games"))
     session.commit()
     _sync(session, 500.0)
     _sync(session, 899.0)

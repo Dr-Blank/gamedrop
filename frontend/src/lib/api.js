@@ -18,6 +18,12 @@ export const addStore = (body) => req('/stores/', { method: 'POST', body: JSON.s
 export const patchStore = (id, body) =>
 	req(`/stores/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteStore = (id) => req(`/stores/${id}`, { method: 'DELETE' });
+export const addStoreUrl = (id, body) =>
+	req(`/stores/${id}/urls`, { method: 'POST', body: JSON.stringify(body) });
+export const patchStoreUrl = (id, urlId, body) =>
+	req(`/stores/${id}/urls/${urlId}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const deleteStoreUrl = (id, urlId) =>
+	req(`/stores/${id}/urls/${urlId}`, { method: 'DELETE' });
 export const syncStore = (id) => req(`/stores/${id}/sync`, { method: 'POST' });
 export const syncAllStores = () => req('/stores/sync-all', { method: 'POST' });
 export const getStoreLogs = (id, limit = 20) => req(`/stores/${id}/logs?limit=${limit}`);

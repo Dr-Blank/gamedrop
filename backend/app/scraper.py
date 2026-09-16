@@ -13,6 +13,7 @@ from .models import (
     PriceSnapshot,
     Product,
     Store,
+    StoreUrl,
     SyncLog,
     WatchListingState,
     WatchlistItem,
@@ -35,11 +36,11 @@ ADAPTERS = {
 }
 
 
-def get_adapter(store: Store):
+def get_adapter(store: Store, collection_path: str = "/"):
     adapter = ADAPTERS.get(store.type)
     if adapter is None:
         raise ValueError(f"Unknown store type: {store.type}")
-    return adapter(store)
+    return adapter(store, collection_path)
 
 
 # A queued notification: (function, args, kwargs), dispatched after commit.
@@ -215,13 +216,50 @@ def _write_sync_result(
         session.commit()
 
 
+def listing_paths(store_id: str) -> list[str]:
+    """The enabled listing paths a store syncs, oldest first."""
+    with Session(_db.engine) as session:
+        urls = session.exec(
+            select(StoreUrl)
+            .where(StoreUrl.store_id == store_id, StoreUrl.enabled)
+            .order_by(StoreUrl.id)
+        ).all()
+    return [u.collection_path for u in urls]
+
+
+async def _fetch_all(store: Store, paths: list[str]) -> list[dict]:
+    """Walk every listing page, keeping the first sighting of each listing.
+
+    Categories overlap, so the same product can come back from two paths.
+    """
+    raw_products: list[dict] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            batch = await get_adapter(store, path).fetch_products()
+        except Exception as e:
+            raise RuntimeError(f"{path}: {e}") from e
+        for p in batch:
+            if p["external_id"] in seen:
+                continue
+            seen.add(p["external_id"])
+            raw_products.append(p)
+    return raw_products
+
+
 async def sync_store(store: Store) -> dict:
     started_at = datetime.utcnow()
     log.info("sync start", extra={"store_id": store.id})
-    adapter = get_adapter(store)
+
+    paths = listing_paths(store.id)
+    if not paths:
+        error_msg = "no listing URLs configured"
+        log.error("sync skipped: %s", error_msg, extra={"store_id": store.id})
+        _write_sync_result(store.id, started_at, error=error_msg)
+        raise ValueError(error_msg)
 
     try:
-        raw_products = await adapter.fetch_products()
+        raw_products = await _fetch_all(store, paths)
     except Exception as e:
         error_msg = f"fetch failed: {e}"
         log.error(
@@ -348,4 +386,9 @@ async def sync_all_stores():
     with Session(_db.engine) as session:
         stores = session.exec(select(Store).where(Store.enabled)).all()
     for store in stores:
-        await sync_store(store)
+        try:
+            await sync_store(store)
+        except Exception:
+            # The failure is already on the store and its log; one shop being
+            # unreachable or misconfigured shouldn't cost the rest the run.
+            log.exception("sync failed", extra={"store_id": store.id})

@@ -170,9 +170,28 @@ Open `/stores` → **Add store**:
 | Name | `My Store` |
 | Type | `shopify` |
 | Base URL | `https://mystore.com` |
-| Collection path | `/collections/board-games` |
+| Collection path | `/collections/board-games` (more can be added later) |
 
 After adding, click **Sync now** or **Sync all stores** to scrape products and prices.
+
+A shop that splits its catalog across several category pages can sync all of
+them: paste the second category URL and **Check** offers to add it to the store
+already tracking that host, or use **+ Add category URL** on the store itself.
+Listings found under any of a store's URLs belong to that one store, and a
+product listed in two categories is still recorded once.
+
+```bash
+# add another category page to an existing store
+curl -X POST http://localhost:8765/api/stores/my-store/urls \
+  -H 'Content-Type: application/json' \
+  -d '{"collection_path": "/collections/puzzles"}'
+
+# list, pause or remove them
+curl http://localhost:8765/api/stores/my-store/urls
+curl -X PATCH http://localhost:8765/api/stores/my-store/urls/2 \
+  -H 'Content-Type: application/json' -d '{"enabled": false}'
+curl -X DELETE http://localhost:8765/api/stores/my-store/urls/2
+```
 
 ### Via curl
 

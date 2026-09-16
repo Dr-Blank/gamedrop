@@ -12,6 +12,8 @@ from app.adapters.woocommerce import WooCommerceAdapter, category_slug, map_prod
 from app.models import Store
 from app.scraper import get_adapter
 
+CATEGORY_PATH = "/product-category/puzzles-and-board-games/"
+
 CATEGORIES = [
     {"id": 77, "slug": "puzzles-and-board-games", "name": "Puzzles & Board Games"},
     {"id": 230, "slug": "board-games", "name": "Board Games", "parent": 77},
@@ -48,7 +50,6 @@ def _store(session: Session | None = None, **overrides) -> Store:
         name="Woo Shop",
         type="woocommerce",
         base_url="https://shop.test",
-        collection_path="/product-category/puzzles-and-board-games/",
         scrape_config='{"timeout_sec":5,"request_delay_sec":0}',
     )
     for key, value in overrides.items():
@@ -57,6 +58,10 @@ def _store(session: Session | None = None, **overrides) -> Store:
         session.add(store)
         session.commit()
     return store
+
+
+def _adapter(collection_path: str = CATEGORY_PATH) -> WooCommerceAdapter:
+    return WooCommerceAdapter(_store(), collection_path)
 
 
 def _mock_client(monkeypatch, handler):
@@ -169,7 +174,7 @@ def test_fetch_products_resolves_category_and_maps_rows(monkeypatch):
     calls: list[str] = []
     _mock_client(monkeypatch, _pages_handler({1: [_product()]}, calls))
 
-    products = asyncio.run(WooCommerceAdapter(_store()).fetch_products())
+    products = asyncio.run(_adapter().fetch_products())
 
     assert len(products) == 1
     assert products[0]["variants"][0]["price"] == 4250.0
@@ -182,8 +187,7 @@ def test_fetch_products_syncs_whole_catalog_without_category(monkeypatch):
     calls: list[str] = []
     _mock_client(monkeypatch, _pages_handler({1: [_product()]}, calls))
 
-    store = _store(collection_path="/")
-    asyncio.run(WooCommerceAdapter(store).fetch_products())
+    asyncio.run(_adapter("/").fetch_products())
 
     assert not any("categories" in c for c in calls)
     assert not any("category=" in c for c in calls)
@@ -194,7 +198,7 @@ def test_fetch_products_pages_until_short_batch(monkeypatch):
     pages = {1: full_page, 2: [_product(id=999, slug="last")]}
     _mock_client(monkeypatch, _pages_handler(pages))
 
-    products = asyncio.run(WooCommerceAdapter(_store()).fetch_products())
+    products = asyncio.run(_adapter().fetch_products())
 
     assert len(products) == woo.PER_PAGE + 1
     assert products[-1]["external_id"] == "999"
@@ -202,10 +206,9 @@ def test_fetch_products_pages_until_short_batch(monkeypatch):
 
 def test_fetch_products_raises_when_category_missing(monkeypatch):
     _mock_client(monkeypatch, _pages_handler({1: []}))
-    store = _store(collection_path="/product-category/nope/")
 
     with pytest.raises(ValueError, match="category not found"):
-        asyncio.run(WooCommerceAdapter(store).fetch_products())
+        asyncio.run(_adapter("/product-category/nope/").fetch_products())
 
 
 def test_fetch_products_raises_on_http_error(monkeypatch):
@@ -216,7 +219,7 @@ def test_fetch_products_raises_on_http_error(monkeypatch):
 
     _mock_client(monkeypatch, handler)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(WooCommerceAdapter(_store()).fetch_products())
+        asyncio.run(_adapter().fetch_products())
 
 
 def test_fetch_product_image(monkeypatch):
@@ -230,7 +233,7 @@ def test_fetch_product_image(monkeypatch):
         external_id = "54480"
 
     assert (
-        asyncio.run(WooCommerceAdapter(_store()).fetch_product_image(_P()))
+        asyncio.run(_adapter().fetch_product_image(_P()))
         == "https://shop.test/catan.jpg"
     )
 

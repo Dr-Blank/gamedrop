@@ -10,7 +10,7 @@ class ShopifyAdapter(StoreAdapter):
         results = []
         page = 1
         base = self.store.base_url.rstrip("/")
-        collection = self.store.collection_path.rstrip("/")
+        collection = self.collection_path.rstrip("/")
         timeout = store_cfg(self.store, "timeout_sec")
         delay = store_cfg(self.store, "request_delay_sec")
 

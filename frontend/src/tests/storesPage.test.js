@@ -11,7 +11,10 @@ vi.mock('$lib/api.js', () => ({
 	getStoreLogs: vi.fn().mockResolvedValue([]),
 	searchProducts: vi.fn().mockResolvedValue([]),
 	getStoreTypes: vi.fn().mockResolvedValue([]),
-	detectStore: vi.fn()
+	detectStore: vi.fn(),
+	addStoreUrl: vi.fn(),
+	patchStoreUrl: vi.fn(),
+	deleteStoreUrl: vi.fn()
 }));
 vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }
@@ -20,13 +23,17 @@ vi.mock('$lib/toast.svelte.js', () => ({
 import StoresPage from '../routes/stores/+page.svelte';
 import * as api from '$lib/api.js';
 
-function store(overrides = {}) {
+function storeUrl(collection_path, overrides = {}) {
+	return { id: 1, collection_path, label: null, enabled: true, ...overrides };
+}
+
+function store({ collection_path = '/collections/board-games', ...overrides } = {}) {
 	return {
 		id: 'shop-a',
 		name: 'Shop A',
 		type: 'shopify',
 		base_url: 'https://www.example-shop.com',
-		collection_path: '/collections/board-games',
+		urls: [storeUrl(collection_path)],
 		enabled: true,
 		color: null,
 		scrape_config: '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":6}',
@@ -172,5 +179,162 @@ describe('stores page', () => {
 		render(StoresPage);
 
 		expect(await screen.findByText(/fetch failed: timeout/)).toBeInTheDocument();
+	});
+});
+
+function detection(overrides = {}) {
+	return {
+		type: 'shopify',
+		sample_titles: [],
+		base_url: 'https://www.example-shop.com',
+		id: 'example-shop',
+		id_taken: false,
+		name: 'Example Shop',
+		collection_path: '/collections/puzzles',
+		matches: [],
+		...overrides
+	};
+}
+
+async function check(result, stores = [store()]) {
+	api.getStores.mockResolvedValue(stores);
+	api.detectStore.mockResolvedValue(result);
+	render(StoresPage);
+	await screen.findByRole('heading', { name: 'Stores' });
+	await fireEvent.input(screen.getByLabelText('Shop URL'), {
+		target: { value: 'https://www.example-shop.com/collections/puzzles' }
+	});
+	await fireEvent.click(screen.getByRole('button', { name: /Check/ }));
+	return await screen.findByRole('button', { name: /^Add (store|URL to)/ });
+}
+
+describe('a store with several category URLs', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		api.getStoreLogs.mockResolvedValue([]);
+		api.getStoreTypes.mockResolvedValue([]);
+	});
+
+	it('lists every category URL the store syncs', async () => {
+		api.getStores.mockResolvedValue([
+			store({
+				urls: [storeUrl('/collections/board-games'), storeUrl('/collections/puzzles', { id: 2 })]
+			})
+		]);
+		render(StoresPage);
+
+		expect(await screen.findByRole('link', { name: /collections\/board-games/ })).toHaveAttribute(
+			'href',
+			'https://www.example-shop.com/collections/board-games'
+		);
+		expect(screen.getByRole('link', { name: /collections\/puzzles/ })).toHaveAttribute(
+			'href',
+			'https://www.example-shop.com/collections/puzzles'
+		);
+	});
+
+	it('adds another category URL to a store already configured', async () => {
+		api.getStores.mockResolvedValue([store()]);
+		render(StoresPage);
+
+		await fireEvent.click(await screen.findByRole('button', { name: '+ Add category URL' }));
+		await fireEvent.input(screen.getByLabelText('New category path for Shop A'), {
+			target: { value: '/collections/puzzles' }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+		expect(api.addStoreUrl).toHaveBeenCalledWith('shop-a', {
+			collection_path: '/collections/puzzles'
+		});
+	});
+
+	it('removes one category URL without touching the store', async () => {
+		vi.spyOn(window, 'confirm').mockReturnValue(true);
+		api.getStores.mockResolvedValue([store()]);
+		render(StoresPage);
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Remove /collections/board-games' })
+		);
+
+		expect(api.deleteStoreUrl).toHaveBeenCalledWith('shop-a', 1);
+		expect(api.deleteStore).not.toHaveBeenCalled();
+	});
+
+	it('pauses a category URL instead of deleting it', async () => {
+		api.getStores.mockResolvedValue([store()]);
+		render(StoresPage);
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Pause syncing /collections/board-games' })
+		);
+
+		expect(api.patchStoreUrl).toHaveBeenCalledWith('shop-a', 1, { enabled: false });
+	});
+});
+
+describe('checking a pasted URL', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		api.getStoreLogs.mockResolvedValue([]);
+		api.getStoreTypes.mockResolvedValue([]);
+	});
+
+	it('offers the matching store when the shop is already tracked', async () => {
+		await check(detection({ matches: ['shop-a'] }));
+
+		expect(screen.getByLabelText(/Add this URL to an existing store/)).toBeChecked();
+		expect(screen.getByLabelText('Store')).toHaveValue('shop-a');
+		expect(screen.getByRole('button', { name: 'Add URL to Shop A' })).toBeInTheDocument();
+	});
+
+	it('adds the pasted path to the matched store', async () => {
+		await check(detection({ matches: ['shop-a'] }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add URL to Shop A' }));
+
+		expect(api.addStoreUrl).toHaveBeenCalledWith('shop-a', {
+			collection_path: '/collections/puzzles'
+		});
+		expect(api.addStore).not.toHaveBeenCalled();
+	});
+
+	it('lets the URL go to any store, not only the matched one', async () => {
+		const other = store({ id: 'shop-b', name: 'Shop B', base_url: 'https://other-shop.test' });
+		await check(detection({ matches: ['shop-a'] }), [store(), other]);
+
+		await fireEvent.change(screen.getByLabelText('Store'), { target: { value: 'shop-b' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Add URL to Shop B' }));
+
+		expect(api.addStoreUrl).toHaveBeenCalledWith('shop-b', {
+			collection_path: '/collections/puzzles'
+		});
+	});
+
+	it('will not add a path the chosen store already syncs', async () => {
+		await check(detection({ matches: ['shop-a'], collection_path: '/collections/board-games' }));
+
+		expect(screen.getByText(/already syncs this path/)).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Add URL to Shop A/ })).toBeDisabled();
+	});
+
+	it('defaults to a new store when no store matches the host', async () => {
+		await check(detection());
+
+		expect(screen.getByLabelText(/Add it as a new store/)).toBeChecked();
+		expect(screen.getByRole('button', { name: 'Add store' })).toBeInTheDocument();
+	});
+
+	it('can still create a separate store for a host already tracked', async () => {
+		await check(detection({ matches: ['shop-a'] }));
+
+		await fireEvent.click(screen.getByLabelText(/Add it as a new store/));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add store' }));
+
+		expect(api.addStore).toHaveBeenCalledWith(
+			expect.objectContaining({ collection_path: '/collections/puzzles' })
+		);
+		expect(api.addStoreUrl).not.toHaveBeenCalled();
 	});
 });

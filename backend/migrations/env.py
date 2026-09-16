@@ -41,9 +41,16 @@ def _render_item(type_, obj, autogen_context):
 #: (partial indexes). Autogenerate would propose dropping them on every run.
 HAND_WRITTEN_INDEXES = {"ix_watchlistitem_active_game"}
 
+#: Columns the models no longer use, kept in the database because dropping one
+#: loses the only copy of its data. Autogenerate would propose the drop on
+#: every run otherwise.
+RETIRED_COLUMNS = {("store", "collection_path")}
+
 
 def _include_object(obj, name, type_, reflected, compare_to):
-    return not (type_ == "index" and name in HAND_WRITTEN_INDEXES)
+    if type_ == "index" and name in HAND_WRITTEN_INDEXES:
+        return False
+    return not (type_ == "column" and (obj.table.name, name) in RETIRED_COLUMNS)
 
 
 def run_migrations_offline() -> None:

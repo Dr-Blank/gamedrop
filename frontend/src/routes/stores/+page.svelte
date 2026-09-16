@@ -10,7 +10,10 @@
 		getStoreLogs,
 		searchProducts,
 		getStoreTypes,
-		detectStore
+		detectStore,
+		addStoreUrl,
+		patchStoreUrl,
+		deleteStoreUrl
 	} from '$lib/api.js';
 	import { Check, ExternalLink, Search, TriangleAlert } from '@lucide/svelte';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
@@ -44,6 +47,9 @@
 	let detecting = $state(false);
 	let detected = $state(null);
 	let adding = $state(false);
+	// 'existing' attaches the pasted URL to a store already configured.
+	let addMode = $state('new');
+	let targetStoreId = $state('');
 	let newStore = $state({
 		id: '',
 		name: '',
@@ -52,8 +58,22 @@
 		collection_path: '/collections/board-games'
 	});
 
+	const targetStore = $derived(stores.find((s) => s.id === targetStoreId) ?? null);
+	const targetHasPath = $derived(
+		(targetStore?.urls ?? []).some(
+			(u) => u.collection_path === normalizePath(newStore.collection_path)
+		)
+	);
+
 	function defaultPathFor(type) {
 		return storeTypes.find((t) => t.type === type)?.default_collection_path ?? '/';
+	}
+
+	/** Matches the server: leading slash kept, trailing one dropped. */
+	function normalizePath(raw) {
+		const v = (raw ?? '').trim();
+		if (!v) return '/';
+		return v.replace(/\/+$/, '') || '/';
 	}
 
 	function normalizeUrl(raw) {
@@ -77,18 +97,20 @@
 		addError = '';
 		detecting = true;
 		try {
-			const result = await detectStore(url.origin);
+			// The server splits the shop URL from the pasted category path.
+			const result = await detectStore(url.href);
 			detected = result;
-			// A pasted category URL already says which listings to sync.
-			const pastedPath = url.pathname.length > 1 ? url.pathname : '';
+			const type = result.type ?? newStore.type;
 			newStore = {
 				id: '',
 				name: '',
-				type: result.type ?? newStore.type,
-				base_url: url.origin,
-				collection_path:
-					pastedPath || result.collection_path || defaultPathFor(result.type ?? newStore.type)
+				type,
+				base_url: result.base_url,
+				collection_path: result.collection_path || defaultPathFor(type)
 			};
+			// A shop already being tracked gets the URL added to it by default.
+			addMode = result.matches?.length ? 'existing' : 'new';
+			targetStoreId = result.matches?.[0] ?? stores[0]?.id ?? '';
 		} catch (e) {
 			urlError = e.message;
 			detected = null;
@@ -102,6 +124,7 @@
 		urlInput = '';
 		urlError = '';
 		addError = '';
+		addMode = 'new';
 	}
 
 	// scrape config editing — keyed by store id
@@ -109,8 +132,12 @@
 	let savingConfig = $state({});
 
 	// basic field editing — keyed by store id
-	let editingBasic = $state({}); // store_id → { name, base_url, collection_path }
+	let editingBasic = $state({}); // store_id → { name, base_url }
 	let savingBasic = $state({});
+
+	// listing URLs — keyed by store id; a string means the add row is open
+	let addingUrl = $state({});
+	let savingUrl = $state({});
 
 	// product search
 	let selectedStore = $state('');
@@ -146,11 +173,7 @@
 	}
 
 	function startEditBasic(store) {
-		editingBasic[store.id] = {
-			name: store.name,
-			base_url: store.base_url,
-			collection_path: store.collection_path
-		};
+		editingBasic[store.id] = { name: store.name, base_url: store.base_url };
 	}
 
 	function cancelEditBasic(id) {
@@ -163,8 +186,7 @@
 		try {
 			await patchStore(store.id, {
 				name: editingBasic[store.id].name,
-				base_url: editingBasic[store.id].base_url,
-				collection_path: editingBasic[store.id].collection_path
+				base_url: editingBasic[store.id].base_url
 			});
 			await load();
 			cancelEditBasic(store.id);
@@ -218,6 +240,70 @@
 			addError = e.message;
 		} finally {
 			adding = false;
+		}
+	}
+
+	async function attachUrl() {
+		addError = '';
+		const path = newStore.collection_path.trim();
+		if (path && !path.startsWith('/')) {
+			addError = 'Category path must start with /';
+			return;
+		}
+		if (!targetStoreId) {
+			addError = 'Pick a store to add this URL to';
+			return;
+		}
+		adding = true;
+		try {
+			await addStoreUrl(targetStoreId, { collection_path: path || '/' });
+			resetAdd();
+			await load();
+		} catch (e) {
+			addError = e.message;
+		} finally {
+			adding = false;
+		}
+	}
+
+	function startAddUrl(store) {
+		addingUrl[store.id] = '';
+	}
+
+	function cancelAddUrl(id) {
+		delete addingUrl[id];
+		addingUrl = { ...addingUrl };
+	}
+
+	async function saveUrl(store) {
+		savingUrl[store.id] = true;
+		try {
+			await addStoreUrl(store.id, { collection_path: addingUrl[store.id].trim() || '/' });
+			cancelAddUrl(store.id);
+			await load();
+		} catch (e) {
+			toast.error(e.message);
+		} finally {
+			savingUrl[store.id] = false;
+		}
+	}
+
+	async function toggleUrl(store, url) {
+		try {
+			await patchStoreUrl(store.id, url.id, { enabled: !url.enabled });
+			await load();
+		} catch (e) {
+			toast.error(e.message);
+		}
+	}
+
+	async function removeUrl(store, url) {
+		if (!confirm(`Stop syncing ${url.collection_path} for "${store.name}"?`)) return;
+		try {
+			await deleteStoreUrl(store.id, url.id);
+			await load();
+		} catch (e) {
+			toast.error(e.message);
 		}
 	}
 
@@ -284,10 +370,10 @@
 		return watchStore.toggle({ product });
 	}
 
-	/** The category page a sync actually walks — base URL joined with the path. */
-	function listingUrl(store) {
+	/** A category page a sync walks — base URL joined with one listing path. */
+	function listingUrl(store, path) {
 		try {
-			return new URL(store.collection_path || '/', store.base_url).href;
+			return new URL(path || '/', store.base_url).href;
 		} catch {
 			return store.base_url;
 		}
@@ -398,37 +484,90 @@
 						</div>
 
 						{#if editingBasic[store.id]}
-							<div class="grid gap-2 sm:grid-cols-2">
-								<label class="space-y-1">
-									<span class="text-xs text-muted-foreground">Shop URL</span>
-									<Input bind:value={editingBasic[store.id].base_url} class="h-8 text-xs" />
-								</label>
-								<label class="space-y-1">
-									<span class="text-xs text-muted-foreground">Category path</span>
-									<Input bind:value={editingBasic[store.id].collection_path} class="h-8 text-xs" />
-								</label>
-							</div>
+							<label class="block space-y-1">
+								<span class="text-xs text-muted-foreground">Shop URL</span>
+								<Input bind:value={editingBasic[store.id].base_url} class="h-8 text-xs" />
+							</label>
 						{:else}
-							<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-								<a
-									href={store.base_url}
-									target="_blank"
-									class="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
-								>
-									<ExternalLink class="size-3.5 shrink-0" />
-									{hostOf(store.base_url)}
-								</a>
-								<a
-									href={listingUrl(store)}
-									target="_blank"
-									title="Open the category page this store syncs"
-									class="inline-flex min-w-0 items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
-								>
-									<ExternalLink class="size-3.5 shrink-0" />
-									<span class="truncate">{store.collection_path}</span>
-								</a>
-							</div>
+							<a
+								href={store.base_url}
+								target="_blank"
+								class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground hover:underline"
+							>
+								<ExternalLink class="size-3.5 shrink-0" />
+								{hostOf(store.base_url)}
+							</a>
 						{/if}
+
+						<div class="space-y-1">
+							{#each store.urls ?? [] as u}
+								<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+									<a
+										href={listingUrl(store, u.collection_path)}
+										target="_blank"
+										title="Open the category page this store syncs"
+										class="inline-flex min-w-0 items-center gap-1 {u.enabled
+											? 'text-muted-foreground'
+											: 'text-muted-foreground/60 line-through'} hover:text-foreground hover:underline"
+									>
+										<ExternalLink class="size-3.5 shrink-0" />
+										<span class="truncate">{u.collection_path}</span>
+									</a>
+									{#if u.label}
+										<span class="text-xs text-muted-foreground">{u.label}</span>
+									{/if}
+									<button
+										onclick={() => toggleUrl(store, u)}
+										aria-label="{u.enabled ? 'Pause' : 'Resume'} syncing {u.collection_path}"
+										class="text-xs text-muted-foreground hover:text-foreground hover:underline"
+									>
+										{u.enabled ? 'Pause' : 'Resume'}
+									</button>
+									<button
+										onclick={() => removeUrl(store, u)}
+										aria-label="Remove {u.collection_path}"
+										class="text-xs text-muted-foreground hover:text-destructive hover:underline"
+									>
+										Remove
+									</button>
+								</div>
+							{/each}
+
+							{#if addingUrl[store.id] !== undefined}
+								<div class="flex flex-wrap items-center gap-2 pt-1">
+									<Input
+										bind:value={addingUrl[store.id]}
+										placeholder={defaultPathFor(store.type)}
+										aria-label="New category path for {store.name}"
+										onkeydown={(e) => e.key === 'Enter' && saveUrl(store)}
+										class="h-7 max-w-xs text-xs"
+									/>
+									<Button
+										size="sm"
+										onclick={() => saveUrl(store)}
+										disabled={savingUrl[store.id]}
+										class="h-7 text-xs"
+									>
+										{savingUrl[store.id] ? 'Adding…' : 'Add'}
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										onclick={() => cancelAddUrl(store.id)}
+										class="h-7 text-xs"
+									>
+										Cancel
+									</Button>
+								</div>
+							{:else}
+								<button
+									onclick={() => startAddUrl(store)}
+									class="text-xs text-muted-foreground hover:text-foreground hover:underline"
+								>
+									+ Add category URL
+								</button>
+							{/if}
+						</div>
 
 						{#if editingConfig[store.id]}
 							<div class="space-y-2 rounded-md border p-3">
@@ -649,7 +788,17 @@
 							Pick a platform below and try a sync — it may just be blocking automated checks.
 						</p>
 					{/if}
-					{#if detected.id_taken}
+					{#if detected.matches?.length}
+						<p class="text-xs text-muted-foreground">
+							Already tracked as
+							<span class="font-medium text-foreground">
+								{detected.matches
+									.map((id) => stores.find((s) => s.id === id)?.name ?? id)
+									.join(', ')}
+							</span>.
+						</p>
+					{/if}
+					{#if detected.id_taken && addMode === 'new'}
 						<p class="flex items-center gap-1.5 text-xs text-amber-600">
 							<TriangleAlert class="size-3.5" /> A store with id
 							<code class="rounded bg-muted px-1">{detected.id}</code> already exists — change the id
@@ -658,64 +807,138 @@
 					{/if}
 				</div>
 
-				<div class="grid gap-3 sm:grid-cols-2">
-					<div class="space-y-1.5">
-						<label for="add-name" class="text-xs font-medium text-muted-foreground">
-							Display name
+				{#if stores.length > 0}
+					<fieldset class="space-y-2">
+						<legend class="text-xs font-medium text-muted-foreground">What to do with it</legend>
+						<label class="flex items-start gap-2 text-sm">
+							<input type="radio" bind:group={addMode} value="existing" class="mt-1" />
+							<span>
+								Add this URL to an existing store
+								<span class="block text-xs text-muted-foreground">
+									Its listings join that store's catalog and sync with it.
+								</span>
+							</span>
 						</label>
-						<Input
-							id="add-name"
-							bind:value={newStore.name}
-							placeholder={detected.name || 'Shop name'}
-						/>
-						<p class="text-[0.7rem] text-muted-foreground">
-							Blank uses <span class="font-medium">{detected.name}</span>.
-						</p>
-					</div>
-					<div class="space-y-1.5">
-						<label for="add-id" class="text-xs font-medium text-muted-foreground">Store id</label>
-						<Input id="add-id" bind:value={newStore.id} placeholder={detected.id || 'my-shop'} />
-						<p class="text-[0.7rem] text-muted-foreground">
-							Lowercase letters, numbers, dashes. Can't be changed later.
-						</p>
-					</div>
-					<div class="space-y-1.5">
-						<label for="add-type" class="text-xs font-medium text-muted-foreground">Platform</label>
-						<select
-							id="add-type"
-							bind:value={newStore.type}
-							onchange={() => (newStore.collection_path = defaultPathFor(newStore.type))}
-							class="h-9 w-full rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
-						>
-							{#each storeTypes as t}
-								<option value={t.type}>{PLATFORM_LABELS[t.type] ?? t.type}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="space-y-1.5">
-						<label for="add-path" class="text-xs font-medium text-muted-foreground">
-							Category path
+						<label class="flex items-start gap-2 text-sm">
+							<input type="radio" bind:group={addMode} value="new" class="mt-1" />
+							<span>
+								Add it as a new store
+								<span class="block text-xs text-muted-foreground">
+									A separate store with its own colour, schedule and price history.
+								</span>
+							</span>
 						</label>
-						<Input
-							id="add-path"
-							bind:value={newStore.collection_path}
-							placeholder={defaultPathFor(newStore.type)}
-						/>
-						<p class="text-[0.7rem] text-muted-foreground">
-							Leave <code class="rounded bg-muted px-1">/</code> to sync the whole catalog.
-						</p>
-					</div>
-				</div>
+					</fieldset>
+				{/if}
 
-				<div class="flex flex-wrap items-center gap-2 border-t pt-3">
-					<Button onclick={submitAdd} disabled={adding}>
-						{adding ? 'Adding…' : 'Add store'}
-					</Button>
-					<Button variant="ghost" onclick={resetAdd} disabled={adding}>Cancel</Button>
-					<span class="text-xs text-muted-foreground">
-						Nothing is fetched until you run a sync.
-					</span>
-				</div>
+				{#if addMode === 'existing' && stores.length > 0}
+					<div class="grid gap-3 sm:grid-cols-2">
+						<div class="space-y-1.5">
+							<label for="attach-store" class="text-xs font-medium text-muted-foreground">
+								Store
+							</label>
+							<select
+								id="attach-store"
+								bind:value={targetStoreId}
+								class="h-9 w-full rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
+							>
+								{#each stores as s}
+									<option value={s.id}>{s.name} — {hostOf(s.base_url)}</option>
+								{/each}
+							</select>
+							{#if targetStore && hostOf(targetStore.base_url) !== hostOf(detected.base_url)}
+								<p class="flex items-center gap-1 text-[0.7rem] text-amber-600">
+									<TriangleAlert class="size-3" />
+									That store points at {hostOf(targetStore.base_url)}, not {hostOf(
+										detected.base_url
+									)}.
+								</p>
+							{/if}
+						</div>
+						<div class="space-y-1.5">
+							<label for="attach-path" class="text-xs font-medium text-muted-foreground">
+								Category path
+							</label>
+							<Input id="attach-path" bind:value={newStore.collection_path} />
+							{#if targetHasPath}
+								<p class="flex items-center gap-1 text-[0.7rem] text-amber-600">
+									<TriangleAlert class="size-3" /> That store already syncs this path.
+								</p>
+							{/if}
+						</div>
+					</div>
+
+					<div class="flex flex-wrap items-center gap-2 border-t pt-3">
+						<Button onclick={attachUrl} disabled={adding || targetHasPath}>
+							{adding ? 'Adding…' : `Add URL to ${targetStore?.name ?? 'store'}`}
+						</Button>
+						<Button variant="ghost" onclick={resetAdd} disabled={adding}>Cancel</Button>
+						<span class="text-xs text-muted-foreground">
+							Nothing is fetched until you run a sync.
+						</span>
+					</div>
+				{:else}
+					<div class="grid gap-3 sm:grid-cols-2">
+						<div class="space-y-1.5">
+							<label for="add-name" class="text-xs font-medium text-muted-foreground">
+								Display name
+							</label>
+							<Input
+								id="add-name"
+								bind:value={newStore.name}
+								placeholder={detected.name || 'Shop name'}
+							/>
+							<p class="text-[0.7rem] text-muted-foreground">
+								Blank uses <span class="font-medium">{detected.name}</span>.
+							</p>
+						</div>
+						<div class="space-y-1.5">
+							<label for="add-id" class="text-xs font-medium text-muted-foreground">Store id</label>
+							<Input id="add-id" bind:value={newStore.id} placeholder={detected.id || 'my-shop'} />
+							<p class="text-[0.7rem] text-muted-foreground">
+								Lowercase letters, numbers, dashes. Can't be changed later.
+							</p>
+						</div>
+						<div class="space-y-1.5">
+							<label for="add-type" class="text-xs font-medium text-muted-foreground"
+								>Platform</label
+							>
+							<select
+								id="add-type"
+								bind:value={newStore.type}
+								onchange={() => (newStore.collection_path = defaultPathFor(newStore.type))}
+								class="h-9 w-full rounded-md border bg-background px-3 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
+							>
+								{#each storeTypes as t}
+									<option value={t.type}>{PLATFORM_LABELS[t.type] ?? t.type}</option>
+								{/each}
+							</select>
+						</div>
+						<div class="space-y-1.5">
+							<label for="add-path" class="text-xs font-medium text-muted-foreground">
+								Category path
+							</label>
+							<Input
+								id="add-path"
+								bind:value={newStore.collection_path}
+								placeholder={defaultPathFor(newStore.type)}
+							/>
+							<p class="text-[0.7rem] text-muted-foreground">
+								Leave <code class="rounded bg-muted px-1">/</code> to sync the whole catalog.
+							</p>
+						</div>
+					</div>
+
+					<div class="flex flex-wrap items-center gap-2 border-t pt-3">
+						<Button onclick={submitAdd} disabled={adding}>
+							{adding ? 'Adding…' : 'Add store'}
+						</Button>
+						<Button variant="ghost" onclick={resetAdd} disabled={adding}>Cancel</Button>
+						<span class="text-xs text-muted-foreground">
+							Nothing is fetched until you run a sync.
+						</span>
+					</div>
+				{/if}
 			{/if}
 
 			{#if addError}
