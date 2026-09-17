@@ -581,6 +581,86 @@ def count_products(
 
 
 # ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+#: Ceiling on one export, so a filterless pull cannot drag the whole catalog
+#: into memory.
+EXPORT_LIMIT = 5000
+
+
+def export_rows(
+    session: Session,
+    *,
+    filter_node: FilterNode | None = None,
+    sorts: list[SortSpec] | None = None,
+    include_hidden: bool = False,
+    hidden_last: bool = False,
+    limit: int = EXPORT_LIMIT,
+) -> list[dict]:
+    """A browse query flattened to one row per shop offer.
+
+    Browse collapses a game's listings into a single card; an export keeps them
+    apart, because comparing shops is the whole point of pasting it elsewhere.
+    """
+    rows = query_products(
+        session,
+        filter_node=filter_node,
+        sorts=sorts,
+        page=1,
+        limit=limit,
+        include_hidden=include_hidden,
+        hidden_last=hidden_last,
+    )
+    game_ids = {g.id for _, _, g in rows if g.id is not None}
+    if not game_ids:
+        return []
+
+    compares = _compare_summaries(session, game_ids)
+    store_names = {s.id: s.name for s in session.exec(select(Store))}
+
+    watched = {
+        w.game_id
+        for w in session.exec(
+            select(WatchlistItem).where(
+                WatchlistItem.game_id.in_(game_ids), WatchlistItem.active
+            )
+        )
+    }
+    queued: set[int] = set()
+    owned: set[int] = set()
+    for item in session.exec(select(CartItem).where(CartItem.game_id.in_(game_ids))):
+        (owned if item.purchased_at else queued).add(item.game_id)
+
+    out: list[dict] = []
+    for _, _, game in rows:
+        summary = compares.get(game.id)
+        if not summary:
+            continue
+        cheapest = summary["cheapest_in_stock"]
+        for offer in summary["offers"]:
+            out.append(
+                {
+                    "game": game.title,
+                    "store": store_names.get(offer["store_id"], offer["store_id"]),
+                    "price": offer["price"],
+                    "in_stock": offer["available"],
+                    "cheapest_in_stock_price": cheapest["price"] if cheapest else None,
+                    "cheapest_in_stock_store": (
+                        store_names.get(cheapest["store_id"], cheapest["store_id"])
+                        if cheapest
+                        else None
+                    ),
+                    "store_count": len(summary["store_ids"]),
+                    "watched": game.id in watched,
+                    "in_cart": game.id in queued,
+                    "owned": game.id in owned,
+                }
+            )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
 

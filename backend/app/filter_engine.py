@@ -713,3 +713,12 @@ class BrowseQuery(BaseModel):
     include_hidden: bool = False
     # Keep hidden games in the result but behind every visible one.
     hidden_last: bool = False
+
+
+class BrowseExportQuery(BaseModel):
+    """A browse query without paging — an export covers every match at once."""
+
+    filters: FilterNode | None = None
+    sorts: list[SortSpec] = []
+    include_hidden: bool = False
+    hidden_last: bool = False

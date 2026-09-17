@@ -100,6 +100,8 @@ export const browseSorts = () => req('/browse/sorts');
 export const browseFields = () => req('/browse/fields');
 export const browseQuery = (body) =>
 	req('/browse/query', { method: 'POST', body: JSON.stringify(body) });
+export const browseExport = (body) =>
+	req('/browse/export', { method: 'POST', body: JSON.stringify(body) });
 
 // Shelves
 export const getShelves = () => req('/shelves/');

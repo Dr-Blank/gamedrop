@@ -10,6 +10,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import {
 		browseFields,
+		browseExport,
 		browseQuery,
 		browseStores,
 		createShelf,
@@ -25,7 +26,17 @@
 	import HiddenDivider from '$lib/components/HiddenDivider.svelte';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { shortcuts, BROWSE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
-	import { Compass, SlidersHorizontal, Plus, X, Bookmark, ArrowUpDown } from '@lucide/svelte';
+	import { toMarkdown, toCsv, csvFilename } from '$lib/exportRows.js';
+	import {
+		Compass,
+		SlidersHorizontal,
+		Plus,
+		X,
+		Bookmark,
+		ArrowUpDown,
+		Copy,
+		Download
+	} from '@lucide/svelte';
 
 	let {
 		title = 'Browse',
@@ -72,6 +83,9 @@
 
 	// Sorts list: [{field, dir}]
 	let sorts = $state([]);
+
+	let exporting = $state(false);
+	let copied = $state(false);
 
 	// Override modal
 	let editItem = $state(null);
@@ -246,6 +260,60 @@
 	function resetFilters() {
 		filterTree = { type: 'group', op: 'and', conditions: [] };
 		pushUrl(); // afterNavigate will decode URL + search
+	}
+
+	// ---------------------------------------------------------------------------
+	// Export
+	// ---------------------------------------------------------------------------
+
+	/** Every match, not only the pages scrolled into view. */
+	async function fetchExport() {
+		const res = await browseExport({
+			filters: queryFilters(),
+			sorts,
+			hidden_last: false
+		});
+		return res.rows;
+	}
+
+	async function copyRows() {
+		exporting = true;
+		try {
+			const rows = await fetchExport();
+			if (!rows.length) {
+				toast.error('Nothing to copy');
+				return;
+			}
+			await navigator.clipboard.writeText(toMarkdown(rows));
+			copied = true;
+			setTimeout(() => (copied = false), 2000);
+		} catch (e) {
+			toast.error('Copy failed: ' + e.message);
+		} finally {
+			exporting = false;
+		}
+	}
+
+	async function downloadCsv() {
+		exporting = true;
+		try {
+			const rows = await fetchExport();
+			if (!rows.length) {
+				toast.error('Nothing to export');
+				return;
+			}
+			const blob = new Blob([toCsv(rows)], { type: 'text/csv' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = csvFilename(title);
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (e) {
+			toast.error('Export failed: ' + e.message);
+		} finally {
+			exporting = false;
+		}
 	}
 
 	// ---------------------------------------------------------------------------
@@ -435,6 +503,25 @@
 						{filterTree.conditions.length}
 					</span>
 				{/if}
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={copyRows}
+				disabled={exporting || total === 0}
+				title="Copy every match as a table — title, shop, price, stock"
+			>
+				<Copy class="size-4" />
+				{copied ? 'Copied' : 'Copy'}
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={downloadCsv}
+				disabled={exporting || total === 0}
+				title="Download every match as CSV"
+			>
+				<Download class="size-4" /> CSV
 			</Button>
 			{#if saveShelf && (hasFilters || hasSorts)}
 				<Button variant="outline" size="sm" onclick={() => (saveOpen = true)}>

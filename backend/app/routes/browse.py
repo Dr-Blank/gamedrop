@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from ..db import get_session
-from ..filter_engine import BrowseQuery, describe_fields
+from ..filter_engine import BrowseExportQuery, BrowseQuery, describe_fields
 from ..repositories import catalog as repo
 
 router = APIRouter(prefix="/browse", tags=["browse"])
@@ -45,6 +45,25 @@ def browse_query(
         "limit": body.limit,
         "total": total,
     }
+
+
+@router.post("/export")
+def browse_export(
+    body: BrowseExportQuery,
+    session: Session = Depends(get_session),
+):
+    """Flat cross-shop rows for the whole query — clipboard and CSV export."""
+    try:
+        rows = repo.export_rows(
+            session,
+            filter_node=body.filters,
+            sorts=body.sorts or None,
+            include_hidden=body.include_hidden,
+            hidden_last=body.hidden_last,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"rows": rows, "count": len(rows)}
 
 
 @router.get("/stores")
