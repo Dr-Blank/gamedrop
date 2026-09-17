@@ -13,14 +13,16 @@
 		detectStore,
 		addStoreUrl,
 		patchStoreUrl,
-		deleteStoreUrl
+		deleteStoreUrl,
+		getOrphanListings,
+		cleanupOrphanListings
 	} from '$lib/api.js';
-	import { Check, ExternalLink, Search, TriangleAlert } from '@lucide/svelte';
+	import { Check, ExternalLink, Search, TriangleAlert, Trash2 } from '@lucide/svelte';
 	import { watchlist as watchStore } from '$lib/watchlist.svelte.js';
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import { fmtDate, fmtRelative } from '$lib/dateFormat.svelte.js';
-	import { syncRunUrl } from '$lib/browse.js';
+	import { syncRunUrl, ORPHANS_URL } from '$lib/browse.js';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -36,6 +38,10 @@
 	let logsOpen = $state({});
 	let logsData = $state({});
 	let logsLoading = $state({});
+	// store_id → whether the confirm panel's "delete its listings" box is ticked
+	let removing = $state({});
+	let orphans = $state(null);
+	let cleaning = $state(false);
 
 	// add store form — URL first, everything else derived from what we detect
 	const PLATFORM_LABELS = { shopify: 'Shopify', woocommerce: 'WooCommerce' };
@@ -152,6 +158,15 @@
 			storeTypes = await getStoreTypes();
 		} catch {
 			// Keep the built-in default list; the form still works.
+		}
+		await loadOrphans();
+	}
+
+	async function loadOrphans() {
+		try {
+			orphans = await getOrphanListings();
+		} catch {
+			orphans = null;
 		}
 	}
 
@@ -331,10 +346,47 @@
 		}
 	}
 
-	async function remove(id) {
-		if (!confirm(`Remove store "${id}"?`)) return;
-		await deleteStore(id);
-		await load();
+	function startRemove(store) {
+		// Listings are kept by default — a store re-added later picks them back up.
+		removing[store.id] = false;
+	}
+
+	function cancelRemove(id) {
+		delete removing[id];
+		removing = { ...removing };
+	}
+
+	async function confirmRemove(store) {
+		const purge = removing[store.id];
+		try {
+			const result = await deleteStore(store.id, purge);
+			cancelRemove(store.id);
+			await load();
+			toast.success(
+				result.deleted_listings
+					? `Removed ${store.name} and ${listingWord(result.deleted_listings)}`
+					: `Removed ${store.name}`
+			);
+		} catch (e) {
+			toast.error(e.message);
+		}
+	}
+
+	async function cleanupOrphans() {
+		cleaning = true;
+		try {
+			const { deleted } = await cleanupOrphanListings();
+			await load();
+			toast.success(`Deleted ${listingWord(deleted)}`);
+		} catch (e) {
+			toast.error(e.message);
+		} finally {
+			cleaning = false;
+		}
+	}
+
+	function listingWord(n) {
+		return `${n} listing${n === 1 ? '' : 's'}`;
 	}
 
 	async function toggleLogs(storeId) {
@@ -421,6 +473,33 @@
 						{/if}
 					</div>
 				{/each}
+			</Card.Content>
+		</Card.Root>
+	{/if}
+
+	<!-- Listings whose store is gone -->
+	{#if orphans && orphans.listings > 0}
+		<Card.Root class="border-amber-500/40 bg-amber-500/5">
+			<Card.Content class="space-y-3 pt-4">
+				<div class="flex items-start gap-2">
+					<TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-600" />
+					<div class="space-y-1">
+						<p class="text-sm font-medium">
+							{listingWord(orphans.listings)} left over from removed stores
+						</p>
+						<p class="text-xs text-muted-foreground">
+							From {orphans.stores.map((s) => s.store_id).join(', ')}. They still show up
+							everywhere, and no sync will ever price them again.
+						</p>
+					</div>
+				</div>
+				<div class="flex flex-wrap items-center gap-2">
+					<Button size="sm" variant="outline" href={ORPHANS_URL}>Show them in Browse</Button>
+					<Button size="sm" variant="destructive" onclick={cleanupOrphans} disabled={cleaning}>
+						<Trash2 class="size-3.5" />
+						{cleaning ? 'Cleaning up…' : `Delete ${listingWord(orphans.listings)}`}
+					</Button>
+				</div>
 			</Card.Content>
 		</Card.Root>
 	{/if}
@@ -660,12 +739,41 @@
 							<Button
 								size="sm"
 								variant="destructive"
-								onclick={() => remove(store.id)}
+								onclick={() => startRemove(store)}
+								disabled={removing[store.id] !== undefined}
 								class="ml-auto"
 							>
 								Remove
 							</Button>
 						</div>
+
+						{#if removing[store.id] !== undefined}
+							<div class="space-y-2 rounded-md border border-destructive/40 p-3">
+								<p class="text-sm font-medium">Remove "{store.name}"?</p>
+								{#if store.listing_count > 0}
+									<label class="flex items-start gap-2 text-sm">
+										<input type="checkbox" bind:checked={removing[store.id]} class="mt-1" />
+										<span>
+											Also delete its {listingWord(store.listing_count)}
+											<span class="block text-xs text-muted-foreground">
+												Left in place, they stay in the catalog with no shop behind them — you can
+												clean them up later.
+											</span>
+										</span>
+									</label>
+								{:else}
+									<p class="text-xs text-muted-foreground">It has no listings to delete.</p>
+								{/if}
+								<div class="flex flex-wrap gap-2">
+									<Button size="sm" variant="destructive" onclick={() => confirmRemove(store)}>
+										{removing[store.id] ? 'Remove store and listings' : 'Remove store'}
+									</Button>
+									<Button size="sm" variant="ghost" onclick={() => cancelRemove(store.id)}>
+										Cancel
+									</Button>
+								</div>
+							</div>
+						{/if}
 
 						{#if syncResults[store.id]}
 							<p class="text-xs text-muted-foreground">

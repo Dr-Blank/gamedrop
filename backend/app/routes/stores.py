@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
+from sqlalchemy import func
 from sqlmodel import Session, desc, select
 
 from ..adapters.detect import detect_platform
@@ -11,6 +12,7 @@ from ..db import get_session
 from ..logger import get_logger
 from ..models import Product, Store, StoreUrl, SyncLog
 from ..scraper import ADAPTERS, sync_store
+from ..services import listings as listing_service
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 log = get_logger(__name__)
@@ -233,9 +235,19 @@ def urls_of(session: Session, store_id: str) -> list[StoreUrl]:
     )
 
 
+def listing_count(session: Session, store_id: str) -> int:
+    return session.exec(
+        select(func.count(Product.id)).where(Product.store_id == store_id)
+    ).one()
+
+
 def shaped(session: Session, store: Store) -> dict:
     """A store with its listing URLs inlined, which is how the UI reads it."""
-    return {**store.model_dump(), "urls": urls_of(session, store.id)}
+    return {
+        **store.model_dump(),
+        "urls": urls_of(session, store.id),
+        "listing_count": listing_count(session, store.id),
+    }
 
 
 @router.get("/")
@@ -316,17 +328,39 @@ def update_store(
     return shaped(session, store)
 
 
+@router.get("/orphans")
+def list_orphans(session: Session = Depends(get_session)):
+    """Listings left behind by stores that were removed without them."""
+    return listing_service.orphan_summary(session)
+
+
+@router.post("/orphans/cleanup")
+def cleanup_orphans(session: Session = Depends(get_session)):
+    deleted = listing_service.delete_orphan_listings(session)
+    session.commit()
+    return {"deleted": deleted}
+
+
 @router.delete("/{store_id}")
-def delete_store(store_id: str, session: Session = Depends(get_session)):
+def delete_store(
+    store_id: str,
+    delete_listings: bool = False,
+    session: Session = Depends(get_session),
+):
     store = session.get(Store, store_id)
     if not store:
         raise HTTPException(404, "Store not found")
+    deleted = (
+        listing_service.delete_store_listings(session, store_id)
+        if delete_listings
+        else 0
+    )
     for url in urls_of(session, store_id):
         session.delete(url)
     session.delete(store)
     session.commit()
     log.info("store deleted: %s", store_id, extra={"store_id": store_id})
-    return {"ok": True}
+    return {"ok": True, "deleted_listings": deleted}
 
 
 @router.get("/{store_id}/urls")

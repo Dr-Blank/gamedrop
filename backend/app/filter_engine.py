@@ -139,7 +139,7 @@ def build_field_registry(
     owned_subq: Any | None = None,
 ) -> dict[str, FieldDef]:
     """Build the full field registry for a single query execution."""
-    from .models import Game, PriceSnapshot, Product
+    from .models import Game, PriceSnapshot, Product, Store
 
     reg: dict[str, FieldDef] = {}
 
@@ -314,6 +314,17 @@ def build_field_registry(
             type="bool",
             label="Already Bought",
         )
+
+    # is_orphaned: the shop that listed it is no longer configured, so nothing
+    # will ever price it again
+    reg["is_orphaned"] = FieldDef(
+        expr=case(
+            (Product.store_id.notin_(select(Store.id)), True),
+            else_=False,
+        ),
+        type="bool",
+        label="Store Removed",
+    )
 
     # random: pseudo-random ordering (sort-only, not filterable)
     reg["random"] = FieldDef(

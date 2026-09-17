@@ -54,7 +54,7 @@ def test_delete_store(client: TestClient):
     client.post("/api/stores/", json=_store_payload())
     r = client.delete("/api/stores/test-store")
     assert r.status_code == 200
-    assert r.json() == {"ok": True}
+    assert r.json() == {"ok": True, "deleted_listings": 0}
     assert client.get("/api/stores/").json() == []
 
 

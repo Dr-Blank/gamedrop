@@ -17,7 +17,10 @@ export const detectStore = (baseUrl) =>
 export const addStore = (body) => req('/stores/', { method: 'POST', body: JSON.stringify(body) });
 export const patchStore = (id, body) =>
 	req(`/stores/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-export const deleteStore = (id) => req(`/stores/${id}`, { method: 'DELETE' });
+export const deleteStore = (id, deleteListings = false) =>
+	req(`/stores/${id}?delete_listings=${deleteListings}`, { method: 'DELETE' });
+export const getOrphanListings = () => req('/stores/orphans');
+export const cleanupOrphanListings = () => req('/stores/orphans/cleanup', { method: 'POST' });
 export const addStoreUrl = (id, body) =>
 	req(`/stores/${id}/urls`, { method: 'POST', body: JSON.stringify(body) });
 export const patchStoreUrl = (id, urlId, body) =>

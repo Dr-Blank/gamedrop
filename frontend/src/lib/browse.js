@@ -46,3 +46,9 @@ export const DROPS_URL = browseUrl({
 });
 
 export const NEW_URL = browseUrl({ sorts: [{ field: 'first_seen', dir: 'desc' }] });
+
+/** Listings whose shop was removed — nothing will price them again. */
+export const ORPHANS_URL = browseUrl({
+	filters: { type: 'condition', field: 'is_orphaned', op: 'eq', value: true },
+	sorts: [{ field: 'store_id', dir: 'asc' }]
+});

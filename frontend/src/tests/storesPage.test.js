@@ -14,7 +14,9 @@ vi.mock('$lib/api.js', () => ({
 	detectStore: vi.fn(),
 	addStoreUrl: vi.fn(),
 	patchStoreUrl: vi.fn(),
-	deleteStoreUrl: vi.fn()
+	deleteStoreUrl: vi.fn(),
+	getOrphanListings: vi.fn(),
+	cleanupOrphanListings: vi.fn()
 }));
 vi.mock('$lib/toast.svelte.js', () => ({
 	toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }
@@ -34,6 +36,7 @@ function store({ collection_path = '/collections/board-games', ...overrides } = 
 		type: 'shopify',
 		base_url: 'https://www.example-shop.com',
 		urls: [storeUrl(collection_path)],
+		listing_count: 0,
 		enabled: true,
 		color: null,
 		scrape_config: '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":6}',
@@ -41,6 +44,10 @@ function store({ collection_path = '/collections/board-games', ...overrides } = 
 		last_sync_error: null,
 		...overrides
 	};
+}
+
+function noOrphans() {
+	return { listings: 0, games: 0, stores: [] };
 }
 
 function syncLog(overrides = {}) {
@@ -75,6 +82,7 @@ describe('stores page', () => {
 		localStorage.clear();
 		api.getStoreLogs.mockResolvedValue([]);
 		api.getStoreTypes.mockResolvedValue([]);
+		api.getOrphanListings.mockResolvedValue(noOrphans());
 	});
 
 	it('links the shop root and the synced category page separately', async () => {
@@ -214,6 +222,7 @@ describe('a store with several category URLs', () => {
 		localStorage.clear();
 		api.getStoreLogs.mockResolvedValue([]);
 		api.getStoreTypes.mockResolvedValue([]);
+		api.getOrphanListings.mockResolvedValue(noOrphans());
 	});
 
 	it('lists every category URL the store syncs', async () => {
@@ -280,6 +289,7 @@ describe('checking a pasted URL', () => {
 		localStorage.clear();
 		api.getStoreLogs.mockResolvedValue([]);
 		api.getStoreTypes.mockResolvedValue([]);
+		api.getOrphanListings.mockResolvedValue(noOrphans());
 	});
 
 	it('offers the matching store when the shop is already tracked', async () => {
