@@ -4,6 +4,7 @@
 	import { tick } from 'svelte';
 	import { goto, afterNavigate, beforeNavigate } from '$app/navigation';
 	import { fly } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Card from '$lib/components/ui/card';
@@ -26,6 +27,8 @@
 	import HiddenDivider from '$lib/components/HiddenDivider.svelte';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import { shortcuts, BROWSE_SHORTCUTS } from '$lib/shortcuts.svelte.js';
+	import { storeColors } from '$lib/storeColors.svelte.js';
+	import { inferFocusStore } from '$lib/perspective.js';
 	import { toMarkdown, toCsv, csvFilename } from '$lib/exportRows.js';
 	import {
 		Compass,
@@ -81,8 +84,16 @@
 	// Root filter group — always AND at the top level
 	let filterTree = $state({ type: 'group', op: 'and', conditions: [] });
 
-	// Sorts list: [{field, dir}]
+	// Sorts list: [{field, dir}] or [{type:'store_gap', store_a, store_b, …}]
 	let sorts = $state([]);
+
+	// Which shop the cards speak from. `undefined` follows the query, so a
+	// filter on one shop shows that shop's prices without being asked twice;
+	// null is an explicit "whoever is cheapest".
+	let focusChoice = $state(/** @type {string|null|undefined} */ (undefined));
+	let expandedGame = $state(/** @type {number|null} */ (null));
+	// Set by a navigation that changes nothing the query depends on.
+	let skipNextSearch = false;
 
 	let exporting = $state(false);
 	let copied = $state(false);
@@ -101,6 +112,27 @@
 	const PageIcon = $derived(icon);
 
 	const shown = $derived(stillMatches ? items.filter(stillMatches) : items);
+
+	// A query about one shop is a query from that shop's side.
+	const inferredFocus = $derived(inferFocusStore(filterTree, sorts));
+	const focusStore = $derived(focusChoice === undefined ? inferredFocus : focusChoice);
+
+	// The grid is one keyed row per card so an expanding card can animate the
+	// ones around it — the hidden divider rides along as a row of its own.
+	const rendered = $derived.by(() => {
+		const rows = [];
+		shown.forEach((item, i) => {
+			if (hiddenLast && item.game?.hidden && !shown[i - 1]?.game?.hidden) {
+				rows.push({ key: 'hidden-divider', divider: true });
+			}
+			rows.push({
+				key: item.product.id,
+				item,
+				gameId: item.game?.id ?? item.product.game_id
+			});
+		});
+		return rows;
+	});
 
 	const LIMIT = 48;
 	const hasFilters = $derived(filterTree.conditions.length > 0);
@@ -140,6 +172,7 @@
 		const params = new URLSearchParams();
 		if (f) params.set('f', f);
 		if (s) params.set('s', s);
+		if (focusChoice !== undefined) params.set('v', focusChoice ?? '');
 		return params.toString();
 	}
 
@@ -148,6 +181,8 @@
 		const url = $page.url;
 		const f = url.searchParams.get('f');
 		const s = url.searchParams.get('s');
+		const v = url.searchParams.get('v');
+		focusChoice = v === null ? undefined : v || null;
 		if (f) {
 			try {
 				const parsed = JSON.parse(atob(f));
@@ -255,6 +290,22 @@
 
 	function applyFilters() {
 		pushUrl(); // afterNavigate will decode URL + search
+	}
+
+	/** @param {string|null} storeId */
+	function setFocus(storeId) {
+		// Re-picking what was inferred anyway still pins it, so a later filter
+		// change cannot silently move the cards to another shop. The results are
+		// the same either way — only the shop they quote changes — so the URL
+		// moves without a refetch.
+		focusChoice = storeId;
+		skipNextSearch = true;
+		pushUrl();
+	}
+
+	/** @param {number} gameId */
+	function toggleExpand(gameId) {
+		expandedGame = expandedGame === gameId ? null : gameId;
 	}
 
 	function resetFilters() {
@@ -431,6 +482,10 @@
 	afterNavigate(async ({ type }) => {
 		const savedScroll = type === 'popstate' ? Number(sessionStorage.getItem(scrollKey) || '0') : 0;
 		decodeFromUrl(type);
+		if (skipNextSearch) {
+			skipNextSearch = false;
+			return;
+		}
 		await search();
 		if (savedScroll) {
 			sessionStorage.removeItem(scrollKey);
@@ -534,7 +589,7 @@
 	<!-- Sort panel -->
 	{#if showSort}
 		<div transition:fly={{ y: -8, duration: 180 }}>
-			<SortMenu {fields} bind:sorts onapply={applyFilters} />
+			<SortMenu {fields} {stores} bind:sorts onapply={applyFilters} />
 		</div>
 	{/if}
 
@@ -562,11 +617,45 @@
 		</div>
 	{/if}
 
-	<!-- Results count -->
+	<!-- Results count + which shop the cards speak from -->
 	{#if !loading && total > 0}
-		<p class="text-sm text-muted-foreground">
-			{countLabel ? countLabel(total) : `${total} result${total === 1 ? '' : 's'}`}
-		</p>
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+			<p class="text-sm text-muted-foreground">
+				{countLabel ? countLabel(total) : `${total} result${total === 1 ? '' : 's'}`}
+			</p>
+			{#if stores.length > 1}
+				<div class="flex flex-wrap items-center gap-1">
+					<span class="text-xs text-muted-foreground">Prices from</span>
+					<button
+						onclick={() => setFocus(null)}
+						aria-pressed={focusStore === null}
+						class="rounded-full border px-2.5 py-0.5 text-xs transition-colors {focusStore === null
+							? 'border-primary bg-primary text-primary-foreground'
+							: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+					>
+						Cheapest shop
+					</button>
+					{#each stores as store (store.id)}
+						<button
+							onclick={() => setFocus(store.id)}
+							aria-pressed={focusStore === store.id}
+							title="Quote {store.name} on every card, whoever is cheapest"
+							class="flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors {focusStore ===
+							store.id
+								? 'border-primary bg-primary text-primary-foreground'
+								: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+						>
+							<span
+								class="size-1.5 rounded-full"
+								style="background:{storeColors.of(store.id)}"
+								aria-hidden="true"
+							></span>
+							{store.name}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
 	{/if}
 
 	<!-- Results -->
@@ -588,11 +677,23 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-			{#each shown as item, i (item.product.id)}
-				{#if hiddenLast && item.game?.hidden && !shown[i - 1]?.game?.hidden}
-					<HiddenDivider />
-				{/if}
-				<ProductCard {item} onedit={openEdit} />
+			{#each rendered as row (row.key)}
+				<div
+					animate:flip={{ duration: 260 }}
+					class={row.divider || expandedGame === row.gameId ? 'col-span-full' : ''}
+				>
+					{#if row.divider}
+						<HiddenDivider />
+					{:else}
+						<ProductCard
+							item={row.item}
+							{focusStore}
+							expanded={expandedGame === row.gameId}
+							onexpand={toggleExpand}
+							onedit={openEdit}
+						/>
+					{/if}
+				</div>
 			{/each}
 		</div>
 		<InfiniteScroll

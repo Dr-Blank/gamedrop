@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/svelte';
+
+// Chart.js needs a real canvas, which jsdom has not got.
+vi.mock('$lib/components/PriceChart.svelte', async () => ({
+	default: (await import('./fixtures/Blank.svelte')).default
+}));
+
 import ProductCard from '$lib/components/ProductCard.svelte';
 import { gamePricing } from '$lib/gamePricing.js';
 import { alignSeries, segmentInStock } from '$lib/priceSeries.js';
@@ -11,7 +17,7 @@ const offer = (over = {}) => ({
 	available: true,
 	compare_at_price: null,
 	url: 'https://a/p',
-	price_history: [{ price: 400 }],
+	price_history: [{ price: 400, available: true, recorded_at: '2026-01-01T00:00:00' }],
 	...over
 });
 
@@ -74,6 +80,73 @@ describe('gamePricing', () => {
 	});
 });
 
+describe("gamePricing from one shop's side", () => {
+	const threeShops = () =>
+		compare([
+			offer({ product_id: 1, store_id: 'a', price: 400, available: true }),
+			offer({ product_id: 2, store_id: 'b', price: 500, available: true }),
+			offer({ product_id: 3, store_id: 'c', price: 900, available: true })
+		]);
+
+	it('quotes the focused shop even when another is cheaper', () => {
+		const pricing = gamePricing(threeShops(), 'b');
+		expect(pricing.primary.store_id).toBe('b');
+		expect(pricing.focused).toBe(true);
+		expect(pricing.best.store_id).toBe('a');
+	});
+
+	it('measures the quote against the best price at any other shop', () => {
+		expect(gamePricing(threeShops(), 'b').rival.store_id).toBe('a');
+		expect(gamePricing(threeShops(), 'a').rival.store_id).toBe('b');
+	});
+
+	it("warns only about the focused shop's own sold-out offer", () => {
+		const pricing = gamePricing(
+			compare([
+				offer({ product_id: 1, store_id: 'a', price: 300, available: false }),
+				offer({ product_id: 2, store_id: 'b', price: 500, available: true })
+			]),
+			'b'
+		);
+		// The cheaper sold-out offer is at another shop — the rival line's job.
+		expect(pricing.blocked).toBeNull();
+		expect(pricing.savings).toBe(0);
+		expect(pricing.rival.store_id).toBe('a');
+	});
+
+	it('still flags a sold-out bargain at the focused shop itself', () => {
+		const pricing = gamePricing(
+			compare([
+				offer({ product_id: 1, store_id: 'b', price: 300, available: false }),
+				offer({ product_id: 2, store_id: 'b', price: 500, available: true }),
+				offer({ product_id: 3, store_id: 'a', price: 900, available: true })
+			]),
+			'b'
+		);
+		expect(pricing.primary.price).toBe(500);
+		expect(pricing.blocked.price).toBe(300);
+		expect(pricing.savings).toBe(200);
+	});
+
+	it('falls back to the cheapest when the focused shop does not sell it', () => {
+		const pricing = gamePricing(threeShops(), 'not-a-shop');
+		expect(pricing.primary.store_id).toBe('a');
+		expect(pricing.focused).toBe(false);
+	});
+
+	it("prefers a shop's buyable listing over its cheaper sold-out one", () => {
+		const pricing = gamePricing(
+			compare([
+				offer({ product_id: 1, store_id: 'a', price: 300, available: false }),
+				offer({ product_id: 2, store_id: 'a', price: 450, available: true }),
+				offer({ product_id: 3, store_id: 'b', price: 500, available: true })
+			]),
+			'a'
+		);
+		expect(pricing.primary.price).toBe(450);
+	});
+});
+
 describe('ProductCard for a game sold by two shops', () => {
 	const item = {
 		product: {
@@ -106,6 +179,30 @@ describe('ProductCard for a game sold by two shops', () => {
 	it('shows in stock, because the quoted offer is the buyable one', () => {
 		render(ProductCard, { props: { item } });
 		expect(screen.getByText('In stock')).toBeInTheDocument();
+	});
+
+	it('quotes the shop in focus and says what it costs over the cheapest', () => {
+		const focusItem = {
+			...item,
+			compare: compare([
+				offer({ product_id: 1, store_id: 'store-a', price: 400, available: true }),
+				offer({ product_id: 2, store_id: 'store-b', price: 600, available: true })
+			])
+		};
+		render(ProductCard, { props: { item: focusItem, focusStore: 'store-b' } });
+		expect(screen.getByText(/at store-b/)).toBeInTheDocument();
+		expect(screen.getByText(/200 more than store-a/)).toBeInTheDocument();
+	});
+
+	it('opens the shop comparison only once expanded', async () => {
+		const onexpand = vi.fn();
+		const { rerender } = render(ProductCard, { props: { item, onexpand } });
+		expect(screen.queryByRole('table')).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: /Compare every shop/ }));
+		expect(onexpand).toHaveBeenCalledWith(7);
+
+		await rerender({ item, onexpand, expanded: true });
+		expect(screen.getByRole('table')).toBeInTheDocument();
 	});
 
 	it('drops the comparison line when the cheapest offer is buyable', () => {
