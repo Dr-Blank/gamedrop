@@ -1,13 +1,23 @@
 <script>
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
-	import { ArrowUp, ArrowDown, Plus, Trash2, X } from '@lucide/svelte';
+	import { ArrowUp, ArrowDown, Plus, Trash2, X, GitCompareArrows } from '@lucide/svelte';
 
 	let {
 		fields = /** @type {any[]} */ ([]),
-		sorts = $bindable(/** @type {Array<{field:string,dir:string}>} */ ([])),
+		stores = /** @type {any[]} */ ([]),
+		sorts = $bindable(/** @type {any[]} */ ([])),
 		onapply = /** @type {(()=>void)|null} */ (null)
 	} = $props();
+
+	// A gap against this store means "against whichever other shop is
+	// cheapest", which keeps working as shops are added.
+	const ANY_OTHER = '*';
+
+	/** A shop cannot be measured against itself. */
+	function keepRivalDistinct(sort) {
+		if (sort.store_b === sort.store_a) sort.store_b = ANY_OTHER;
+	}
 
 	// The orderings worth one click. Anything else is built below.
 	const PRESETS = [
@@ -28,6 +38,27 @@
 	/** @param {{field:string,dir:string}} sort */
 	function isActive(sort) {
 		return sorts.length === 1 && sorts[0].field === sort.field && sorts[0].dir === sort.dir;
+	}
+
+	function addGapSort() {
+		const first = stores[0]?.id;
+		if (!first) return;
+		sorts = [
+			...sorts,
+			{
+				type: 'store_gap',
+				store_a: first,
+				store_b: ANY_OTHER,
+				mode: 'abs',
+				stock: 'in_stock',
+				dir: 'asc'
+			}
+		];
+	}
+
+	/** @param {string} id */
+	function storeName(id) {
+		return stores.find((s) => s.id === id)?.name ?? id;
 	}
 
 	/** @param {{field:string,dir:string}} sort */
@@ -86,25 +117,75 @@
 			</p>
 			<div class="space-y-1.5">
 				{#each sorts as sort, i (i)}
-					<div class="flex items-center gap-1.5">
+					<div class="flex flex-wrap items-center gap-1.5">
 						<span class="w-4 text-center text-xs text-muted-foreground">{i + 1}</span>
-						<select
-							bind:value={sort.field}
-							aria-label="Sort field"
-							class="h-7 flex-1 rounded border bg-background px-2 text-xs"
-						>
-							{#each sortableFields as f}
-								<option value={f.name}>{f.label}</option>
-							{/each}
-						</select>
-						<select
-							bind:value={sort.dir}
-							aria-label="Sort direction"
-							class="h-7 w-24 rounded border bg-background px-2 text-xs"
-						>
-							<option value="asc">↑ asc</option>
-							<option value="desc">↓ desc</option>
-						</select>
+						{#if sort.type === 'store_gap'}
+							<span class="text-xs text-muted-foreground">Gap</span>
+							<select
+								bind:value={sort.store_a}
+								onchange={() => keepRivalDistinct(sort)}
+								aria-label="Gap store"
+								class="h-7 rounded border bg-background px-2 text-xs"
+							>
+								{#each stores as store (store.id)}
+									<option value={store.id}>{store.name}</option>
+								{/each}
+							</select>
+							<span class="text-xs text-muted-foreground">vs</span>
+							<select
+								bind:value={sort.store_b}
+								aria-label="Gap rival store"
+								class="h-7 rounded border bg-background px-2 text-xs"
+							>
+								<option value={ANY_OTHER}>cheapest other shop</option>
+								{#each stores.filter((st) => st.id !== sort.store_a) as store (store.id)}
+									<option value={store.id}>{store.name}</option>
+								{/each}
+							</select>
+							<select
+								bind:value={sort.mode}
+								aria-label="Gap unit"
+								class="h-7 rounded border bg-background px-2 text-xs"
+							>
+								<option value="abs">₹</option>
+								<option value="pct">%</option>
+							</select>
+							<select
+								bind:value={sort.stock}
+								aria-label="Gap stock scope"
+								class="h-7 rounded border bg-background px-2 text-xs"
+							>
+								<option value="in_stock">in stock only</option>
+								<option value="any">stocked or not</option>
+							</select>
+							<select
+								bind:value={sort.dir}
+								aria-label="Sort direction"
+								title="Ascending puts the biggest saving at {storeName(sort.store_a)} first"
+								class="h-7 w-28 rounded border bg-background px-2 text-xs"
+							>
+								<option value="asc">↑ cheapest here</option>
+								<option value="desc">↓ dearest here</option>
+							</select>
+						{:else}
+							<select
+								bind:value={sort.field}
+								aria-label="Sort field"
+								class="h-7 flex-1 rounded border bg-background px-2 text-xs"
+							>
+								{#each sortableFields as f}
+									<option value={f.name}>{f.label}</option>
+								{/each}
+							</select>
+							<select
+								bind:value={sort.dir}
+								aria-label="Sort direction"
+								class="h-7 w-24 rounded border bg-background px-2 text-xs"
+							>
+								<option value="asc">↑ asc</option>
+								<option value="desc">↓ desc</option>
+							</select>
+						{/if}
 						<button
 							onclick={() => moveSort(i, -1)}
 							disabled={i === 0}
@@ -130,12 +211,23 @@
 						</button>
 					</div>
 				{/each}
-				<button
-					onclick={addSort}
-					class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-				>
-					<Plus class="size-3" /> Add sort
-				</button>
+				<div class="flex gap-1.5">
+					<button
+						onclick={addSort}
+						class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+					>
+						<Plus class="size-3" /> Add sort
+					</button>
+					{#if stores.length > 1}
+						<button
+							onclick={addGapSort}
+							title="Order by how far one shop's price sits from another's"
+							class="flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+						>
+							<GitCompareArrows class="size-3" /> Add store gap
+						</button>
+					{/if}
+				</div>
 			</div>
 		</div>
 

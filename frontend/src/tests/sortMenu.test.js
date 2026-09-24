@@ -92,3 +92,60 @@ describe('SortMenu builder', () => {
 		expect(onapply).toHaveBeenCalledOnce();
 	});
 });
+
+describe('SortMenu store gap', () => {
+	const stores = [
+		{ id: 'a', name: 'Shop A' },
+		{ id: 'b', name: 'Shop B' }
+	];
+
+	it('offers the gap row only once there is more than one shop', () => {
+		render(SortMenu, { props: { fields, stores: [stores[0]] } });
+		expect(screen.queryByRole('button', { name: /Add store gap/ })).not.toBeInTheDocument();
+	});
+
+	it('adds a gap measured against whichever other shop is cheapest', async () => {
+		render(SortMenu, { props: { fields, stores, sorts: [] } });
+		await fireEvent.click(screen.getByRole('button', { name: /Add store gap/ }));
+		expect(screen.getByLabelText('Gap store')).toHaveValue('a');
+		expect(screen.getByLabelText('Gap rival store')).toHaveValue('*');
+		expect(screen.getByLabelText('Gap stock scope')).toHaveValue('in_stock');
+	});
+
+	it('keeps a gap row out of the plain field editor', () => {
+		render(SortMenu, {
+			props: {
+				fields,
+				stores,
+				sorts: [
+					{ type: 'store_gap', store_a: 'a', store_b: '*', mode: 'abs', stock: 'any', dir: 'asc' }
+				]
+			}
+		});
+		expect(screen.queryByLabelText('Sort field')).not.toBeInTheDocument();
+		expect(screen.getByLabelText('Gap unit')).toHaveValue('abs');
+	});
+
+	it('drops a rival that the measured shop has just become', async () => {
+		const sorts = [
+			{ type: 'store_gap', store_a: 'a', store_b: 'b', mode: 'abs', stock: 'any', dir: 'asc' }
+		];
+		render(SortMenu, { props: { fields, stores, sorts } });
+		await fireEvent.change(screen.getByLabelText('Gap store'), { target: { value: 'b' } });
+		expect(sorts[0].store_b).toBe('*');
+	});
+
+	it('never offers a shop as its own rival', () => {
+		render(SortMenu, {
+			props: {
+				fields,
+				stores,
+				sorts: [
+					{ type: 'store_gap', store_a: 'a', store_b: 'b', mode: 'abs', stock: 'any', dir: 'asc' }
+				]
+			}
+		});
+		const rivals = [...screen.getByLabelText('Gap rival store').options].map((o) => o.value);
+		expect(rivals).toEqual(['*', 'b']);
+	});
+});

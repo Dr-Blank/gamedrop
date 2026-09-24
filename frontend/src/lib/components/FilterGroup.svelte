@@ -83,11 +83,22 @@
 			op: 'lt',
 			store_b: b,
 			value: 0,
-			mode: 'abs'
+			mode: 'abs',
+			stock: 'in_stock'
 		});
 	}
 
+	// Compare against whichever other shop is cheapest, so the filter keeps
+	// working as shops are added.
+	const ANY_OTHER_STORE = '*';
+
+	/** A shop cannot be its own rival. */
+	function keepRivalDistinct(cond) {
+		if (cond.store_b === cond.store_a) cond.store_b = ANY_OTHER_STORE;
+	}
+
 	function storeName(id) {
+		if (id === ANY_OTHER_STORE) return 'any other shop';
 		return stores.find((s) => s.id === id)?.name ?? id;
 	}
 
@@ -269,7 +280,12 @@
 		{:else if cond.type === 'store_compare'}
 			<div class="flex flex-wrap items-center gap-1.5 pl-2">
 				<!-- Store A -->
-				<select bind:value={cond.store_a} class="h-7 rounded border bg-background px-2 text-xs">
+				<select
+					bind:value={cond.store_a}
+					onchange={() => keepRivalDistinct(cond)}
+					aria-label="Compared store"
+					class="h-7 rounded border bg-background px-2 text-xs"
+				>
 					{#each stores as s}
 						<option value={s.id}>{s.name}</option>
 					{/each}
@@ -278,8 +294,13 @@
 				<span class="text-xs text-muted-foreground">−</span>
 
 				<!-- Store B -->
-				<select bind:value={cond.store_b} class="h-7 rounded border bg-background px-2 text-xs">
-					{#each stores as s}
+				<select
+					bind:value={cond.store_b}
+					aria-label="Rival store"
+					class="h-7 rounded border bg-background px-2 text-xs"
+				>
+					<option value={ANY_OTHER_STORE}>cheapest other shop</option>
+					{#each stores.filter((s) => s.id !== cond.store_a) as s}
 						<option value={s.id}>{s.name}</option>
 					{/each}
 				</select>
@@ -301,9 +322,24 @@
 					class="h-7 w-24 rounded border bg-background px-2 text-xs"
 				/>
 
-				<select bind:value={cond.mode} class="h-7 rounded border bg-background px-2 text-xs">
+				<select
+					bind:value={cond.mode}
+					aria-label="Gap unit"
+					class="h-7 rounded border bg-background px-2 text-xs"
+				>
 					<option value="abs">amount</option>
 					<option value="pct">%</option>
+				</select>
+
+				<select
+					value={cond.stock ?? 'in_stock'}
+					onchange={(e) => (cond.stock = e.currentTarget.value)}
+					aria-label="Gap stock scope"
+					title="Out-of-stock offers make a gap you cannot act on — count them only when asked"
+					class="h-7 rounded border bg-background px-2 text-xs"
+				>
+					<option value="in_stock">in stock only</option>
+					<option value="any">stocked or not</option>
 				</select>
 
 				<button
