@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.filter_engine import (
@@ -28,9 +29,9 @@ from app.filter_engine import (
     StoreCompare,
     _infer_type,
     apply_filter,
-    apply_sorts,
     auto_register_model,
     build_field_registry,
+    build_sorts,
     describe_fields,
 )
 from app.models import BggCache, Game, PriceSnapshot, Product, Store, WatchlistItem
@@ -546,7 +547,7 @@ def test_deeply_nested_group(session: Session):
 
 
 # ---------------------------------------------------------------------------
-# Unit: apply_sorts — multi-sort priority
+# Unit: build_sorts — multi-sort priority
 # ---------------------------------------------------------------------------
 
 
@@ -673,7 +674,7 @@ def test_unknown_sort_field():
     reg = build_field_registry(_bgg_subq(), _first_seen_subq())
     stmt = select(Product)
     with pytest.raises(ValueError, match="Unknown sort field"):
-        apply_sorts(stmt, [SortSpec(field="nonexistent_xyz")], reg)
+        build_sorts(stmt, [SortSpec(field="nonexistent_xyz")], reg)
 
 
 # ---------------------------------------------------------------------------
@@ -1677,3 +1678,98 @@ def test_first_seen_filters_on_the_boundary(session: Session):
         ),
     )
     assert [g.title for _, _, g in rows] == ["New"]
+
+
+# ---------------------------------------------------------------------------
+# store_compare against every other store, and against stock
+# ---------------------------------------------------------------------------
+
+
+def _game_at_stores(session: Session, title: str, offers: dict[str, tuple]):
+    """One game listed at several stores: {store_id: (price, available)}."""
+    game = Game(title=title)
+    session.add(game)
+    session.flush()
+    for store_id, (price, available) in offers.items():
+        p = make_product(
+            session,
+            store_id=store_id,
+            external_id=f"{store_id}-{title}",
+            title=title,
+            game=game,
+        )
+        session.add(PriceSnapshot(product_id=p.id, price=price, available=available))
+    session.commit()
+    return game
+
+
+def test_store_compare_wildcard_matches_against_cheapest_other_store(
+    session: Session,
+):
+    for sid in ("s1", "s2", "s3"):
+        _store(session, sid=sid, name=sid)
+    beats_all = _game_at_stores(
+        session,
+        "BeatsAll",
+        {"s1": (500.0, True), "s2": (900.0, True), "s3": (800.0, True)},
+    )
+    beats_one = _game_at_stores(
+        session,
+        "BeatsOne",
+        {"s1": (850.0, True), "s2": (900.0, True), "s3": (800.0, True)},
+    )
+
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="*", op="lt")
+    )
+    matched = {g.id for _, _, g in rows}
+    assert beats_all.id in matched
+    assert beats_one.id not in matched
+
+
+def test_store_compare_in_stock_only_ignores_unbuyable_offer(session: Session):
+    _store(session, sid="s1", name="s1")
+    _store(session, sid="s2", name="s2")
+    game = _game_at_stores(
+        session, "OutAtB", {"s1": (900.0, True), "s2": (100.0, False)}
+    )
+
+    cheaper_any = query_products(
+        session,
+        filter_node=StoreCompare(store_a="s1", store_b="s2", op="lt", stock="any"),
+    )
+    cheaper_in_stock = query_products(
+        session,
+        filter_node=StoreCompare(store_a="s1", store_b="s2", op="lt", stock="in_stock"),
+    )
+    assert game.id not in {g.id for _, _, g in cheaper_any}
+    # With nothing buyable at B there is no comparison to make, so no match.
+    assert game.id not in {g.id for _, _, g in cheaper_in_stock}
+
+
+def test_store_compare_uses_cheapest_listing_when_a_store_lists_twice(
+    session: Session,
+):
+    _store(session, sid="s1", name="s1")
+    _store(session, sid="s2", name="s2")
+    game = _game_at_stores(session, "Twice", {"s1": (900.0, True), "s2": (800.0, True)})
+    extra = make_product(
+        session, store_id="s1", external_id="s1-dupe", title="Twice", game=game
+    )
+    session.add(PriceSnapshot(product_id=extra.id, price=700.0, available=True))
+    session.commit()
+
+    rows = query_products(
+        session, filter_node=StoreCompare(store_a="s1", store_b="s2", op="lt")
+    )
+    assert [g.id for _, _, g in rows] == [game.id]
+
+
+def test_store_compare_rejects_wildcard_on_the_measured_side():
+    """`*` names the rival, never the shop being measured."""
+    with pytest.raises(ValidationError):
+        StoreCompare(store_a="*", store_b="s2", op="lt")
+
+
+def test_store_compare_defaults_to_buyable_offers():
+    assert StoreCompare(store_a="s1", store_b="s2", op="lt").stock == "in_stock"

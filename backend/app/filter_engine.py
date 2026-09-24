@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, func, not_, or_, select
 from sqlmodel import SQLModel
 
@@ -376,6 +376,18 @@ _STORE_CMP_FUNCS: dict[str, Any] = {
 _STORE_CMP_OPS = frozenset(_STORE_CMP_FUNCS)
 
 
+#: `store_b` value meaning "whichever other store is cheapest", so a comparison
+#: keeps working as stores are added instead of needing a pair per store.
+ANY_OTHER_STORE = "*"
+
+
+def _reject_wildcard(store_id: str) -> str:
+    """The side being measured must name a shop; only its rival may be `*`."""
+    if store_id == ANY_OTHER_STORE:
+        raise ValueError("store_a must name a store")
+    return store_id
+
+
 class StoreCompare(BaseModel):
     """Compare a game's latest price at two stores by their difference.
 
@@ -389,6 +401,12 @@ class StoreCompare(BaseModel):
     op: str
     value: float = 0
     mode: Literal["abs", "pct"] = "abs"
+    stock: Literal["any", "in_stock"] = "in_stock"
+
+    @field_validator("store_a")
+    @classmethod
+    def _named_store(cls, v: str) -> str:
+        return _reject_wildcard(v)
 
 
 class ChangeWindow(BaseModel):
@@ -428,8 +446,35 @@ Group.model_rebuild()  # resolve forward ref
 
 
 class SortSpec(BaseModel):
+    type: Literal["field"] = "field"
     field: str
     dir: Literal["asc", "desc"] = "asc"
+
+
+class StoreGapSort(BaseModel):
+    """Order by how far a game's price at one store sits from another's.
+
+    A registry field cannot carry the two stores the gap is measured between,
+    so this is a sort term of its own rather than a field name. `store_b` of
+    `*` means the cheapest other store, which is the ordering that survives
+    stores being added.
+    """
+
+    type: Literal["store_gap"] = "store_gap"
+    store_a: str
+    store_b: str = ANY_OTHER_STORE
+    mode: Literal["abs", "pct"] = "abs"
+    stock: Literal["any", "in_stock"] = "in_stock"
+    dir: Literal["asc", "desc"] = "asc"
+
+    @field_validator("store_a")
+    @classmethod
+    def _named_store(cls, v: str) -> str:
+        return _reject_wildcard(v)
+
+
+#: Not discriminated: a saved sort predates the `type` tag and must still load.
+SortTerm = StoreGapSort | SortSpec
 
 
 # ---------------------------------------------------------------------------
@@ -505,13 +550,20 @@ def _apply_change_window(node: ChangeWindow) -> Any:
     return Game.id.in_(changed_games)
 
 
-def _apply_store_compare(node: StoreCompare) -> Any:
-    """Game.id IN (games whose store_a − store_b latest price gap `op` `value`)."""
-    cmp_func = _STORE_CMP_FUNCS.get(node.op)
-    if cmp_func is None:
-        raise ValueError(f"Unknown store_compare op: {node.op!r}")
+def _store_price_subq(
+    store_id: str,
+    stock: str,
+    *,
+    name: str,
+    exclude: str | None = None,
+) -> Any:
+    """(game_id, price) — a store's cheapest current price per game.
 
-    from .models import Game, PriceSnapshot, Product
+    Grouped rather than raw so a shop listing the same game twice contributes
+    one price, which keeps the comparison a per-game scalar and lets callers
+    join it without multiplying rows.
+    """
+    from .models import PriceSnapshot, Product
     from .snapshots import effective
 
     latest = (
@@ -523,11 +575,15 @@ def _apply_store_compare(node: StoreCompare) -> Any:
         .group_by(PriceSnapshot.product_id)
         .subquery()
     )
-    per_store_stmt = (
+    where = [Product.store_id != exclude] if store_id == ANY_OTHER_STORE else []
+    if store_id != ANY_OTHER_STORE:
+        where.append(Product.store_id == store_id)
+    if stock == "in_stock":
+        where.append(PriceSnapshot.available == True)  # noqa: E712
+    return (
         select(
             Product.game_id.label("game_id"),
-            Product.store_id.label("store_id"),
-            PriceSnapshot.price.label("price"),
+            func.min(PriceSnapshot.price).label("price"),
         )
         .join(latest, Product.id == latest.c.product_id)
         .join(
@@ -536,20 +592,37 @@ def _apply_store_compare(node: StoreCompare) -> Any:
             & (PriceSnapshot.recorded_at == latest.c.max_date)
             & effective(),
         )
+        .where(*where)
+        .group_by(Product.game_id)
+        .subquery(name)
     )
-    a = per_store_stmt.subquery("store_a")
-    b = per_store_stmt.subquery("store_b")
 
-    clauses = [a.c.store_id == node.store_a, b.c.store_id == node.store_b]
-    if node.mode == "pct":
-        gap: Any = (a.c.price - b.c.price) / b.c.price * 100
-        clauses.append(b.c.price > 0)  # percentage is undefined against a zero base
-    else:
-        gap = a.c.price - b.c.price
-    clauses.append(cmp_func(gap, node.value))
 
+def _gap_expr(a: Any, b: Any, mode: str) -> Any:
+    """store A − store B, as an amount or as a percentage of B."""
+    if mode != "pct":
+        return a.c.price - b.c.price
+    from sqlalchemy import case
+
+    # A percentage is undefined against a zero base — leave it unranked.
+    return case((b.c.price > 0, (a.c.price - b.c.price) / b.c.price * 100), else_=None)
+
+
+def _apply_store_compare(node: StoreCompare) -> Any:
+    """Game.id IN (games whose store_a − store_b latest price gap `op` `value`)."""
+    cmp_func = _STORE_CMP_FUNCS.get(node.op)
+    if cmp_func is None:
+        raise ValueError(f"Unknown store_compare op: {node.op!r}")
+
+    from .models import Game
+
+    a = _store_price_subq(node.store_a, node.stock, name="cmp_a")
+    b = _store_price_subq(node.store_b, node.stock, name="cmp_b", exclude=node.store_a)
+    gap = _gap_expr(a, b, node.mode)
     matching_games = (
-        select(a.c.game_id).join(b, a.c.game_id == b.c.game_id).where(*clauses)
+        select(a.c.game_id)
+        .join(b, a.c.game_id == b.c.game_id)
+        .where(cmp_func(gap, node.value))
     )
     return Game.id.in_(matching_games)
 
@@ -679,25 +752,42 @@ def _apply_group(group: Group, registry: dict[str, FieldDef]) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def apply_sorts(stmt: Any, specs: list[SortSpec], registry: dict[str, FieldDef]) -> Any:
-    """Apply priority multi-sort chain to statement."""
-    for spec in specs:
+def order_clause(expr: Any, direction: str) -> Any:
+    """Direction + null placement for one ordering expression."""
+    return expr.desc().nulls_last() if direction == "desc" else expr.asc().nulls_last()
+
+
+def build_sorts(
+    stmt: Any, specs: list[SortTerm], registry: dict[str, FieldDef]
+) -> tuple[Any, list[tuple[Any, str]]]:
+    """Resolve sort terms to (expression, direction) pairs.
+
+    Returns the statement too, because a store-gap term joins the per-store
+    prices it orders by. Expressions are handed back instead of applied so the
+    caller can also select them — paging needs them as columns.
+    """
+    from .models import Game
+
+    terms: list[tuple[Any, str]] = []
+    for i, spec in enumerate(specs):
+        if isinstance(spec, StoreGapSort):
+            a = _store_price_subq(spec.store_a, spec.stock, name=f"gap_a{i}")
+            b = _store_price_subq(
+                spec.store_b, spec.stock, name=f"gap_b{i}", exclude=spec.store_a
+            )
+            stmt = stmt.join(a, a.c.game_id == Game.id, isouter=True).join(
+                b, b.c.game_id == Game.id, isouter=True
+            )
+            terms.append((_gap_expr(a, b, spec.mode), spec.dir))
+            continue
         if spec.field not in registry:
             raise ValueError(f"Unknown sort field: {spec.field!r}")
         fd = registry[spec.field]
         if not fd.sortable:
             raise ValueError(f"Field {spec.field!r} is not sortable")
-        if spec.field == "random":
-            stmt = stmt.order_by(func.random())
-        else:
-            expr = fd.expr
-            clause = (
-                expr.desc().nulls_last()
-                if spec.dir == "desc"
-                else expr.asc().nulls_last()
-            )
-            stmt = stmt.order_by(clause)
-    return stmt
+        expr = func.random() if spec.field == "random" else fd.expr
+        terms.append((expr, spec.dir))
+    return stmt, terms
 
 
 # ---------------------------------------------------------------------------
@@ -707,7 +797,7 @@ def apply_sorts(stmt: Any, specs: list[SortSpec], registry: dict[str, FieldDef])
 
 class BrowseQuery(BaseModel):
     filters: FilterNode | None = None
-    sorts: list[SortSpec] = []
+    sorts: list[SortTerm] = []
     page: int = Field(default=1, ge=1)
     limit: int = Field(default=48, ge=1, le=200)
     include_hidden: bool = False
@@ -719,6 +809,6 @@ class BrowseExportQuery(BaseModel):
     """A browse query without paging — an export covers every match at once."""
 
     filters: FilterNode | None = None
-    sorts: list[SortSpec] = []
+    sorts: list[SortTerm] = []
     include_hidden: bool = False
     hidden_last: bool = False

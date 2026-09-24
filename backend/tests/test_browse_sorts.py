@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import BggCache, PriceSnapshot, Product, Store
+from app.models import BggCache, Game, PriceSnapshot, Product, Store
 
 from .factories import make_product
 
@@ -186,3 +186,220 @@ def test_sort_unknown_returns_422(client: TestClient):
         json={"sorts": [{"field": "nonexistent_field", "dir": "asc"}]},
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# store_gap sort — ordering by the price gap between two stores
+# ---------------------------------------------------------------------------
+
+
+def _multi_store_game(session: Session, title: str, offers: dict[str, tuple]):
+    """One game listed at several stores: {store_id: (price, available)}."""
+    game = Game(title=title)
+    session.add(game)
+    session.flush()
+    for store_id, (price, available) in offers.items():
+        p = make_product(
+            session,
+            store_id=store_id,
+            external_id=f"{store_id}-{title}",
+            title=title,
+            game=game,
+        )
+        session.add(PriceSnapshot(product_id=p.id, price=price, available=available))
+    session.commit()
+    return game
+
+
+def _gap_sort(**kwargs):
+    return [{"type": "store_gap", "store_a": "s1", **kwargs}]
+
+
+def _titles(client: TestClient, sorts, **kwargs):
+    r = client.post("/api/browse/query", json=_q(sorts=sorts, **kwargs))
+    assert r.status_code == 200, r.text
+    return [i["game"]["title"] for i in r.json()["items"]]
+
+
+def test_store_gap_sort_orders_by_saving(client: TestClient, session: Session):
+    _store(session, "s1")
+    _store(session, "s2")
+    _multi_store_game(session, "BigSaving", {"s1": (700.0, True), "s2": (1000.0, True)})
+    _multi_store_game(
+        session, "SmallSaving", {"s1": (950.0, True), "s2": (1000.0, True)}
+    )
+    _multi_store_game(session, "Dearer", {"s1": (1100.0, True), "s2": (1000.0, True)})
+
+    asc = _titles(client, _gap_sort(store_b="s2", dir="asc"))
+    assert asc == ["BigSaving", "SmallSaving", "Dearer"]
+    assert _titles(client, _gap_sort(store_b="s2", dir="desc")) == asc[::-1]
+
+
+def test_store_gap_sort_pct_mode_ranks_by_share_not_amount(
+    client: TestClient, session: Session
+):
+    _store(session, "s1")
+    _store(session, "s2")
+    # 100 off 200 is a deeper cut than 150 off 2000.
+    _multi_store_game(session, "Half", {"s1": (100.0, True), "s2": (200.0, True)})
+    _multi_store_game(session, "Sliver", {"s1": (1850.0, True), "s2": (2000.0, True)})
+
+    assert _titles(client, _gap_sort(store_b="s2", mode="pct", dir="asc")) == [
+        "Half",
+        "Sliver",
+    ]
+
+
+def test_store_gap_sort_wildcard_compares_cheapest_other_store(
+    client: TestClient, session: Session
+):
+    """`*` measures against whichever other store is cheapest, not a named one."""
+    for sid in ("s1", "s2", "s3"):
+        _store(session, sid)
+    _multi_store_game(
+        session,
+        "BeatsBoth",
+        {"s1": (500.0, True), "s2": (900.0, True), "s3": (800.0, True)},
+    )
+    _multi_store_game(
+        session,
+        "BeatsOne",
+        {"s1": (850.0, True), "s2": (900.0, True), "s3": (800.0, True)},
+    )
+
+    assert _titles(client, _gap_sort(store_b="*", dir="asc")) == [
+        "BeatsBoth",
+        "BeatsOne",
+    ]
+
+
+def test_store_gap_sort_in_stock_only_skips_unbuyable_offer(
+    client: TestClient, session: Session
+):
+    _store(session, "s1")
+    _store(session, "s2")
+    _store(session, "s3")
+    # s2 is cheaper but out of stock, so only s3 counts as a gap to beat.
+    _multi_store_game(
+        session,
+        "OnlyBuyable",
+        {"s1": (700.0, True), "s2": (100.0, False), "s3": (1000.0, True)},
+    )
+    _multi_store_game(session, "Plain", {"s1": (950.0, True), "s3": (1000.0, True)})
+
+    assert _titles(client, _gap_sort(store_b="*", stock="in_stock", dir="asc")) == [
+        "OnlyBuyable",
+        "Plain",
+    ]
+    # With stock ignored, the out-of-stock ₹100 offer makes the same game dearest.
+    assert _titles(client, _gap_sort(store_b="*", stock="any", dir="asc")) == [
+        "Plain",
+        "OnlyBuyable",
+    ]
+
+
+def test_store_gap_sort_ranks_games_missing_a_store_last(
+    client: TestClient, session: Session
+):
+    _store(session, "s1")
+    _store(session, "s2")
+    _multi_store_game(session, "Both", {"s1": (700.0, True), "s2": (1000.0, True)})
+    _multi_store_game(session, "OnlyOne", {"s1": (10.0, True)})
+
+    assert _titles(client, _gap_sort(store_b="s2", dir="asc")) == ["Both", "OnlyOne"]
+
+
+def test_store_gap_sort_does_not_duplicate_a_double_listing(
+    client: TestClient, session: Session
+):
+    """A shop listing the same game twice still yields one card."""
+    _store(session, "s1")
+    _store(session, "s2")
+    game = _multi_store_game(
+        session, "Twice", {"s1": (700.0, True), "s2": (1000.0, True)}
+    )
+    extra = make_product(
+        session, store_id="s1", external_id="s1-dupe", title="Twice", game=game
+    )
+    session.add(PriceSnapshot(product_id=extra.id, price=720.0, available=True))
+    session.commit()
+
+    assert _titles(client, _gap_sort(store_b="s2", dir="asc")) == ["Twice"]
+
+
+def test_store_gap_sort_unknown_store_returns_no_order_error(
+    client: TestClient, session: Session
+):
+    """An unknown store is an empty comparison, not a 422."""
+    _store(session, "s1")
+    _product(session, "Lonely", 10.0)
+    r = client.post("/api/browse/query", json=_q(sorts=_gap_sort(store_b="nope")))
+    assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Paging over games — a merged game must not appear on two pages
+# ---------------------------------------------------------------------------
+
+
+def test_merged_game_not_repeated_across_pages(client: TestClient, session: Session):
+    _store(session, "s1")
+    _store(session, "s2")
+    for i in range(4):
+        _multi_store_game(
+            session, f"Game {i}", {"s1": (100.0 + i, True), "s2": (200.0 + i, True)}
+        )
+
+    seen = []
+    for page in range(1, 4):
+        r = client.post(
+            "/api/browse/query",
+            json=_q(sorts=[{"field": "title", "dir": "asc"}], page=page, limit=2),
+        )
+        assert r.status_code == 200
+        seen += [i["game"]["title"] for i in r.json()["items"]]
+
+    assert seen == ["Game 0", "Game 1", "Game 2", "Game 3"]
+
+
+def test_page_is_full_when_games_are_merged(client: TestClient, session: Session):
+    """A page holds `limit` games however many listings each of them has."""
+    _store(session, "s1")
+    _store(session, "s2")
+    for i in range(6):
+        _multi_store_game(
+            session, f"Game {i}", {"s1": (100.0 + i, True), "s2": (200.0 + i, True)}
+        )
+
+    r = client.post(
+        "/api/browse/query",
+        json=_q(sorts=[{"field": "title", "dir": "asc"}], page=1, limit=4),
+    )
+    assert r.status_code == 200
+    assert len(r.json()["items"]) == 4
+    assert r.json()["total"] == 6
+
+
+def test_store_gap_sort_rejects_wildcard_on_the_measured_side(client: TestClient):
+    r = client.post(
+        "/api/browse/query", json=_q(sorts=_gap_sort(store_a="*", store_b="s2"))
+    )
+    assert r.status_code == 422
+
+
+def test_paging_is_stable_when_the_sort_ties(client: TestClient, session: Session):
+    """Games sharing a price still page without repeats or gaps."""
+    _store(session, "s1")
+    for i in range(6):
+        _product(session, f"Tied {i}", 500.0)
+
+    seen = []
+    for page in range(1, 4):
+        r = client.post(
+            "/api/browse/query",
+            json=_q(sorts=[{"field": "price", "dir": "asc"}], page=page, limit=2),
+        )
+        assert r.status_code == 200
+        seen += [i["game"]["title"] for i in r.json()["items"]]
+
+    assert sorted(seen) == [f"Tied {i}" for i in range(6)]

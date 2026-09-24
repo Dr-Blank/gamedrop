@@ -6,12 +6,13 @@ from pydantic import BaseModel, TypeAdapter
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..filter_engine import FilterNode, SortSpec
+from ..filter_engine import FilterNode, SortTerm
 from ..models import Shelf
 from ..repositories import catalog as repo
 
 #: Parses any saved node, not only the two the builder started with.
 _FILTER_NODE = TypeAdapter(FilterNode)
+_SORT_TERMS = TypeAdapter(list[SortTerm])
 
 router = APIRouter(prefix="/shelves", tags=["shelves"])
 
@@ -20,7 +21,7 @@ class ShelfCreate(BaseModel):
     name: str
     icon: str = "Layers"
     filters: FilterNode | None = None
-    sorts: list[SortSpec] = []
+    sorts: list[SortTerm] = []
 
 
 class ShelfPatch(BaseModel):
@@ -129,7 +130,7 @@ def shelves_preview(limit: int = 8, session: Session = Depends(get_session)):
                 filter_node = _FILTER_NODE.validate_python(json.loads(shelf.filters))
         if shelf.sorts:
             with contextlib.suppress(Exception):
-                sorts = [SortSpec(**s) for s in json.loads(shelf.sorts)]
+                sorts = _SORT_TERMS.validate_python(json.loads(shelf.sorts))
         try:
             rows = repo.query_products(
                 session, filter_node=filter_node, sorts=sorts, limit=limit

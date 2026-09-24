@@ -15,11 +15,12 @@ from sqlmodel import Session, select
 
 from ..filter_engine import (
     FilterNode,
-    SortSpec,
+    SortTerm,
     apply_filter,
-    apply_sorts,
     build_field_registry,
+    build_sorts,
     filter_uses_field,
+    order_clause,
 )
 from ..models import (
     BggCache,
@@ -146,10 +147,20 @@ def _owned_subq():
 
 
 def _build_joined_stmt(
-    latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned
+    latest,
+    bgg,
+    first_seen,
+    prev_snap,
+    watchlist,
+    store_count,
+    cart,
+    owned,
+    *,
+    columns=None,
 ):
     return (
-        select(Product, PriceSnapshot, Game)
+        select(*(columns or (Product, PriceSnapshot, Game)))
+        .select_from(Product)
         .join(Game, Product.game_id == Game.id)
         .join(latest, Product.id == latest.c.product_id, isouter=True)
         .join(
@@ -465,11 +476,27 @@ _DISCOUNT_ABS = case(
 )
 
 
+#: Which listing stands for a game: the cheapest one you can buy, falling back
+#: to the cheapest at all — the same offer the card quotes.
+_REPRESENTATIVE_LISTING = (
+    func.row_number()
+    .over(
+        partition_by=Game.id,
+        order_by=(
+            PriceSnapshot.available.desc().nulls_last(),
+            PriceSnapshot.price.asc().nulls_last(),
+            Product.id.asc(),
+        ),
+    )
+    .label("rn")
+)
+
+
 def query_products(
     session: Session,
     *,
     filter_node: FilterNode | None = None,
-    sorts: list[SortSpec] | None = None,
+    sorts: list[SortTerm] | None = None,
     page: int = 1,
     limit: int = 48,
     include_hidden: bool = False,
@@ -477,10 +504,9 @@ def query_products(
 ) -> list[CatalogRow]:
     """Filtered, sorted, paginated catalog rows, one per game.
 
-    A merged game keeps every listing row in the join, so duplicates are
-    collapsed per page (same approach as search): a merged
-    game whose listings straddle a page boundary can make that page come
-    back short of `limit`.
+    A merged game has one row per listing in the join, so the representative
+    listing is picked in SQL before paging — collapsing afterwards would let a
+    game whose listings straddle a page boundary come back on both pages.
     """
     latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned = (
         _subqueries()
@@ -495,7 +521,15 @@ def query_products(
         owned_subq=owned,
     )
     stmt = _build_joined_stmt(
-        latest, bgg, first_seen, prev_snap, watchlist, store_count, cart, owned
+        latest,
+        bgg,
+        first_seen,
+        prev_snap,
+        watchlist,
+        store_count,
+        cart,
+        owned,
+        columns=[Product.id.label("pid")],
     )
 
     filter_on_hidden = filter_node is not None and filter_uses_field(
@@ -507,27 +541,32 @@ def query_products(
     if filter_node is not None:
         stmt = stmt.where(apply_filter(filter_node, registry))
 
+    order: list[tuple] = []
     # Hidden games stay in the result, behind every visible one, so scrolling
     # to the end still turns them up.
     if hidden_last and not filter_on_hidden:
-        stmt = stmt.order_by(Game.hidden.asc())
-
+        order.append((Game.hidden, "asc"))
     if sorts:
-        stmt = apply_sorts(stmt, sorts, registry)
+        stmt, terms = build_sorts(stmt, sorts, registry)
+        order.extend(terms)
     else:
-        stmt = stmt.order_by(Game.title.asc())
+        order.append((Game.title, "asc"))
 
-    offset = (page - 1) * limit
-    rows = session.exec(stmt.offset(offset).limit(limit)).all()
+    stmt = stmt.add_columns(
+        _REPRESENTATIVE_LISTING,
+        *(expr.label(f"o{i}") for i, (expr, _) in enumerate(order)),
+    )
+    inner = stmt.subquery()
+    paged = select(inner.c.pid).where(inner.c.rn == 1)
+    for i, (_, direction) in enumerate(order):
+        paged = paged.order_by(order_clause(inner.c[f"o{i}"], direction))
 
-    seen: set[int] = set()
-    unique: list[CatalogRow] = []
-    for product, snap, game in rows:
-        if game.id in seen:
-            continue
-        seen.add(game.id)
-        unique.append((product, snap, game))
-    return unique
+    # Ties would otherwise page in whatever order SQLite happened to pick, which
+    # is how a game lands on two pages or on none.
+    paged = paged.order_by(inner.c.pid.asc())
+
+    ids = list(session.exec(paged.offset((page - 1) * limit).limit(limit)))
+    return _rows_by_ids(session, ids)
 
 
 def count_products(
@@ -593,7 +632,7 @@ def export_rows(
     session: Session,
     *,
     filter_node: FilterNode | None = None,
-    sorts: list[SortSpec] | None = None,
+    sorts: list[SortTerm] | None = None,
     include_hidden: bool = False,
     hidden_last: bool = False,
     limit: int = EXPORT_LIMIT,
