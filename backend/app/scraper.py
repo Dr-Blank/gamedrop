@@ -1,10 +1,11 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlmodel import Session, desc, select
+from sqlmodel import Session, desc, func, select
 
 from . import db as _db
+from .adapters.base import DEFAULTS, store_cfg
 from .adapters.opencart import OpenCartAdapter
 from .adapters.shopify import ShopifyAdapter
 from .adapters.wix import WixAdapter
@@ -386,10 +387,43 @@ async def sync_store(store: Store) -> dict:
     }
 
 
-async def sync_all_stores():
+def sync_interval(store: Store) -> timedelta:
+    """The store's configured gap between scheduled syncs."""
+    try:
+        hours = float(store_cfg(store, "sync_interval_hours"))
+    except (TypeError, ValueError):
+        hours = 0
+    if hours <= 0:
+        hours = DEFAULTS["sync_interval_hours"]
+    return timedelta(hours=hours)
+
+
+def due_stores(now: datetime, slack: timedelta = timedelta(0)) -> list[Store]:
+    """Enabled stores whose last sync attempt is at least their interval old.
+
+    Measured from the last attempt, not the last success, so a broken shop is
+    retried on its own interval rather than on every tick.
+    """
     with Session(_db.engine) as session:
+        last_attempt = dict(
+            session.exec(
+                select(SyncLog.store_id, func.max(SyncLog.started_at)).group_by(
+                    SyncLog.store_id
+                )
+            ).all()
+        )
         stores = session.exec(select(Store).where(Store.enabled)).all()
-    for store in stores:
+    return [
+        s
+        for s in stores
+        if (last := last_attempt.get(s.id)) is None
+        or now - last + slack >= sync_interval(s)
+    ]
+
+
+async def sync_due_stores(now: datetime | None = None, slack: timedelta = timedelta(0)):
+    """Sync only the stores whose own interval has elapsed."""
+    for store in due_stores(now or datetime.utcnow(), slack):
         try:
             await sync_store(store)
         except Exception:

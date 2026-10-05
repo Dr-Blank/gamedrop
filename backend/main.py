@@ -27,7 +27,7 @@ from app.routes.notifications import router as notifications_router  # noqa: E40
 from app.routes.products import router as products_router  # noqa: E402
 from app.routes.shelves import router as shelves_router  # noqa: E402
 from app.scheduler import start_scheduler  # noqa: E402
-from app.scraper import sync_all_stores  # noqa: E402
+from app.scraper import sync_due_stores  # noqa: E402
 
 setup_logging()
 log = get_logger(__name__)
@@ -252,7 +252,7 @@ async def lifespan(_app: FastAPI):
     log.info("startup: seeding shelves")
     _seed_shelves()
     log.info("startup: starting scheduler")
-    start_scheduler(sync_all_stores)
+    start_scheduler(sync_due_stores)
     log.info("startup: ready")
     yield
     log.info("shutdown")

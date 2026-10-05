@@ -331,7 +331,7 @@ def test_sync_refuses_a_store_with_no_urls(session: Session):
 
 
 def test_a_failing_store_does_not_cost_the_others_their_sync(session: Session):
-    from app.scraper import sync_all_stores
+    from app.scraper import sync_due_stores
 
     _store_with_paths(session, "/collections/a")
     ok = Store(
@@ -345,7 +345,7 @@ def test_a_failing_store_does_not_cost_the_others_their_sync(session: Session):
         {"/collections/a": RuntimeError("503 down"), "/collections/b": [_listing("e2")]}
     )
     with patch("app.scraper.get_adapter", adapter):
-        asyncio.run(sync_all_stores())
+        asyncio.run(sync_due_stores())
 
     session.expire_all()
     assert session.get(Store, "shop-b").last_sync_error is None
