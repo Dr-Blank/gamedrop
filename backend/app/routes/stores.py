@@ -40,6 +40,7 @@ DEFAULT_COLLECTION_PATHS = {
     "shopify": "/collections/board-games",
     "woocommerce": "/product-category/board-games",
     "wix": "/shop",
+    "opencart": "/board-games",
 }
 
 

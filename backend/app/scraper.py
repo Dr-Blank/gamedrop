@@ -5,6 +5,7 @@ from typing import Any
 from sqlmodel import Session, desc, select
 
 from . import db as _db
+from .adapters.opencart import OpenCartAdapter
 from .adapters.shopify import ShopifyAdapter
 from .adapters.wix import WixAdapter
 from .adapters.woocommerce import WooCommerceAdapter
@@ -35,6 +36,7 @@ ADAPTERS = {
     "shopify": ShopifyAdapter,
     "woocommerce": WooCommerceAdapter,
     "wix": WixAdapter,
+    "opencart": OpenCartAdapter,
 }
 
 

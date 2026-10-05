@@ -7,6 +7,7 @@ import html
 
 import httpx
 
+from .opencart import is_opencart, map_card, parse_cards
 from .wix import find_gallery
 from .woocommerce import API as WOO_API
 from .woocommerce import USER_AGENT
@@ -50,6 +51,17 @@ async def _probe_wix(client: httpx.AsyncClient, base: str) -> list[str] | None:
     return [p.get("name", "") for p in (gallery or {}).get("list", [])[:3]]
 
 
+async def _probe_opencart(client: httpx.AsyncClient, base: str) -> list[str] | None:
+    try:
+        r = await client.get(f"{base}/")
+    except Exception:
+        return None
+    if not r.is_success or not is_opencart(r):
+        return None
+    mapped = (map_card(card) for card in parse_cards(r.text))
+    return [m["title"] for m in mapped if m][:3]
+
+
 async def detect_platform(base_url: str) -> dict:
     """Probe a shop URL for a readable catalog. `type` is None when unknown."""
     base = base_url.rstrip("/")
@@ -58,10 +70,11 @@ async def detect_platform(base_url: str) -> dict:
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT},
     ) as client:
-        shopify, woo, wix = await asyncio.gather(
+        shopify, woo, wix, opencart = await asyncio.gather(
             _probe_shopify(client, base),
             _probe_woocommerce(client, base),
             _probe_wix(client, base),
+            _probe_opencart(client, base),
         )
 
     if shopify is not None:
@@ -70,11 +83,14 @@ async def detect_platform(base_url: str) -> dict:
         return {"type": "woocommerce", "sample_titles": [t for t in woo if t]}
     if wix is not None:
         return {"type": "wix", "sample_titles": [t for t in wix if t]}
+    if opencart is not None:
+        return {"type": "opencart", "sample_titles": [t for t in opencart if t]}
     return {
         "type": None,
         "sample_titles": [],
         "detail": (
-            "No Shopify /products.json, WooCommerce Store API or Wix store found. The shop "
-            "may be on another platform, or blocking automated requests."
+            "No Shopify /products.json, WooCommerce Store API, Wix or OpenCart "
+            "store found. The shop may be on another platform, or blocking "
+            "automated requests."
         ),
     }
