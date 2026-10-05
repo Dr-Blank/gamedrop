@@ -7,7 +7,7 @@ from sqlmodel import Field, SQLModel
 class Store(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
-    type: str  # "shopify" | "woocommerce"
+    type: str  # "shopify" | "woocommerce" | "wix"
     base_url: str
     enabled: bool = True
     #: Hex accent for charts and store labels. Null means the derived default.

@@ -7,6 +7,7 @@ import html
 
 import httpx
 
+from .wix import find_gallery
 from .woocommerce import API as WOO_API
 from .woocommerce import USER_AGENT
 
@@ -37,6 +38,18 @@ async def _probe_woocommerce(client: httpx.AsyncClient, base: str) -> list[str] 
     return [html.unescape(p.get("name", "")) for p in products]
 
 
+async def _probe_wix(client: httpx.AsyncClient, base: str) -> list[str] | None:
+    """Wix answers every path with its request-id header, even a 404."""
+    try:
+        r = await client.get(f"{base}/shop")
+    except Exception:
+        return None
+    if "x-wix-request-id" not in r.headers:
+        return None
+    gallery = find_gallery(r.text) if r.is_success else None
+    return [p.get("name", "") for p in (gallery or {}).get("list", [])[:3]]
+
+
 async def detect_platform(base_url: str) -> dict:
     """Probe a shop URL for a readable catalog. `type` is None when unknown."""
     base = base_url.rstrip("/")
@@ -45,20 +58,23 @@ async def detect_platform(base_url: str) -> dict:
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT},
     ) as client:
-        shopify, woo = await asyncio.gather(
+        shopify, woo, wix = await asyncio.gather(
             _probe_shopify(client, base),
             _probe_woocommerce(client, base),
+            _probe_wix(client, base),
         )
 
     if shopify is not None:
         return {"type": "shopify", "sample_titles": [t for t in shopify if t]}
     if woo is not None:
         return {"type": "woocommerce", "sample_titles": [t for t in woo if t]}
+    if wix is not None:
+        return {"type": "wix", "sample_titles": [t for t in wix if t]}
     return {
         "type": None,
         "sample_titles": [],
         "detail": (
-            "No Shopify /products.json or WooCommerce Store API found. The shop "
+            "No Shopify /products.json, WooCommerce Store API or Wix store found. The shop "
             "may be on another platform, or blocking automated requests."
         ),
     }

@@ -39,6 +39,7 @@ def normalize_color(v: str | None) -> str | None:
 DEFAULT_COLLECTION_PATHS = {
     "shopify": "/collections/board-games",
     "woocommerce": "/product-category/board-games",
+    "wix": "/shop",
 }
 
 

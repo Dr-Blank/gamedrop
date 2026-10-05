@@ -44,7 +44,7 @@
 	let cleaning = $state(false);
 
 	// add store form — URL first, everything else derived from what we detect
-	const PLATFORM_LABELS = { shopify: 'Shopify', woocommerce: 'WooCommerce' };
+	const PLATFORM_LABELS = { shopify: 'Shopify', woocommerce: 'WooCommerce', wix: 'Wix' };
 	let storeTypes = $state([
 		{ type: 'shopify', default_collection_path: '/collections/board-games' }
 	]);

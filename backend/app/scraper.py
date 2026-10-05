@@ -6,6 +6,7 @@ from sqlmodel import Session, desc, select
 
 from . import db as _db
 from .adapters.shopify import ShopifyAdapter
+from .adapters.wix import WixAdapter
 from .adapters.woocommerce import WooCommerceAdapter
 from .logger import get_logger
 from .models import (
@@ -33,6 +34,7 @@ log = get_logger(__name__)
 ADAPTERS = {
     "shopify": ShopifyAdapter,
     "woocommerce": WooCommerceAdapter,
+    "wix": WixAdapter,
 }
 
 
