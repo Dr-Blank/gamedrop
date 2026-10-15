@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -102,6 +102,12 @@ class PriceSnapshot(SQLModel, table=True):
     chart, statistic, filter and alert — a shop's typo is not a price, but
     deleting it would lose the fact that it was published.
     """
+
+    # Latest/previous-reading lookups per listing; without it the catalog join
+    # rescans the whole history for every game.
+    __table_args__ = (
+        Index("ix_pricesnapshot_product_recorded", "product_id", "recorded_at"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="product.id")

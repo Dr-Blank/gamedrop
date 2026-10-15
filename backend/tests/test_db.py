@@ -65,3 +65,11 @@ def test_refresh_stats_failure_is_not_fatal(monkeypatch):
     broken = make_engine("sqlite:////nonexistent/dir/t.db")
     monkeypatch.setattr(_db, "engine", broken)
     _db.refresh_stats()
+
+
+def test_snapshots_are_indexed_by_listing_and_time(test_engine):
+    with test_engine.connect() as conn:
+        rows = conn.exec_driver_sql("PRAGMA index_list('pricesnapshot')").all()
+        name = next(r[1] for r in rows if r[1] == "ix_pricesnapshot_product_recorded")
+        cols = conn.exec_driver_sql(f"PRAGMA index_info('{name}')").all()
+    assert [c[2] for c in cols] == ["product_id", "recorded_at"]
