@@ -666,17 +666,27 @@
 						</Button>
 						{#if watched}
 							{#if editingTarget}
-								<input
-									type="number"
-									bind:value={targetPriceInput}
-									placeholder="Any drop"
-									class="h-8 w-28 rounded-md border bg-background px-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
-								/>
-								<Button size="sm" onclick={saveTargetPrice}>Set</Button>
-								<button
-									onclick={() => (editingTarget = false)}
-									class="text-sm text-muted-foreground hover:text-foreground">✕</button
+								<form
+									class="contents"
+									onsubmit={(e) => {
+										e.preventDefault();
+										saveTargetPrice();
+									}}
 								>
+									<input
+										type="number"
+										bind:value={targetPriceInput}
+										placeholder="Any drop"
+										aria-label="Target price"
+										class="h-8 w-28 rounded-md border bg-background px-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
+									/>
+									<Button type="submit" size="sm">Set</Button>
+									<button
+										type="button"
+										onclick={() => (editingTarget = false)}
+										class="text-sm text-muted-foreground hover:text-foreground">✕</button
+									>
+								</form>
 							{:else}
 								<button
 									onclick={() => {

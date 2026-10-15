@@ -58,14 +58,22 @@
 		</div>
 
 		{#if editingMax}
-			<input
-				type="number"
-				bind:value={maxInput}
-				placeholder="No limit"
-				aria-label="Buy at or below"
-				class="h-7 w-24 rounded-md border bg-background px-2 text-xs focus:ring-2 focus:ring-ring focus:outline-none"
-			/>
-			<Button size="sm" onclick={saveMax}>Set</Button>
+			<form
+				class="contents"
+				onsubmit={(e) => {
+					e.preventDefault();
+					saveMax();
+				}}
+			>
+				<input
+					type="number"
+					bind:value={maxInput}
+					placeholder="No limit"
+					aria-label="Buy at or below"
+					class="h-7 w-24 rounded-md border bg-background px-2 text-xs focus:ring-2 focus:ring-ring focus:outline-none"
+				/>
+				<Button type="submit" size="sm">Set</Button>
+			</form>
 		{:else}
 			<button
 				onclick={openMax}

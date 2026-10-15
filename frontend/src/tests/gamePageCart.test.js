@@ -2,14 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/svelte';
 import { readable } from 'svelte/store';
 
-const { toggle, patch, queued, row } = vi.hoisted(() => ({
+const { toggle, patch, queued, row, watching } = vi.hoisted(() => ({
 	toggle: vi.fn(),
 	patch: vi.fn(),
 	queued: { value: false },
-	row: { value: /** @type {any} */ (null) }
+	row: { value: /** @type {any} */ (null) },
+	watching: { value: false }
 }));
 vi.mock('$lib/cart.svelte.js', () => ({
 	cart: { has: () => queued.value, item: () => row.value, toggle, patch }
+}));
+vi.mock('$lib/watchlist.svelte.js', () => ({
+	watchlist: { has: () => watching.value, toggle: vi.fn() }
 }));
 
 vi.mock('$lib/api.js', () => ({
@@ -197,6 +201,15 @@ describe('game page cart panel', () => {
 		expect(patch).toHaveBeenCalledWith(1, { max_price: 1500 });
 	});
 
+	it('sets the ceiling on Enter', async () => {
+		await renderGame();
+		await fireEvent.click(screen.getByRole('button', { name: /no limit/ }));
+		const field = screen.getByLabelText('Buy at or below');
+		await fireEvent.input(field, { target: { value: '1200' } });
+		await fireEvent.submit(/** @type {HTMLFormElement} */ (field.closest('form')));
+		expect(patch).toHaveBeenCalledWith(1, { max_price: 1200 });
+	});
+
 	it('clears the ceiling when the field is emptied', async () => {
 		row.value = { ...queuedRow, max_price: 1500 };
 		await renderGame();
@@ -210,5 +223,24 @@ describe('game page cart panel', () => {
 	it('links through to the cart', async () => {
 		await renderGame();
 		expect(screen.getByRole('link', { name: 'Open cart' })).toHaveAttribute('href', '/cart');
+	});
+});
+
+describe('game page target price', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		queued.value = false;
+		row.value = null;
+		watching.value = true;
+	});
+
+	it('sets the target on Enter', async () => {
+		api.patchWatchlistItem.mockResolvedValue({});
+		await renderGame({ watchlist_item: { id: 3, target_price: null } });
+		await fireEvent.click(screen.getByRole('button', { name: /any drop/ }));
+		const field = screen.getByLabelText('Target price');
+		await fireEvent.input(field, { target: { value: '1800' } });
+		await fireEvent.submit(/** @type {HTMLFormElement} */ (field.closest('form')));
+		expect(api.patchWatchlistItem).toHaveBeenCalledWith(3, { target_price: 1800 });
 	});
 });
