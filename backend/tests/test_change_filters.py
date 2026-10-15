@@ -479,10 +479,9 @@ def test_a_shelf_keeps_filtering_by_its_window(client, session: Session):
     )
     assert created.status_code == 201
 
-    feed = client.get("/api/shelves/preview")
+    feed = client.get(f"/api/shelves/{created.json()['id']}/items")
     assert feed.status_code == 200
-    shelf = next(s for s in feed.json() if s["shelf"]["name"] == "Changed today")
-    assert [i["game"]["title"] for i in shelf["items"]] == ["Moved"]
+    assert [i["game"]["title"] for i in feed.json()] == ["Moved"]
 
 
 # ---------------------------------------------------------------------------

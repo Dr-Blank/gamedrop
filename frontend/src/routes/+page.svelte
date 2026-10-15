@@ -1,12 +1,13 @@
 <script>
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { shelvesPreview, browseQuery, getShelves, patchShelf, reorderShelves } from '$lib/api.js';
+	import { browseQuery, getShelves, patchShelf, reorderShelves } from '$lib/api.js';
 	import { browseUrl } from '$lib/browse.js';
 	import { watchlist } from '$lib/watchlist.svelte.js';
 	import { toast } from '$lib/toast.svelte.js';
 	import { shelfIcon } from '$lib/shelfIcons.js';
 	import Shelf from '$lib/components/Shelf.svelte';
+	import LazyShelf from '$lib/components/LazyShelf.svelte';
 	import ShelfMenu from '$lib/components/ShelfMenu.svelte';
 	import ShelfReorderList from '$lib/components/ShelfReorderList.svelte';
 	import ProductCard from '$lib/components/ProductCard.svelte';
@@ -35,11 +36,11 @@
 	async function load() {
 		loading = true;
 		try {
-			const [preview, wl] = await Promise.all([
-				shelvesPreview(8),
+			const [all, wl] = await Promise.all([
+				getShelves(),
 				browseQuery({ filters: WATCHED, limit: 8 })
 			]);
-			shelvesList = preview;
+			shelvesList = all.filter((s) => !s.hidden);
 			watchlistItems = wl.items;
 		} catch (e) {
 			toast.error('Failed to load: ' + e.message);
@@ -67,14 +68,14 @@
 		const next = [...shelvesList];
 		[next[index], next[to]] = [next[to], next[index]];
 		shelvesList = next;
-		await saveOrder(next.map((row) => row.shelf));
+		await saveOrder(next);
 	}
 
 	/** @param {any} shelf */
 	async function hideShelf(shelf) {
 		try {
 			await patchShelf(shelf.id, { hidden: true });
-			shelvesList = shelvesList.filter((row) => row.shelf.id !== shelf.id);
+			shelvesList = shelvesList.filter((s) => s.id !== shelf.id);
 			editOrder = editOrder.filter((s) => s.id !== shelf.id);
 			hiddenShelves = [...hiddenShelves, { ...shelf, hidden: true }];
 			toast.success(`Removed ${shelf.name} from home`);
@@ -96,7 +97,7 @@
 	}
 
 	async function startEditing() {
-		editOrder = shelvesList.map((row) => row.shelf);
+		editOrder = [...shelvesList];
 		editing = true;
 		try {
 			const all = await getShelves();
@@ -149,14 +150,12 @@
 			</div>
 
 			<!-- Dynamic shelves from backend -->
-			{#each shelvesList as { shelf, items }, i (shelf.id)}
-				{@const Icon = shelfIcon(shelf.icon)}
-				<Shelf
-					title={shelf.name}
-					icon={Icon}
+			{#each shelvesList as shelf, i (shelf.id)}
+				<LazyShelf
+					{shelf}
+					icon={shelfIcon(shelf.icon)}
 					href={shelfBrowseUrl(shelf)}
-					{items}
-					empty="Nothing here yet."
+					skeleton={skeletonCard}
 				>
 					{#snippet card(item)}
 						<ProductCard {item} />
@@ -171,7 +170,7 @@
 							onreorder={startEditing}
 						/>
 					{/snippet}
-				</Shelf>
+				</LazyShelf>
 			{/each}
 
 			<!-- Watchlist (special — not a filter shelf) -->

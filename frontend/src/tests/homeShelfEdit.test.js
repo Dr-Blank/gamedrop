@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/api.js', () => ({
-	shelvesPreview: vi.fn(),
+	shelfItems: vi.fn(),
 	browseQuery: vi.fn(),
 	getShelves: vi.fn(),
 	patchShelf: vi.fn(),
@@ -30,10 +30,7 @@ const shelf = (id, name) => ({
 });
 
 async function renderHome() {
-	api.shelvesPreview.mockResolvedValue([
-		{ shelf: shelf(1, 'Top Discounts'), items: [] },
-		{ shelf: shelf(2, 'New Arrivals'), items: [] }
-	]);
+	api.shelfItems.mockResolvedValue([]);
 	api.browseQuery.mockResolvedValue({ items: [], total: 0 });
 	api.getShelves.mockResolvedValue([shelf(1, 'Top Discounts'), shelf(2, 'New Arrivals')]);
 	render(Home);
@@ -122,5 +119,65 @@ describe('home page shelf editing', () => {
 		await fireEvent.click(screen.getByRole('menuitem', { name: /hide shelf/i }));
 
 		await waitFor(() => expect(api.patchShelf).toHaveBeenCalledWith(2, { hidden: true }));
+	});
+});
+
+/** An observer that reports every target on screen as soon as it is watched. */
+class OnScreenObserver {
+	constructor(cb) {
+		this.cb = cb;
+	}
+	observe(el) {
+		this.cb([{ isIntersecting: true, target: el }]);
+	}
+	disconnect() {}
+}
+
+describe('home page shelves', () => {
+	beforeEach(() => vi.clearAllMocks());
+	afterEach(() => vi.unstubAllGlobals());
+
+	it('fetches each visible shelf on its own and skips hidden ones', async () => {
+		vi.stubGlobal('IntersectionObserver', OnScreenObserver);
+		api.browseQuery.mockResolvedValue({ items: [], total: 0 });
+		api.getShelves.mockResolvedValue([
+			shelf(1, 'Top Discounts'),
+			{ ...shelf(2, 'Back in Stock'), hidden: true },
+			shelf(3, 'New Arrivals')
+		]);
+		api.shelfItems.mockResolvedValue([]);
+		render(Home);
+
+		await screen.findByText('New Arrivals');
+		expect(screen.queryByText('Back in Stock')).not.toBeInTheDocument();
+		await waitFor(() => expect(api.shelfItems).toHaveBeenCalledTimes(2));
+		expect(api.shelfItems.mock.calls.map(([id]) => id)).toEqual([1, 3]);
+	});
+
+	it('shows the rest of the page while a shelf is still loading', async () => {
+		vi.stubGlobal('IntersectionObserver', OnScreenObserver);
+		api.browseQuery.mockResolvedValue({ items: [], total: 0 });
+		api.getShelves.mockResolvedValue([shelf(1, 'Top Discounts')]);
+		api.shelfItems.mockReturnValue(new Promise(() => {}));
+		render(Home);
+
+		expect(await screen.findByText('Top Discounts')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /edit shelves/i })).toBeInTheDocument();
+	});
+
+	it('leaves off-screen shelves unfetched', async () => {
+		vi.stubGlobal(
+			'IntersectionObserver',
+			class {
+				observe() {}
+				disconnect() {}
+			}
+		);
+		api.browseQuery.mockResolvedValue({ items: [], total: 0 });
+		api.getShelves.mockResolvedValue([shelf(1, 'Top Discounts')]);
+		render(Home);
+
+		await screen.findByText('Top Discounts');
+		expect(api.shelfItems).not.toHaveBeenCalled();
 	});
 });

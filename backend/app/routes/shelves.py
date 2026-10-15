@@ -113,30 +113,24 @@ def delete_shelf(shelf_id: int, session: Session = Depends(get_session)):
     session.commit()
 
 
-@router.get("/preview")
-def shelves_preview(limit: int = 8, session: Session = Depends(get_session)):
-    """Visible shelves with a product preview — single request for the home page."""
-    shelves = session.exec(
-        select(Shelf)
-        .where(Shelf.hidden == False)  # noqa: E712
-        .order_by(Shelf.position, Shelf.id)
-    ).all()
-    result = []
-    for shelf in shelves:
-        filter_node = None
-        sorts = None
-        if shelf.filters:
-            with contextlib.suppress(Exception):
-                filter_node = _FILTER_NODE.validate_python(json.loads(shelf.filters))
-        if shelf.sorts:
-            with contextlib.suppress(Exception):
-                sorts = _SORT_TERMS.validate_python(json.loads(shelf.sorts))
-        try:
-            rows = repo.query_products(
-                session, filter_node=filter_node, sorts=sorts, limit=limit
-            )
-            items = repo.make_cards(session, rows)
-        except Exception:
-            items = []
-        result.append({"shelf": shelf, "items": items})
-    return result
+@router.get("/{shelf_id}/items")
+def shelf_items(shelf_id: int, limit: int = 8, session: Session = Depends(get_session)):
+    """A shelf's first cards; one request per shelf so the home page fills as each lands."""
+    shelf = session.get(Shelf, shelf_id)
+    if not shelf:
+        raise HTTPException(404, "Shelf not found")
+    filter_node = None
+    sorts = None
+    if shelf.filters:
+        with contextlib.suppress(Exception):
+            filter_node = _FILTER_NODE.validate_python(json.loads(shelf.filters))
+    if shelf.sorts:
+        with contextlib.suppress(Exception):
+            sorts = _SORT_TERMS.validate_python(json.loads(shelf.sorts))
+    try:
+        rows = repo.query_products(
+            session, filter_node=filter_node, sorts=sorts, limit=limit
+        )
+    except Exception:
+        return []
+    return repo.make_cards(session, rows)

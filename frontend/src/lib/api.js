@@ -107,7 +107,7 @@ export const browseExport = (body) =>
 
 // Shelves
 export const getShelves = () => req('/shelves/');
-export const shelvesPreview = (limit = 8) => req(`/shelves/preview?limit=${limit}`);
+export const shelfItems = (id, limit = 8) => req(`/shelves/${id}/items?limit=${limit}`);
 export const createShelf = (body) =>
 	req('/shelves/', { method: 'POST', body: JSON.stringify(body) });
 export const patchShelf = (id, body) =>

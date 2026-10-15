@@ -5,6 +5,8 @@ from sqlmodel import Session
 
 from app.models import Shelf
 
+from .factories import make_product, make_store
+
 
 def _shelves(session: Session, *names: str) -> list[Shelf]:
     made = []
@@ -59,13 +61,6 @@ def test_patch_hidden_flag(client: TestClient, session: Session):
     assert r.json()["hidden"] is True
 
 
-def test_preview_excludes_hidden(client: TestClient, session: Session):
-    a, _b = _shelves(session, "A", "B")
-    client.patch(f"/api/shelves/{a.id}", json={"hidden": True})
-    names = [row["shelf"]["name"] for row in client.get("/api/shelves/preview").json()]
-    assert names == ["B"]
-
-
 def test_listing_includes_hidden(client: TestClient, session: Session):
     a, _b = _shelves(session, "A", "B")
     client.patch(f"/api/shelves/{a.id}", json={"hidden": True})
@@ -73,12 +68,12 @@ def test_listing_includes_hidden(client: TestClient, session: Session):
     assert names == ["A", "B"]
 
 
-def test_unhide_restores_to_preview(client: TestClient, session: Session):
+def test_unhide_restores_to_home(client: TestClient, session: Session):
     a, _b = _shelves(session, "A", "B")
     client.patch(f"/api/shelves/{a.id}", json={"hidden": True})
     client.patch(f"/api/shelves/{a.id}", json={"hidden": False})
-    names = [row["shelf"]["name"] for row in client.get("/api/shelves/preview").json()]
-    assert names == ["A", "B"]
+    hidden = {s["name"]: s["hidden"] for s in client.get("/api/shelves/").json()}
+    assert hidden == {"A": False, "B": False}
 
 
 def test_built_in_shelf_can_be_hidden_not_deleted(client: TestClient, session: Session):
@@ -92,10 +87,35 @@ def test_built_in_shelf_can_be_hidden_not_deleted(client: TestClient, session: S
         client.patch(f"/api/shelves/{shelf.id}", json={"hidden": True}).status_code
         == 200
     )
-    assert client.get("/api/shelves/preview").json() == []
+    assert client.get("/api/shelves/").json()[0]["hidden"] is True
 
 
 def test_new_shelf_defaults_to_visible(client: TestClient, session: Session):
     r = client.post("/api/shelves/", json={"name": "Fresh"})
     assert r.status_code == 201
     assert r.json()["hidden"] is False
+
+
+def test_shelf_items_applies_its_filter(client: TestClient, session: Session):
+    make_store(session)
+    make_product(session, title="Kept")
+    make_product(session, title="Dropped")
+    shelf = client.post(
+        "/api/shelves/",
+        json={
+            "name": "Only kept",
+            "filters": {
+                "type": "condition",
+                "field": "title",
+                "op": "eq",
+                "value": "Kept",
+            },
+        },
+    ).json()
+
+    items = client.get(f"/api/shelves/{shelf['id']}/items").json()
+    assert [i["game"]["title"] for i in items] == ["Kept"]
+
+
+def test_shelf_items_404_for_unknown_shelf(client: TestClient):
+    assert client.get("/api/shelves/999/items").status_code == 404
