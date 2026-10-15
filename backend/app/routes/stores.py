@@ -2,12 +2,14 @@ import asyncio
 import re
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func
 from sqlmodel import Session, desc, select
 
-from ..adapters.detect import detect_platform
+from ..adapters.detect import TIMEOUT, detect_platform, inspect_json_api
+from ..adapters.woocommerce import USER_AGENT
 from ..db import get_session
 from ..logger import get_logger
 from ..models import Product, Store, StoreUrl, SyncLog
@@ -41,6 +43,7 @@ DEFAULT_COLLECTION_PATHS = {
     "woocommerce": "/product-category/board-games",
     "wix": "/shop",
     "opencart": "/board-games",
+    "json_api": "/",
 }
 
 
@@ -229,6 +232,25 @@ class DetectBody(BaseModel):
         return v
 
 
+class JsonApiInspectBody(BaseModel):
+    """Discover from the shop, or start from `api_url`, or test `config` as given."""
+
+    base_url: str
+    api_url: str | None = None
+    config: dict | None = None
+    collection_path: str = "/"
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        return DetectBody.validate_base_url(v)
+
+    @field_validator("collection_path", mode="before")
+    @classmethod
+    def validate_collection_path(cls, v: str | None) -> str:
+        return normalize_path(v)
+
+
 def urls_of(session: Session, store_id: str) -> list[StoreUrl]:
     return list(
         session.exec(
@@ -294,6 +316,28 @@ async def detect_store(body: DetectBody, session: Session = Depends(get_session)
         ),
         "matches": matches,
     }
+
+
+@router.post("/json-api/inspect")
+async def inspect_json_api_store(body: JsonApiInspectBody):
+    """A JSON API mapping and the sample rows it reads, for the user to check."""
+    base_url, _ = split_url(body.base_url)
+    api_url = (body.api_url or "").strip() or None
+    async with httpx.AsyncClient(
+        timeout=TIMEOUT,
+        follow_redirects=True,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    ) as client:
+        found = await inspect_json_api(
+            client, base_url, api_url, body.config, body.collection_path
+        )
+    if found is None:
+        raise HTTPException(
+            422,
+            "No product list found there. Paste the API URL the shop page loads "
+            "its products from.",
+        )
+    return found
 
 
 @router.post("/")

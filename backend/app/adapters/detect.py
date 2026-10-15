@@ -7,12 +7,16 @@ import html
 
 import httpx
 
+from .json_api import normalize_config
+from .json_api_discover import discover, preview
 from .opencart import is_opencart, map_card, parse_cards
 from .wix import find_gallery
 from .woocommerce import API as WOO_API
 from .woocommerce import USER_AGENT
 
 TIMEOUT = 12.0
+#: Cap on hunting for a JSON API, which may probe dozens of URLs.
+DISCOVERY_BUDGET = 60.0
 
 
 async def _probe_shopify(client: httpx.AsyncClient, base: str) -> list[str] | None:
@@ -62,6 +66,30 @@ async def _probe_opencart(client: httpx.AsyncClient, base: str) -> list[str] | N
     return [m["title"] for m in mapped if m][:3]
 
 
+async def inspect_json_api(
+    client: httpx.AsyncClient,
+    base: str,
+    api_url: str | None = None,
+    config: dict | None = None,
+    collection_path: str = "/",
+) -> dict | None:
+    """A JSON API config with a live sample: `config` as given, else discovered."""
+    if config is None:
+        config = await discover(client, base, api_url)
+        if config is None:
+            return None
+    config = normalize_config(config)
+    try:
+        return await preview(client, config, base, collection_path)
+    except Exception as e:
+        return {
+            "config": config,
+            "total": None,
+            "samples": [],
+            "warnings": [f"Request failed: {e}"],
+        }
+
+
 async def detect_platform(base_url: str) -> dict:
     """Probe a shop URL for a readable catalog. `type` is None when unknown."""
     base = base_url.rstrip("/")
@@ -76,21 +104,36 @@ async def detect_platform(base_url: str) -> dict:
             _probe_wix(client, base),
             _probe_opencart(client, base),
         )
+        for name, titles in (
+            ("shopify", shopify),
+            ("woocommerce", woo),
+            ("wix", wix),
+            ("opencart", opencart),
+        ):
+            if titles is not None:
+                return {"type": name, "sample_titles": [t for t in titles if t]}
 
-    if shopify is not None:
-        return {"type": "shopify", "sample_titles": [t for t in shopify if t]}
-    if woo is not None:
-        return {"type": "woocommerce", "sample_titles": [t for t in woo if t]}
-    if wix is not None:
-        return {"type": "wix", "sample_titles": [t for t in wix if t]}
-    if opencart is not None:
-        return {"type": "opencart", "sample_titles": [t for t in opencart if t]}
+        # Last, as it reads every script on the homepage.
+        try:
+            found = await asyncio.wait_for(
+                inspect_json_api(client, base), DISCOVERY_BUDGET
+            )
+        except TimeoutError:
+            found = None
+
+    if found:
+        return {
+            "type": "json_api",
+            "sample_titles": [s["title"] for s in found["samples"][:3]],
+            "json_api": found,
+        }
     return {
         "type": None,
         "sample_titles": [],
         "detail": (
-            "No Shopify /products.json, WooCommerce Store API, Wix or OpenCart "
-            "store found. The shop may be on another platform, or blocking "
-            "automated requests."
+            "No Shopify, WooCommerce, Wix or OpenCart store, and no product "
+            "API in the storefront's scripts. Paste the API URL the shop page "
+            "loads its products from, or the shop may be blocking automated "
+            "requests."
         ),
     }

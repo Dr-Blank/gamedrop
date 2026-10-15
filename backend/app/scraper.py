@@ -6,6 +6,7 @@ from sqlmodel import Session, desc, func, select
 
 from . import db as _db
 from .adapters.base import DEFAULTS, store_cfg
+from .adapters.json_api import JsonApiAdapter
 from .adapters.opencart import OpenCartAdapter
 from .adapters.shopify import ShopifyAdapter
 from .adapters.wix import WixAdapter
@@ -38,6 +39,7 @@ ADAPTERS = {
     "woocommerce": WooCommerceAdapter,
     "wix": WixAdapter,
     "opencart": OpenCartAdapter,
+    "json_api": JsonApiAdapter,
 }
 
 

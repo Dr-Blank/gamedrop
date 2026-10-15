@@ -27,6 +27,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import JsonApiMapping from '$lib/components/JsonApiMapping.svelte';
 
 	let stores = $state([]);
 	let loading = $state(true);
@@ -48,8 +49,10 @@
 		shopify: 'Shopify',
 		woocommerce: 'WooCommerce',
 		wix: 'Wix',
-		opencart: 'OpenCart'
+		opencart: 'OpenCart',
+		json_api: 'JSON API'
 	};
+	const DEFAULT_SCRAPE_CONFIG = { timeout_sec: 30, request_delay_sec: 1, sync_interval_hours: 6 };
 	let storeTypes = $state([
 		{ type: 'shopify', default_collection_path: '/collections/board-games' }
 	]);
@@ -57,6 +60,7 @@
 	let urlError = $state('');
 	let detecting = $state(false);
 	let detected = $state(null);
+	let jsonApiConfig = $state(null);
 	let adding = $state(false);
 	// 'existing' attaches the pasted URL to a store already configured.
 	let addMode = $state('new');
@@ -111,6 +115,7 @@
 			// The server splits the shop URL from the pasted category path.
 			const result = await detectStore(url.href);
 			detected = result;
+			jsonApiConfig = result.json_api?.config ?? null;
 			const type = result.type ?? newStore.type;
 			newStore = {
 				id: '',
@@ -132,6 +137,7 @@
 
 	function resetAdd() {
 		detected = null;
+		jsonApiConfig = null;
 		urlInput = '';
 		urlError = '';
 		addError = '';
@@ -245,6 +251,11 @@
 			addError = 'Category path must start with /';
 			return;
 		}
+		const jsonApi = newStore.type === 'json_api';
+		if (jsonApi && !jsonApiConfig?.endpoint) {
+			addError = 'Find the product API first';
+			return;
+		}
 		adding = true;
 		try {
 			// Blank name/id are filled in from the URL server-side.
@@ -252,7 +263,10 @@
 				...newStore,
 				id: newStore.id.trim(),
 				name: newStore.name.trim(),
-				collection_path: path || '/'
+				collection_path: path || '/',
+				...(jsonApi && {
+					scrape_config: JSON.stringify({ ...DEFAULT_SCRAPE_CONFIG, json_api: jsonApiConfig })
+				})
 			});
 			resetAdd();
 			await load();
@@ -682,6 +696,13 @@
 										/>
 									</label>
 								</div>
+								{#if store.type === 'json_api'}
+									<JsonApiMapping
+										baseUrl={store.base_url}
+										collectionPath={store.urls[0]?.collection_path}
+										bind:config={editingConfig[store.id].json_api}
+									/>
+								{/if}
 								<div class="flex gap-2">
 									<Button
 										size="sm"
@@ -1041,6 +1062,17 @@
 							</p>
 						</div>
 					</div>
+
+					{#if newStore.type === 'json_api'}
+						{#key detected}
+							<JsonApiMapping
+								baseUrl={newStore.base_url}
+								collectionPath={newStore.collection_path}
+								result={detected?.json_api}
+								bind:config={jsonApiConfig}
+							/>
+						{/key}
+					{/if}
 
 					<div class="flex flex-wrap items-center gap-2 border-t pt-3">
 						<Button onclick={submitAdd} disabled={adding}>

@@ -12,6 +12,7 @@ vi.mock('$lib/api.js', () => ({
 	searchProducts: vi.fn().mockResolvedValue([]),
 	getStoreTypes: vi.fn().mockResolvedValue([]),
 	detectStore: vi.fn(),
+	inspectJsonApi: vi.fn(),
 	addStoreUrl: vi.fn(),
 	patchStoreUrl: vi.fn(),
 	deleteStoreUrl: vi.fn(),
@@ -346,5 +347,72 @@ describe('checking a pasted URL', () => {
 			expect.objectContaining({ collection_path: '/collections/puzzles' })
 		);
 		expect(api.addStoreUrl).not.toHaveBeenCalled();
+	});
+});
+
+describe('a shop on its own JSON API', () => {
+	const config = {
+		endpoint: '/api/products',
+		items_path: 'products',
+		paging: 'offset',
+		fields: { id: 'id', title: 'name', price: 'price' }
+	};
+	const jsonApi = {
+		config,
+		total: 593,
+		warnings: [],
+		samples: [
+			{
+				title: 'Sea Salt & Paper',
+				url: 'https://www.example-shop.com/products/ssp',
+				price: 1499,
+				compare_at_price: 1999,
+				available: true,
+				preorder: true
+			}
+		]
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		api.getStoreLogs.mockResolvedValue([]);
+		api.getStoreTypes.mockResolvedValue([
+			{ type: 'shopify', default_collection_path: '/collections/board-games' },
+			{ type: 'json_api', default_collection_path: '/' }
+		]);
+		api.getOrphanListings.mockResolvedValue(noOrphans());
+	});
+
+	it('shows the sample rows the detected mapping reads', async () => {
+		await check(detection({ type: 'json_api', json_api: jsonApi }), []);
+
+		expect(screen.getByText('JSON API detected')).toBeInTheDocument();
+		expect(screen.getByText(/593 items in all/)).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Sea Salt & Paper' })).toBeInTheDocument();
+		expect(screen.getByText('Pre-order')).toBeInTheDocument();
+	});
+
+	it('saves the mapping into the new store config', async () => {
+		await check(detection({ type: 'json_api', json_api: jsonApi }), []);
+		await fireEvent.click(screen.getByRole('button', { name: 'Add store' }));
+
+		const body = api.addStore.mock.calls[0][0];
+		expect(body.type).toBe('json_api');
+		expect(JSON.parse(body.scrape_config)).toEqual({
+			timeout_sec: 30,
+			request_delay_sec: 1,
+			sync_interval_hours: 6,
+			json_api: config
+		});
+	});
+
+	it('will not add a JSON API store before its API is found', async () => {
+		await check(detection({ type: null, detail: 'nothing' }), []);
+		await fireEvent.change(screen.getByLabelText('Platform'), { target: { value: 'json_api' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Add store' }));
+
+		expect(await screen.findByText('Find the product API first')).toBeInTheDocument();
+		expect(api.addStore).not.toHaveBeenCalled();
 	});
 });

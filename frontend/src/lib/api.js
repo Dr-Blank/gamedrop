@@ -14,6 +14,8 @@ export const getStores = () => req('/stores/');
 export const getStoreTypes = () => req('/stores/types');
 export const detectStore = (baseUrl) =>
 	req('/stores/detect', { method: 'POST', body: JSON.stringify({ base_url: baseUrl }) });
+export const inspectJsonApi = (body) =>
+	req('/stores/json-api/inspect', { method: 'POST', body: JSON.stringify(body) });
 export const addStore = (body) => req('/stores/', { method: 'POST', body: JSON.stringify(body) });
 export const patchStore = (id, body) =>
 	req(`/stores/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
