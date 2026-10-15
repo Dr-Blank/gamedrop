@@ -550,3 +550,96 @@ def test_a_sync_run_window_shows_the_listings_it_added(client, session: Session)
     )
     assert res.status_code == 200
     assert [i["game"]["title"] for i in res.json()["items"]] == ["Fresh"]
+
+
+def _stocked(
+    session: Session,
+    title: str,
+    readings: list[tuple[float, bool]],
+    step: timedelta = timedelta(hours=1),
+):
+    """A listing whose (price, available) readings land `step` apart, ending now."""
+    product = make_product(session, external_id=f"s1-{title}", title=title)
+    start = _now() - step * (len(readings) - 1)
+    for i, (price, available) in enumerate(readings):
+        session.add(
+            PriceSnapshot(
+                product_id=product.id,
+                price=price,
+                available=available,
+                recorded_at=start + step * i,
+            )
+        )
+    session.commit()
+
+
+@pytest.fixture()
+def price_and_stock_moves(session: Session):
+    _store(session)
+    _stocked(session, "Repriced", [(30.0, True), (25.0, True)])
+    _stocked(session, "Restocked", [(30.0, False), (30.0, True)])
+    _stocked(session, "Both", [(30.0, False), (25.0, True)])
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("any", ["Both", "Repriced", "Restocked"]),
+        ("price", ["Both", "Repriced"]),
+        ("stock", ["Both", "Restocked"]),
+    ],
+)
+def test_a_window_narrows_to_one_kind_of_move(
+    session: Session, price_and_stock_moves, kind, expected
+):
+    assert sorted(_titles(session, ChangeWindow(kind=kind))) == expected
+
+
+def test_a_kind_still_counts_arrivals_when_asked(session: Session):
+    _store(session)
+    _stocked(session, "Arrived", [(30.0, True)])
+    _stocked(
+        session, "Restocked", [(30.0, False), (30.0, True)], step=timedelta(days=3)
+    )
+
+    window = ChangeWindow(since="-1d", kind="price", include_new=True)
+    assert _titles(session, window) == ["Arrived"]
+
+
+def test_a_preorder_flip_is_a_stock_move(session: Session):
+    _store(session)
+    product = make_product(session, external_id="s1-Azul", title="Azul")
+    for i, preorder in enumerate([False, True]):
+        session.add(
+            PriceSnapshot(
+                product_id=product.id,
+                price=30.0,
+                preorder=preorder,
+                recorded_at=_now() - timedelta(hours=1 - i),
+            )
+        )
+    session.commit()
+
+    assert _titles(session, ChangeWindow(kind="stock")) == ["Azul"]
+    assert _titles(session, ChangeWindow(kind="price")) == []
+
+
+def test_steady_variants_of_one_listing_are_not_a_move(session: Session):
+    """Two variants at different prices, re-read alternately, never moved."""
+    _store(session)
+    product = make_product(session, external_id="s1-Azul", title="Azul")
+    readings = [("a", 30.0, True), ("b", 45.0, False)] * 2
+    for i, (variant, price, available) in enumerate(readings):
+        session.add(
+            PriceSnapshot(
+                product_id=product.id,
+                variant_id=variant,
+                price=price,
+                available=available,
+                recorded_at=_now() - timedelta(hours=len(readings) - i),
+            )
+        )
+    session.commit()
+
+    assert _titles(session, ChangeWindow(kind="price")) == []
+    assert _titles(session, ChangeWindow(kind="stock")) == []

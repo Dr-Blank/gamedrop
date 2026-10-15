@@ -418,6 +418,7 @@ class ChangeWindow(BaseModel):
     Bounds accept the same relative values as any other date filter,
     `store_id` narrows the window to one shop's readings, and `include_new`
     counts a listing's first reading too, so arrivals join the changes.
+    `kind` narrows the readings to price moves or stock moves.
     """
 
     type: Literal["change_window"] = "change_window"
@@ -425,6 +426,7 @@ class ChangeWindow(BaseModel):
     until: str | None = None
     store_id: str | None = None
     include_new: bool = False
+    kind: Literal["any", "price", "stock"] = "any"
 
 
 class Group(BaseModel):
@@ -512,10 +514,24 @@ def _apply_change_window(node: ChangeWindow) -> Any:
     from .models import Game, PriceSnapshot, Product
     from .snapshots import effective
 
+    # Per variant: a listing's variants are recorded side by side, and one
+    # variant's reading is not the previous state of another.
+    def prior(col: Any) -> Any:
+        return func.lag(col).over(
+            partition_by=(PriceSnapshot.product_id, PriceSnapshot.variant_id),
+            order_by=(PriceSnapshot.recorded_at.asc(), PriceSnapshot.id.asc()),
+        )
+
     ranked = (
         select(
             PriceSnapshot.product_id,
             PriceSnapshot.recorded_at.label("recorded_at"),
+            PriceSnapshot.price.label("price"),
+            PriceSnapshot.available.label("available"),
+            PriceSnapshot.preorder.label("preorder"),
+            prior(PriceSnapshot.price).label("prev_price"),
+            prior(PriceSnapshot.available).label("prev_available"),
+            prior(PriceSnapshot.preorder).label("prev_preorder"),
             func.row_number()
             .over(
                 partition_by=PriceSnapshot.product_id,
@@ -535,6 +551,15 @@ def _apply_change_window(node: ChangeWindow) -> Any:
     # A listing's first reading is an arrival, not a change — unless arrivals
     # were asked for, which is what makes a sync run's new listings visible.
     clauses = [] if node.include_new else [ranked.c.rn > 1]
+    moved = {
+        "price": ranked.c.price != ranked.c.prev_price,
+        "stock": or_(
+            ranked.c.available != ranked.c.prev_available,
+            ranked.c.preorder != ranked.c.prev_preorder,
+        ),
+    }.get(node.kind)
+    if moved is not None:
+        clauses.append(or_(ranked.c.rn == 1, moved) if node.include_new else moved)
     if node.store_id is not None:
         clauses.append(Product.store_id == node.store_id)
     if since is not None:

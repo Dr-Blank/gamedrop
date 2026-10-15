@@ -117,4 +117,48 @@ describe('changes page', () => {
 			'true'
 		);
 	});
+
+	it('narrows the window to price moves without losing its bounds', async () => {
+		await renderPage();
+		await fireEvent.click(screen.getByRole('button', { name: /^Price$/ }));
+		await navigated('goto');
+
+		expect(lastCall().filters.conditions).toEqual([{ ...WEEK, kind: 'price' }]);
+	});
+
+	it('keeps the chosen kind when switching windows', async () => {
+		await renderPage();
+		await fireEvent.click(screen.getByRole('button', { name: /^Stock$/ }));
+		await navigated('goto');
+		await fireEvent.click(screen.getByRole('button', { name: /Last 24h/ }));
+		await navigated('goto');
+
+		expect(lastCall().filters.conditions).toEqual([
+			{ type: 'change_window', since: '-1d', until: 'now', include_new: true, kind: 'stock' }
+		]);
+		expect(screen.getByRole('button', { name: /Last 24h/ })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+	});
+
+	it('goes back to every kind of move', async () => {
+		await renderPage();
+		await fireEvent.click(screen.getByRole('button', { name: /^Price$/ }));
+		await navigated('goto');
+		await fireEvent.click(screen.getByRole('button', { name: /^All$/ }));
+		await navigated('goto');
+
+		expect(lastCall().filters.conditions).toEqual([WEEK]);
+		expect(screen.getByRole('button', { name: /^All$/ })).toHaveAttribute('aria-pressed', 'true');
+	});
+
+	it('only tunes a window, never adds an unbounded one', async () => {
+		await renderPage();
+		await fireEvent.click(screen.getByRole('button', { name: /Last week/ }));
+		await navigated('goto');
+
+		expect(screen.getByRole('button', { name: /^Price$/ })).toBeDisabled();
+		expect(lastCall().filters).toBeNull();
+	});
 });

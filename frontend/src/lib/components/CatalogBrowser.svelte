@@ -52,6 +52,8 @@
 		saveShelf = true,
 		/** One-click conditions this view keeps in its header. */
 		quickFilters = /** @type {Array<{label:string,icon:any,title?:string,condition:any}>} */ ([]),
+		/** One-click settings on the node a quick filter owns, kept across picks of that filter. */
+		quickModes = /** @type {Array<{label:string,icon:any,title?:string,slot:string,patch:Record<string,any>}>} */ ([]),
 		/** Ordering the view opens with, until the URL says otherwise. */
 		defaultSorts = /** @type {Array<{field:string,dir:string}>} */ ([]),
 		/** Conditions a fresh visit opens with — editable, unlike a preset. */
@@ -143,10 +145,24 @@
 		return node.type === 'condition' ? `condition:${node.field}:${node.op}` : node.type;
 	}
 
+	/** @param {string} slot */
+	function modeKeys(slot) {
+		return quickModes.filter((m) => m.slot === slot).flatMap((m) => Object.keys(m.patch));
+	}
+
+	/** @param {any} node */
+	function withoutModes(node) {
+		const rest = { ...node };
+		for (const key of modeKeys(slotKey(node))) delete rest[key];
+		return rest;
+	}
+
 	/** @param {any} condition */
 	function quickFilterOn(condition) {
 		return filterTree.conditions.some(
-			(c) => slotKey(c) === slotKey(condition) && JSON.stringify(c) === JSON.stringify(condition)
+			(c) =>
+				slotKey(c) === slotKey(condition) &&
+				JSON.stringify(withoutModes(c)) === JSON.stringify(condition)
 		);
 	}
 
@@ -157,8 +173,40 @@
 	 */
 	function toggleQuickFilter(condition) {
 		const on = quickFilterOn(condition);
-		const rest = filterTree.conditions.filter((c) => slotKey(c) !== slotKey(condition));
-		filterTree.conditions = on ? rest : [...rest, { ...condition }];
+		const slot = slotKey(condition);
+		const prior = filterTree.conditions.find((c) => slotKey(c) === slot);
+		const rest = filterTree.conditions.filter((c) => slotKey(c) !== slot);
+		const kept = Object.fromEntries(
+			modeKeys(slot)
+				.filter((key) => prior?.[key] !== undefined)
+				.map((key) => [key, prior[key]])
+		);
+		filterTree.conditions = on ? rest : [...rest, { ...condition, ...kept }];
+		pushUrl();
+	}
+
+	/** @param {string} slot */
+	function slotNode(slot) {
+		return filterTree.conditions.find((c) => slotKey(c) === slot);
+	}
+
+	/** @param {{slot:string,patch:Record<string,any>}} mode */
+	function quickModeOn({ slot, patch }) {
+		const node = slotNode(slot);
+		return !!node && Object.entries(patch).every(([key, value]) => node[key] === value);
+	}
+
+	/**
+	 * A mode tunes the node its quick filter owns and never adds one, so it
+	 * cannot turn a bounded feed into an unbounded one.
+	 * @param {{slot:string,patch:Record<string,any>}} mode
+	 */
+	function applyQuickMode({ slot, patch }) {
+		const node = slotNode(slot);
+		if (!node) return;
+		const next = { ...node, ...patch };
+		for (const [key, value] of Object.entries(patch)) if (value === undefined) delete next[key];
+		filterTree.conditions = filterTree.conditions.map((c) => (c === node ? next : c));
 		pushUrl();
 	}
 
@@ -507,7 +555,25 @@
 				<p class="mt-1 text-sm text-muted-foreground">{subtitle}</p>
 			{/if}
 		</div>
-		<div class="flex gap-2">
+		<div class="flex flex-wrap justify-end gap-2">
+			{#if quickModes.length}
+				<div class="flex gap-1 border-r pr-2">
+					{#each quickModes as mode (mode.label)}
+						{@const ModeIcon = mode.icon}
+						<Button
+							variant={quickModeOn(mode) ? 'secondary' : 'ghost'}
+							size="sm"
+							onclick={() => applyQuickMode(mode)}
+							disabled={!slotNode(mode.slot)}
+							aria-pressed={quickModeOn(mode)}
+							title={mode.title ?? mode.label}
+						>
+							<ModeIcon class="size-4" />
+							{mode.label}
+						</Button>
+					{/each}
+				</div>
+			{/if}
 			{#each quickFilters as quick (quick.label)}
 				{@const QuickIcon = quick.icon}
 				<Button

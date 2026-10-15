@@ -256,6 +256,16 @@
 			</div>
 		{:else if cond.type === 'change_window'}
 			<div class="flex flex-wrap items-center gap-1.5 pl-2">
+				<select
+					value={cond.kind ?? ''}
+					onchange={(e) => (group.conditions[i].kind = e.currentTarget.value || undefined)}
+					aria-label="Kind of change"
+					class="h-7 rounded border bg-background px-2 text-xs"
+				>
+					<option value="">price or stock</option>
+					<option value="price">price</option>
+					<option value="stock">stock</option>
+				</select>
 				<span class="text-xs">changed between</span>
 				<DateValue bind:value={group.conditions[i].since} label="Window start" />
 				<span class="text-xs text-muted-foreground">and</span>
@@ -274,8 +284,8 @@
 				</button>
 			</div>
 			<p class="pl-2 text-[11px] text-muted-foreground">
-				any price or stock move inside the window, not only the latest one — with new listings
-				counted, a shop's first reading of a game counts too
+				any such move inside the window, not only the latest one — with new listings counted, a
+				shop's first reading of a game counts too
 			</p>
 		{:else if cond.type === 'store_compare'}
 			<div class="flex flex-wrap items-center gap-1.5 pl-2">

@@ -1,6 +1,6 @@
 <script>
 	import CatalogBrowser from '$lib/components/CatalogBrowser.svelte';
-	import { History, Clock } from '@lucide/svelte';
+	import { History, Clock, Layers, Tag, Package } from '@lucide/svelte';
 
 	// Relative bounds, so a bookmarked window still means the same window later.
 	// `include_new` keeps a shop's fresh listings in — an arrival inside the
@@ -16,6 +16,13 @@
 		condition: { type: 'change_window', since, until: 'now', include_new: true }
 	}));
 
+	// Restocks churn far more than prices do, so either kind can be shown alone.
+	const MODES = [
+		{ label: 'All', icon: Layers, title: 'Price and stock moves', kind: undefined },
+		{ label: 'Price', icon: Tag, title: 'Only price moves', kind: 'price' },
+		{ label: 'Stock', icon: Package, title: 'Only stock moves', kind: 'stock' }
+	].map(({ kind, ...mode }) => ({ ...mode, slot: 'change_window', patch: { kind } }));
+
 	// The feed needs bounds to mean anything, so it opens on a week of them.
 	const DEFAULT_WINDOW = WINDOWS[1].condition;
 </script>
@@ -25,6 +32,7 @@
 	icon={History}
 	basePath="/changes"
 	quickFilters={WINDOWS}
+	quickModes={MODES}
 	defaultFilters={[DEFAULT_WINDOW]}
 	defaultSorts={[{ field: 'recorded_at', dir: 'desc' }]}
 	subtitle="Games a shop added, repriced or restocked — most recent first."
