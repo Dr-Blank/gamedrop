@@ -181,3 +181,17 @@ def test_scheduler_ticks_often_and_passes_slack():
 
     asyncio.run(job())
     sync_fn.assert_called_once_with(slack=SLACK)
+
+
+def test_planner_stats_refresh_only_after_stores_sync(session: Session):
+    _store(session, "a", hours=6)
+    clock = _Clock(T0)
+    with (
+        patch("app.scraper.sync_store", clock),
+        patch("app.db.refresh_stats") as refresh,
+    ):
+        asyncio.run(sync_due_stores(T0, slack=SLACK))
+        assert refresh.call_count == 1
+
+        asyncio.run(sync_due_stores(T0 + TICK, slack=SLACK))
+        assert refresh.call_count == 1

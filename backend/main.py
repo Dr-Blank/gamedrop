@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()  # must run before app modules that read os.environ
 
-from app.db import run_migrations  # noqa: E402
+from app.db import refresh_stats, run_migrations  # noqa: E402
 from app.logger import get_logger, setup_logging  # noqa: E402
 from app.routes import (  # noqa: E402
     bgg,
@@ -249,6 +249,7 @@ def _seed_shelves():
 async def lifespan(_app: FastAPI):
     log.info("startup: running migrations")
     run_migrations()
+    refresh_stats()
     log.info("startup: seeding shelves")
     _seed_shelves()
     log.info("startup: starting scheduler")

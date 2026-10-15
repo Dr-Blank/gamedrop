@@ -3,6 +3,10 @@ import os
 from sqlalchemy import event
 from sqlmodel import Session, create_engine
 
+from .logger import get_logger
+
+log = get_logger(__name__)
+
 DATA_DIR = os.environ.get(
     "DATA_DIR", os.path.join(os.path.dirname(__file__), "../../data")
 )
@@ -31,6 +35,21 @@ def make_engine(url: str):
 
 
 engine = make_engine(DATABASE_URL)
+
+#: Rows sampled per index by ANALYZE, keeping it cheap as the history grows.
+ANALYSIS_LIMIT = 1000
+
+
+def refresh_stats():
+    """Refresh planner statistics; failure only costs speed, so it is logged.
+    Without them SQLite nests the catalog join quadratically and browse crawls."""
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql(f"PRAGMA analysis_limit={ANALYSIS_LIMIT}")
+            conn.exec_driver_sql("ANALYZE")
+            conn.commit()
+    except Exception:
+        log.exception("refreshing planner stats failed")
 
 
 def run_migrations():

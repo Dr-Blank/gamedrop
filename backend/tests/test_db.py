@@ -2,7 +2,9 @@ import threading
 
 from sqlalchemy import text
 
+from app import db as _db
 from app.db import BUSY_TIMEOUT_MS, make_engine
+from app.models import Store
 
 
 def test_engine_pragmas(tmp_path):
@@ -44,3 +46,22 @@ def test_writer_commits_while_reader_holds_snapshot(tmp_path):
 
     assert not t.is_alive()
     assert errors == []
+
+
+def test_refresh_stats_records_planner_statistics(session):
+    session.add(Store(id="s", name="s", type="shopify", base_url="https://s.com"))
+    session.commit()
+
+    _db.refresh_stats()
+
+    tables = {
+        row[0]
+        for row in session.connection().exec_driver_sql("SELECT tbl FROM sqlite_stat1")
+    }
+    assert "store" in tables
+
+
+def test_refresh_stats_failure_is_not_fatal(monkeypatch):
+    broken = make_engine("sqlite:////nonexistent/dir/t.db")
+    monkeypatch.setattr(_db, "engine", broken)
+    _db.refresh_stats()

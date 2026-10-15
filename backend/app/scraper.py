@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -427,10 +428,13 @@ def due_stores(now: datetime, slack: timedelta = timedelta(0)) -> list[Store]:
 
 async def sync_due_stores(now: datetime | None = None, slack: timedelta = timedelta(0)):
     """Sync only the stores whose own interval has elapsed."""
-    for store in due_stores(now or datetime.utcnow(), slack):
+    stores = due_stores(now or datetime.utcnow(), slack)
+    for store in stores:
         try:
             await sync_store(store)
         except Exception:
             # The failure is already on the store and its log; one shop being
             # unreachable or misconfigured shouldn't cost the rest the run.
             log.exception("sync failed", extra={"store_id": store.id})
+    if stores:
+        await asyncio.to_thread(_db.refresh_stats)
