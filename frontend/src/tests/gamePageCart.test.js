@@ -201,6 +201,12 @@ describe('game page cart panel', () => {
 		expect(patch).toHaveBeenCalledWith(1, { max_price: 1500 });
 	});
 
+	it('focuses the ceiling field when it opens', async () => {
+		await renderGame();
+		await fireEvent.click(screen.getByRole('button', { name: /no limit/ }));
+		expect(screen.getByLabelText('Buy at or below')).toHaveFocus();
+	});
+
 	it('sets the ceiling on Enter', async () => {
 		await renderGame();
 		await fireEvent.click(screen.getByRole('button', { name: /no limit/ }));
@@ -232,6 +238,12 @@ describe('game page target price', () => {
 		queued.value = false;
 		row.value = null;
 		watching.value = true;
+	});
+
+	it('focuses the target field when it opens', async () => {
+		await renderGame({ watchlist_item: { id: 3, target_price: null } });
+		await fireEvent.click(screen.getByRole('button', { name: /any drop/ }));
+		expect(screen.getByLabelText('Target price')).toHaveFocus();
 	});
 
 	it('sets the target on Enter', async () => {

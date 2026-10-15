@@ -674,6 +674,7 @@
 									}}
 								>
 									<input
+										use:focused
 										type="number"
 										bind:value={targetPriceInput}
 										placeholder="Any drop"

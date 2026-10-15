@@ -20,6 +20,11 @@
 		editingMax = false;
 		onpatch(maxInput ? { max_price: Number(maxInput) } : { clear_max_price: true });
 	}
+
+	/** @param {HTMLElement} node */
+	function focused(node) {
+		node.focus();
+	}
 </script>
 
 <div class="space-y-3">
@@ -66,6 +71,7 @@
 				}}
 			>
 				<input
+					use:focused
 					type="number"
 					bind:value={maxInput}
 					placeholder="No limit"
