@@ -70,6 +70,10 @@ def _remember(session: Session, state: WatchListingState, price: float | None) -
     session.add(state)
 
 
+def _within_target(item: WatchlistItem, price: float) -> bool:
+    return item.target_price is None or price <= item.target_price
+
+
 def _check_watchlist(
     session: Session,
     product: Product,
@@ -81,7 +85,8 @@ def _check_watchlist(
 
     The watch belongs to the game, but alerts are per listing — every shop's
     move is reported, so `WatchListingState` remembers what each shop was last
-    announced at.
+    announced at. With a target set, stock and price-rise alerts only fire
+    while the listing sits at or under it — above target, nothing is news.
 
     With no `pending` list the notifications fire immediately — only safe when
     the caller holds no open write transaction.
@@ -111,7 +116,7 @@ def _check_watchlist(
 
     # back in stock
     if old_snap and not old_snap.available and new_snap.available:
-        if item.notify_back_in_stock:
+        if item.notify_back_in_stock and _within_target(item, new_snap.price):
             emit(
                 notify_back_in_stock,
                 title,
@@ -126,7 +131,12 @@ def _check_watchlist(
         return
 
     if not new_snap.available:
-        if old_snap and old_snap.available and item.notify_out_of_stock:
+        if (
+            old_snap
+            and old_snap.available
+            and item.notify_out_of_stock
+            and _within_target(item, old_snap.price)
+        ):
             emit(
                 notify_out_of_stock,
                 title,
@@ -146,7 +156,25 @@ def _check_watchlist(
 
     already_told = state.last_notified_price == new_snap.price
 
-    if item.target_price is not None:
+    if new_snap.price > old_price:
+        if (
+            item.notify_price_increase
+            and not already_told
+            and _within_target(item, old_price)
+        ):
+            emit(
+                notify_price_increase,
+                title,
+                old_price,
+                new_snap.price,
+                product.url,
+                product.store_id,
+                product_id=product.id,
+                game_id=product.game_id,
+                recorded_at=ts,
+            )
+            _remember(session, state, new_snap.price)
+    elif item.target_price is not None:
         if (
             new_snap.price <= item.target_price
             and not already_told
@@ -164,23 +192,9 @@ def _check_watchlist(
                 recorded_at=ts,
             )
             _remember(session, state, new_snap.price)
-    elif new_snap.price < old_price:
-        if item.notify_price_drop and not already_told:
-            emit(
-                notify_price_drop,
-                title,
-                old_price,
-                new_snap.price,
-                product.url,
-                product.store_id,
-                product_id=product.id,
-                game_id=product.game_id,
-                recorded_at=ts,
-            )
-            _remember(session, state, new_snap.price)
-    elif new_snap.price > old_price and item.notify_price_increase and not already_told:
+    elif new_snap.price < old_price and item.notify_price_drop and not already_told:
         emit(
-            notify_price_increase,
+            notify_price_drop,
             title,
             old_price,
             new_snap.price,

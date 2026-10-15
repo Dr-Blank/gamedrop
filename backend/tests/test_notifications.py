@@ -12,6 +12,8 @@ from .factories import make_product, make_store
 PATCH_DROP = "app.scraper.notify_price_drop"
 PATCH_TARGET = "app.scraper.notify_target_reached"
 PATCH_STOCK = "app.scraper.notify_back_in_stock"
+PATCH_OUT = "app.scraper.notify_out_of_stock"
+PATCH_RISE = "app.scraper.notify_price_increase"
 
 
 @pytest.fixture()
@@ -220,6 +222,72 @@ def test_out_of_stock_no_notification(session: Session, product: Product):
         _check_watchlist(session, product, old, new)
         mock_drop.assert_not_called()
         mock_stock.assert_not_called()
+
+
+# --- target gates stock and rise alerts ---
+
+
+def _check_with_target(session, product, old, new):
+    session.add(_watch(product.game_id, target_price=20.0))
+    session.commit()
+    with (
+        patch(PATCH_STOCK) as stock,
+        patch(PATCH_OUT) as out,
+        patch(PATCH_RISE) as rise,
+        patch(PATCH_TARGET) as target,
+    ):
+        _check_watchlist(session, product, old, new)
+    return stock, out, rise, target
+
+
+def test_back_in_stock_above_target_is_silent(session: Session, product: Product):
+    stock, *_ = _check_with_target(
+        session, product, _snap(product.id, 30.0, False), _snap(product.id, 30.0)
+    )
+    stock.assert_not_called()
+
+
+def test_back_in_stock_within_target_notifies(session: Session, product: Product):
+    stock, *_ = _check_with_target(
+        session, product, _snap(product.id, 18.0, False), _snap(product.id, 18.0)
+    )
+    stock.assert_called_once()
+
+
+def test_out_of_stock_above_target_is_silent(session: Session, product: Product):
+    _, out, *_ = _check_with_target(
+        session, product, _snap(product.id, 30.0), _snap(product.id, 30.0, False)
+    )
+    out.assert_not_called()
+
+
+def test_out_of_stock_within_target_notifies(session: Session, product: Product):
+    _, out, *_ = _check_with_target(
+        session, product, _snap(product.id, 18.0), _snap(product.id, 18.0, False)
+    )
+    out.assert_called_once()
+
+
+def test_rise_within_target_notifies(session: Session, product: Product):
+    _, _, rise, target = _check_with_target(
+        session, product, _snap(product.id, 15.0), _snap(product.id, 18.0)
+    )
+    rise.assert_called_once()
+    target.assert_not_called()
+
+
+def test_rise_out_of_target_notifies(session: Session, product: Product):
+    _, _, rise, _ = _check_with_target(
+        session, product, _snap(product.id, 18.0), _snap(product.id, 25.0)
+    )
+    rise.assert_called_once()
+
+
+def test_rise_above_target_is_silent(session: Session, product: Product):
+    _, _, rise, _ = _check_with_target(
+        session, product, _snap(product.id, 25.0), _snap(product.id, 30.0)
+    )
+    rise.assert_not_called()
 
 
 # --- watchlist state ---
