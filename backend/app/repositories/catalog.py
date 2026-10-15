@@ -254,6 +254,7 @@ def _offer(product: Product, snap: PriceSnapshot | None, override) -> dict:
         "price": price,
         "compare_at_price": snap.compare_at_price if snap else None,
         "available": bool(available),
+        "preorder": bool(available and snap and snap.preorder),
         "recorded_at": snap.recorded_at if snap else None,
         "price_history": [],  # filled in by the batched history query
     }

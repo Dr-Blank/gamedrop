@@ -330,6 +330,7 @@ async def sync_store(store: Store) -> dict:
                         not latest
                         or latest.price != v["price"]
                         or latest.available != v["available"]
+                        or latest.preorder != v.get("preorder", False)
                     )
 
                     if price_changed:
@@ -340,6 +341,7 @@ async def sync_store(store: Store) -> dict:
                             price=v["price"],
                             compare_at_price=v.get("compare_at_price"),
                             available=v["available"],
+                            preorder=v.get("preorder", False),
                         )
                         session.add(snap)
                         session.flush()

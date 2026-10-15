@@ -132,7 +132,7 @@
 							<span>weight {card.bgg.avg_weight.toFixed(1)}</span>
 						{/if}
 						{#if offer}
-							<StockBadge available={offer.available} size="sm" />
+							<StockBadge available={offer.available} preorder={offer.preorder} size="sm" />
 						{/if}
 					</div>
 				</div>

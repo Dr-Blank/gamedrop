@@ -507,7 +507,10 @@
 							<Badge variant="outline">{selected?.store_id}</Badge>
 						{/if}
 						{#if bgg?.year}<Badge variant="outline">{bgg.year}</Badge>{/if}
-						<StockBadge available={selected?.available ?? false} />
+						<StockBadge
+							available={selected?.available ?? false}
+							preorder={selected?.preorder ?? false}
+						/>
 						{#if game.hidden}<Badge variant="secondary" class="text-xs">hidden</Badge>{/if}
 						{#if override}<Badge variant="secondary" class="text-xs">corrected</Badge>{/if}
 						{#if refreshing}

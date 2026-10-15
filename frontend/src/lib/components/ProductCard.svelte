@@ -71,6 +71,9 @@
 	const pricing = $derived(gamePricing(item.compare, focusStore));
 	const price = $derived(pricing ? pricing.primary.price : ownPrice);
 	const available = $derived(pricing ? pricing.primary.available : ownAvailable);
+	const preorder = $derived(
+		pricing ? pricing.primary.preorder : !!item.latest_price?.preorder && ownAvailable
+	);
 	const imgSrc = $derived(item.bgg?.thumbnail || item.product.image_url || '');
 	const storeUrl = $derived(pricing?.primary.url || item.override?.url || item.product.url || '');
 
@@ -427,7 +430,7 @@
 				{/if}
 
 				<div class="flex items-center gap-2">
-					<StockBadge {available} size="sm" />
+					<StockBadge {available} {preorder} size="sm" />
 					{#if held}
 						<span class="text-[0.7rem] text-muted-foreground">
 							{held.changed ? `changed ${held.label} ago` : `same for ${held.label}`}

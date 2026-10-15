@@ -110,6 +110,8 @@ class PriceSnapshot(SQLModel, table=True):
     price: float
     compare_at_price: float | None = None
     available: bool = True
+    #: Buyable now but ships later; only meaningful while `available`.
+    preorder: bool = Field(default=False)
     ignored: bool = Field(default=False)
     source: str = Field(default="scrape")  # "scrape" | "manual"
     recorded_at: datetime = Field(default_factory=datetime.utcnow)
