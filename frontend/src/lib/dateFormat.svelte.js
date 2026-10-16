@@ -14,7 +14,7 @@ const MODE_LOCALES = {
 };
 
 /** Backend sends naive UTC; without a zone suffix the browser would read it as local. */
-function parse(iso) {
+export function parseUtc(iso) {
 	if (!iso) return null;
 	const d =
 		typeof iso === 'string' && iso.includes('T') && !/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso)
@@ -71,7 +71,7 @@ function withClock(opts) {
 
 /** @param {string|null|undefined} iso */
 export function fmtDate(iso) {
-	const d = parse(iso);
+	const d = parseUtc(iso);
 	if (!d) return 'Never';
 	return d.toLocaleString(
 		dateFormat.locale,
@@ -87,7 +87,7 @@ export function fmtDate(iso) {
 
 /** @param {string|null|undefined} iso */
 export function fmtDateOnly(iso) {
-	const d = parse(iso);
+	const d = parseUtc(iso);
 	return d ? d.toLocaleDateString(dateFormat.locale) : 'Never';
 }
 
@@ -96,7 +96,7 @@ export function fmtDateOnly(iso) {
  * @param {Intl.DateTimeFormatOptions} opts
  */
 export function fmtDateParts(iso, opts) {
-	const d = parse(iso);
+	const d = parseUtc(iso);
 	return d ? d.toLocaleString(dateFormat.locale, withClock(opts)) : '';
 }
 
@@ -111,7 +111,7 @@ const RELATIVE_UNITS = /** @type {const} */ ([
 
 /** @param {string|null|undefined} iso */
 export function fmtRelative(iso) {
-	const d = parse(iso);
+	const d = parseUtc(iso);
 	if (!d) return '';
 	const diff = Date.now() - d.getTime();
 	if (Math.abs(diff) < 60_000) return 'just now';

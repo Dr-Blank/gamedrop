@@ -10,6 +10,7 @@
 		TrendingDown,
 		Sparkles,
 		History,
+		Activity,
 		Heart,
 		Store,
 		Settings,
@@ -46,6 +47,7 @@
 		{ href: DROPS_URL, label: 'Drops', icon: TrendingDown },
 		{ href: NEW_URL, label: 'New', icon: Sparkles },
 		{ href: '/changes', label: 'Changes', icon: History },
+		{ href: '/timeline', label: 'Timeline', icon: Activity },
 		{ href: '/watchlist', label: 'Watchlist', icon: Heart },
 		{ href: '/cart', label: 'Cart', icon: ShoppingCart }
 	];

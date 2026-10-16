@@ -179,3 +179,14 @@ export const getNotifications = (limit = 20, offset = 0) =>
 export const markNotificationRead = (id) => req(`/notifications/${id}/read`, { method: 'PATCH' });
 export const markAllNotificationsRead = () => req('/notifications/read-all', { method: 'POST' });
 export const backfillNotifications = () => req('/notifications/backfill', { method: 'POST' });
+
+// Timeline
+export const getTimelineEvents = (params = {}) => {
+	const q = new URLSearchParams(
+		Object.entries(params).filter(([, v]) => v != null && v !== '' && v !== false)
+	);
+	return req(`/timeline/events?${q}`);
+};
+export const getTimelineSeen = () => req('/timeline/seen');
+export const markTimelineSeen = (seenAt) =>
+	req('/timeline/seen', { method: 'PUT', body: JSON.stringify({ seen_at: seenAt ?? null }) });
