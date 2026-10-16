@@ -1270,7 +1270,8 @@ def _add_snapshot(
 def test_back_in_stock_true_when_was_out(session: Session):
     """back_in_stock=true: product was unavailable, now available."""
     _store(session)
-    p = _product(session, "Restock", 30.0, available=False)
+    p = _product(session, "Restock", 30.0)
+    _add_snapshot(session, p, 30.0, available=False)
     _add_snapshot(session, p, 30.0, available=True)
     rows = query_products(
         session,

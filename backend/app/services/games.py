@@ -23,7 +23,7 @@ from ..models import (
     WatchlistItem,
 )
 from ..repositories import catalog as repo
-from ..snapshots import split_ignored
+from ..snapshots import ignore_pre_stock, split_ignored
 from ..text_search import MERGE_CUTOFF, match_key, rank_titles, similarity
 
 log = get_logger(__name__)
@@ -535,8 +535,9 @@ def _series(session: Session, product_ids: list[int], limit: int = 180) -> list[
             },
         )
         snaps.setdefault(product.id, []).append(snap)
+    pre_stock = ignore_pre_stock()
     for pid, entry in by_product.items():
-        kept, ignored = split_ignored(snaps[pid])
+        kept, ignored = split_ignored(snaps[pid], pre_stock)
         entry["history"] = [_reading(s) for s in kept[-limit:]]
         entry["ignored"] = [_reading(s) for s in reversed(ignored)]
     return [by_product[pid] for pid in product_ids if pid in by_product]

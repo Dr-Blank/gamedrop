@@ -13,6 +13,7 @@
 		{ id: 'ntfy', label: 'Push notifications' },
 		{ id: 'dates', label: 'Date & time' },
 		{ id: 'prices', label: 'Prices' },
+		{ id: 'history', label: 'Price history' },
 		{ id: 'headless', label: 'Headless deployment' }
 	];
 
@@ -26,6 +27,11 @@
 	const PRICE_ROUNDING = [
 		{ value: 'nearest-10', label: 'Rounded', hint: '₹1,999 → ₹2,000' },
 		{ value: 'off', label: 'Exact', hint: '₹1,999' }
+	];
+
+	const PRE_STOCK = [
+		{ value: true, label: 'Skip them', hint: 'first stock is the arrival' },
+		{ value: false, label: 'Count them', hint: 'every reading is a move' }
 	];
 
 	const CLOCK_FORMATS = [
@@ -44,6 +50,7 @@
 	let saved = $state(false);
 	let testBgg = $state({ loading: false, ok: null, message: '' });
 	let testNtfy = $state({ loading: false, ok: null, message: '' });
+	let ignorePreStock = $state(true);
 	let activeSection = $state(SECTIONS[0].id);
 	let now = $state(new Date().toISOString());
 
@@ -57,6 +64,7 @@
 		// Track whether tokens are already set (for display purposes)
 		bggTokenSet = res.bgg_api_token === '****';
 		ntfyTokenSet = res.ntfy_token === '****';
+		ignorePreStock = res.ignore_pre_stock_prices;
 	}
 
 	let bggTokenSet = $state(false);
@@ -74,6 +82,15 @@
 		saved = true;
 		setTimeout(() => (saved = false), 3000);
 		await load();
+	}
+
+	async function setIgnorePreStock(value) {
+		ignorePreStock = value;
+		await fetch(API, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ ignore_pre_stock_prices: value })
+		});
 	}
 
 	async function runTestBgg() {
@@ -323,6 +340,40 @@
 			</Card.Content>
 		</Card.Root>
 
+		<!-- Price history -->
+		<Card.Root id="history" class="scroll-mt-6">
+			<Card.Header>
+				<Card.Title>Price history</Card.Title>
+				<Card.Description>
+					Some shops list a game out of stock at a placeholder price before it lands, so the real
+					price shows up as a rise. Skipping those out-of-stock readings from before a listing's
+					first stock leaves them on record but out of charts, stats, filters and the change feed. A
+					listing never in stock keeps them, since they are all it has.
+				</Card.Description>
+			</Card.Header>
+			<Card.Content class="space-y-1.5">
+				<p class="text-xs font-medium text-muted-foreground">
+					Out-of-stock prices before first stock
+				</p>
+				<div class="flex flex-wrap gap-2">
+					{#each PRE_STOCK as option}
+						<button
+							onclick={() => setIgnorePreStock(option.value)}
+							class="rounded-md border px-3 py-1.5 text-sm transition-colors {ignorePreStock ===
+							option.value
+								? 'border-primary bg-primary/10 font-medium'
+								: 'hover:bg-muted/50'}"
+						>
+							{option.label}
+							<span class="block text-[0.7rem] font-normal text-muted-foreground">
+								{option.hint}
+							</span>
+						</button>
+					{/each}
+				</div>
+			</Card.Content>
+		</Card.Root>
+
 		<!-- Config file fallback note -->
 		<Card.Root id="headless" class="scroll-mt-6 border-dashed">
 			<Card.Header class="pb-2">
@@ -340,7 +391,8 @@
 BGG_API_TOKEN=your_token
 NTFY_SERVER=https://ntfy.example.com
 NTFY_TOPIC=board-game-tracker
-NTFY_TOKEN=optional_access_token</pre>
+NTFY_TOKEN=optional_access_token
+IGNORE_PRE_STOCK_PRICES=true</pre>
 			</Card.Content>
 		</Card.Root>
 	</div>

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from ..config import get_all_settings, get_setting, set_setting
 from ..logger import get_logger
+from ..snapshots import IGNORE_PRE_STOCK, ignore_pre_stock
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 log = get_logger(__name__)
@@ -16,6 +17,7 @@ class SettingsUpdate(BaseModel):
     ntfy_server: str = ""
     ntfy_topic: str = ""
     ntfy_token: str = ""
+    ignore_pre_stock_prices: bool | None = None
 
 
 @router.get("/")
@@ -24,6 +26,7 @@ def read_settings():
     # Mask token — send presence flag, not value
     data["bgg_api_token"] = "****" if data.get("bgg_api_token") else ""
     data["ntfy_token"] = "****" if data.get("ntfy_token") else ""
+    data[IGNORE_PRE_STOCK] = ignore_pre_stock()
     return data
 
 
@@ -36,6 +39,9 @@ def update_settings(body: SettingsUpdate):
         if val and val != "****":
             set_setting(key, val)
             changed.append(key)
+    if body.ignore_pre_stock_prices is not None:
+        set_setting(IGNORE_PRE_STOCK, str(body.ignore_pre_stock_prices).lower())
+        changed.append(IGNORE_PRE_STOCK)
     # Log which keys changed — never the values (tokens are secret).
     log.info("settings updated: %s", ", ".join(changed) or "none")
     return {"ok": True}

@@ -18,11 +18,13 @@ _ENV_MAP = {
     "ntfy_server": "NTFY_SERVER",
     "ntfy_topic": "NTFY_TOPIC",
     "ntfy_token": "NTFY_TOKEN",
+    "ignore_pre_stock_prices": "IGNORE_PRE_STOCK_PRICES",
 }
 
 _DEFAULTS = {
     "ntfy_server": "https://ntfy.sh",
     "ntfy_topic": "board-game-tracker",
+    "ignore_pre_stock_prices": "true",
 }
 
 

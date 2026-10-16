@@ -577,8 +577,8 @@ def _stocked(
 def price_and_stock_moves(session: Session):
     _store(session)
     _stocked(session, "Repriced", [(30.0, True), (25.0, True)])
-    _stocked(session, "Restocked", [(30.0, False), (30.0, True)])
-    _stocked(session, "Both", [(30.0, False), (25.0, True)])
+    _stocked(session, "Restocked", [(30.0, True), (30.0, False), (30.0, True)])
+    _stocked(session, "Both", [(30.0, True), (30.0, False), (25.0, True)])
 
 
 @pytest.mark.parametrize(
@@ -599,7 +599,10 @@ def test_a_kind_still_counts_arrivals_when_asked(session: Session):
     _store(session)
     _stocked(session, "Arrived", [(30.0, True)])
     _stocked(
-        session, "Restocked", [(30.0, False), (30.0, True)], step=timedelta(days=3)
+        session,
+        "Restocked",
+        [(30.0, True), (30.0, False), (30.0, True)],
+        step=timedelta(days=3),
     )
 
     window = ChangeWindow(since="-1d", kind="price", include_new=True)
