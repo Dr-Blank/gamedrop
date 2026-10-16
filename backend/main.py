@@ -19,6 +19,7 @@ from app.routes import (  # noqa: E402
     prices,
     settings,
     stores,
+    timeline,
     watchlist,
 )
 from app.routes.applogs import router as applogs_router  # noqa: E402
@@ -313,6 +314,7 @@ app.include_router(applogs_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(shelves_router, prefix="/api")
 app.include_router(games_router, prefix="/api")
+app.include_router(timeline.router, prefix="/api")
 
 
 @app.get("/api/health")
