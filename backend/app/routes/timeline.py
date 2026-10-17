@@ -24,6 +24,7 @@ def list_events(
     kinds: str | None = None,
     min_pct: float | None = None,
     watchlist: bool = False,
+    include_hidden: bool = False,
     before: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     session: Session = Depends(get_session),
@@ -41,6 +42,7 @@ def list_events(
             kinds=wanted,
             min_pct=min_pct,
             watchlist=watchlist,
+            include_hidden=include_hidden,
             before=before,
             limit=limit,
         )

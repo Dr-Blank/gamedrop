@@ -120,6 +120,17 @@ def test_hidden_games_are_left_out(client, session):
     assert _kinds(_get(client)) == [("b", "listed")]
 
 
+def test_hidden_games_come_back_on_request(client, session):
+    ark = _setup(session)
+    session.get(Game, ark.game_id).hidden = True
+    session.commit()
+    body = _get(client, include_hidden=True)
+    assert len(body["events"]) == 6
+    assert body["games"][str(ark.game_id)]["hidden"] is True
+    others = [g for gid, g in body["games"].items() if gid != str(ark.game_id)]
+    assert others and all(g["hidden"] is False for g in others)
+
+
 def test_ignored_readings_are_not_events(client, session):
     ark = _setup(session)
     snap = session.exec(

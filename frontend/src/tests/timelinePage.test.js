@@ -121,6 +121,29 @@ describe('timeline page', () => {
 		expect(JSON.parse(localStorage.getItem('gd-timeline-filters') ?? '{}').watchlist).toBe(true);
 	});
 
+	it('brings hidden games in on demand, without remembering it', async () => {
+		render(Timeline);
+		await screen.findByText('Ark Nova');
+		expect(lastParams().include_hidden).toBe(false);
+		api.getTimelineEvents.mockResolvedValue({
+			...BODY,
+			games: { 7: { ...BODY.games[7], hidden: true } }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Hidden' }));
+		expect(lastParams().include_hidden).toBe(true);
+		expect(await screen.findByText('hidden')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Mark 1 as seen/ })).toBeEnabled();
+		await fireEvent.click(screen.getByRole('button', { name: 'Watchlist' }));
+		const saved = JSON.parse(localStorage.getItem('gd-timeline-filters') ?? '{}');
+		expect(saved.watchlist).toBe(true);
+		expect(Object.keys(saved).some((k) => /hidden/i.test(k))).toBe(false);
+		api.getTimelineEvents.mockResolvedValue(BODY);
+		await fireEvent.click(screen.getByRole('button', { name: 'Watchlist' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Hidden' }));
+		expect(lastParams().include_hidden).toBe(false);
+		await waitFor(() => expect(screen.queryByText('hidden')).not.toBeInTheDocument());
+	});
+
 	describe('caught up', () => {
 		const at = (hoursAgo) =>
 			new Date(Date.now() - hoursAgo * 3_600_000).toISOString().replace('Z', '');

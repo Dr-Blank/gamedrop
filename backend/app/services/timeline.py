@@ -72,6 +72,7 @@ def change_events(
     kinds: list[str] | None = None,
     min_pct: float | None = None,
     watchlist: bool = False,
+    include_hidden: bool = False,
     before: str | None = None,
     limit: int = 100,
 ) -> dict:
@@ -99,7 +100,9 @@ def change_events(
         else_=None,
     ).label("kind")
 
-    clauses = [kind.is_not(None), Game.hidden == False]  # noqa: E712
+    clauses = [kind.is_not(None)]
+    if not include_hidden:
+        clauses.append(Game.hidden == False)  # noqa: E712
     if since is not None:
         clauses.append(r.c.recorded_at >= since)
     if until is not None:
@@ -166,7 +169,13 @@ def _games(session: Session, events: list[dict]) -> dict[int, dict]:
     chart_from = min(e["at"] for e in events) - CHART_LEAD
     listings = session.exec(select(Product).where(Product.game_id.in_(game_ids))).all()
     games = {
-        g.id: {"game_id": g.id, "title": g.title, "image_url": None, "series": []}
+        g.id: {
+            "game_id": g.id,
+            "title": g.title,
+            "hidden": g.hidden,
+            "image_url": None,
+            "series": [],
+        }
         for g in session.exec(select(Game).where(Game.id.in_(game_ids))).all()
     }
     for p in listings:

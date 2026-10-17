@@ -1,7 +1,8 @@
 <script>
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { Activity, CheckCheck, Clock, Heart } from '@lucide/svelte';
+	import { Activity, CheckCheck, Clock, EyeOff, Heart } from '@lucide/svelte';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import InfiniteScroll from '$lib/components/InfiniteScroll.svelte';
 	import ProductImage from '$lib/components/ProductImage.svelte';
@@ -54,6 +55,8 @@
 	}
 
 	let filters = $state(restore());
+	// Not remembered: hidden games are looked at on purpose, not by default.
+	let showHidden = $state(false);
 	let events = $state(/** @type {Array<any>} */ ([]));
 	let games = $state(/** @type {Record<string, any>} */ ({}));
 	let cursor = $state(/** @type {string|null} */ (null));
@@ -84,6 +87,7 @@
 			kinds: filters.kinds.join(','),
 			min_pct: filters.minPct || null,
 			watchlist: filters.watchlist,
+			include_hidden: showHidden,
 			before,
 			limit: PAGE
 		};
@@ -122,6 +126,11 @@
 		} catch {
 			// Remembering filters is a convenience; the page works without it.
 		}
+		load();
+	}
+
+	function toggleHidden() {
+		showHidden = !showHidden;
 		load();
 	}
 
@@ -253,6 +262,16 @@
 				<Heart class="size-4" />
 				Watchlist
 			</Button>
+			<Button
+				size="sm"
+				variant={showHidden ? 'secondary' : 'ghost'}
+				aria-pressed={showHidden}
+				title={showHidden ? 'Leave hidden games out' : 'Include games hidden from browse'}
+				onclick={toggleHidden}
+			>
+				<EyeOff class="size-4" />
+				Hidden
+			</Button>
 		</div>
 
 		{#if stores.length > 1}
@@ -326,6 +345,9 @@
 							<a href="/games/{group.game_id}" class="font-medium hover:underline">
 								{game?.title ?? `Game ${group.game_id}`}
 							</a>
+							{#if game?.hidden}
+								<Badge variant="secondary" class="ml-1 text-xs">hidden</Badge>
+							{/if}
 							<ul class="mt-1 space-y-0.5">
 								{#each group.events as e (e.snapshot_id)}
 									{@const color = storeColors.of(e.store_id)}
