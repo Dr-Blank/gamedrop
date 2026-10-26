@@ -213,6 +213,13 @@
 		refreshing = true;
 		try {
 			const fresh = await getGame(gameId);
+			// A merged-away id still resolves; move to the survivor so watch and
+			// cart state, keyed on the URL's id, match the game actually shown.
+			const canonical = fresh.game?.id;
+			if (canonical != null && canonical !== gameId) {
+				await goto(`/games/${canonical}${$page.url.search}`, { replaceState: true });
+				return;
+			}
 			data = fresh;
 			const wanted = keepSelection ? selectedId : pickStore(fresh);
 			const exists = fresh.offers.some((o) => o.product_id === wanted);
