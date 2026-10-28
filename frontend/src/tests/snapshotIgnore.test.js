@@ -85,6 +85,21 @@ describe('PriceTimeline ignore controls', () => {
 		expect(onrestore.mock.calls[0][0].id).toBe(99);
 	});
 
+	it('tags a reading skipped as a placeholder apart from a hidden one', () => {
+		render(PriceTimeline, {
+			props: {
+				events: buildTimeline(series),
+				ignored: [
+					{ id: 98, price: 10000, ignored: false, recorded_at: '2026-06-17T08:00:00' },
+					{ id: 99, price: 899, ignored: true, recorded_at: '2026-06-18T08:00:00' }
+				],
+				onrestore: vi.fn()
+			}
+		});
+		expect(screen.getAllByText('Skipped placeholder')).toHaveLength(1);
+		expect(screen.getAllByText(/Restore/)).toHaveLength(2);
+	});
+
 	it('shows no ignored section when nothing is ignored', () => {
 		render(PriceTimeline, { props: { events: buildTimeline(series) } });
 		expect(screen.queryByText(/left out of the chart/)).not.toBeInTheDocument();

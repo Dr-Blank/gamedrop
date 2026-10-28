@@ -2,11 +2,12 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlmodel import Session, select
 
 from app.config import set_setting
 from app.models import PriceSnapshot
-from app.snapshots import IGNORE_PRE_STOCK
+from app.snapshots import IGNORE_PRE_STOCK, MANUAL, effective, split_ignored
 
 from .factories import make_product, make_store
 
@@ -66,10 +67,45 @@ def test_selling_out_later_still_counts(client, session):
     assert [k for k, _ in _events(client)] == ["rise", "drop", "listed"]
 
 
-def test_never_stocked_keeps_its_placeholders(client, session):
-    product = _listing(session, [(5800, False, 20), (6000, False, 10)])
-    assert _history(client, product) == [5800, 6000]
-    assert [k for k, _ in _events(client)] == ["rise", "listed"]
+def test_never_stocked_keeps_only_its_latest_placeholder(client, session):
+    product = _listing(session, [(10000, False, 20), (2500, False, 10)])
+    assert _history(client, product) == [2500]
+    assert _events(client) == [("listed", 2500)]
+
+
+def test_never_stocked_variant_beside_a_stocked_one(client, session):
+    product = _listing(session, [(100, True, 30)], variant_id="a")
+    _listing(session, [(900, False, 20), (300, False, 10)], "b", product)
+    assert sorted(_events(client)) == [("listed", 100), ("listed", 300)]
+
+
+def _ignored(client, product):
+    r = client.get(f"/api/prices/product/{product.id}")
+    return [(h["price"], h["ignored"]) for h in r.json()["ignored"]]
+
+
+def test_skipped_placeholders_are_listed_as_ignored(client, session):
+    product = _listing(session, [(10000, False, 20), (2500, False, 10)])
+    assert _ignored(client, product) == [(10000, False)]
+
+
+def test_restoring_a_skipped_placeholder_counts_it(client, session):
+    product = _listing(session, [(10000, False, 20), (2500, False, 10)])
+    placeholder = session.exec(
+        select(PriceSnapshot).where(PriceSnapshot.price == 10000)
+    ).one()
+    client.delete(f"/api/prices/snapshot/{placeholder.id}/ignore")
+
+    assert _history(client, product) == [2500, 10000]
+    assert _ignored(client, product) == []
+    assert [k for k, _ in _events(client)] == ["drop", "listed"]
+
+
+def test_game_series_marks_skipped_readings(client, session):
+    product = _listing(session, [(0, False, 20), (500, True, 10)])
+    r = client.get(f"/api/games/{product.game_id}")
+    (series,) = r.json()["series"]
+    assert [(h["price"], h["ignored"]) for h in series["ignored"]] == [(0, False)]
 
 
 def test_each_variant_stocks_on_its_own(client, session):
@@ -100,3 +136,66 @@ def test_saving_other_settings_leaves_it_alone(client):
     client.put("/api/settings/", json={IGNORE_PRE_STOCK: False})
     client.put("/api/settings/", json={"ntfy_topic": "alerts"})
     assert client.get("/api/settings/").json()[IGNORE_PRE_STOCK] is False
+
+
+PARITY_CASES = {
+    "tied_latest_placeholders": [
+        (None, False, 30, {}),
+        (None, False, 20, {}),
+        (None, False, 20, {}),
+    ],
+    "null_variant_beside_named": [
+        ("a", False, 30, {}),
+        ("a", True, 20, {}),
+        ("a", False, 10, {}),
+        (None, False, 30, {}),
+        (None, False, 10, {}),
+    ],
+    "all_ignored_fallback": [
+        (None, False, 20, {"ignored": True}),
+        (None, False, 10, {"ignored": True}),
+    ],
+    "ignored_latest": [
+        (None, False, 30, {}),
+        (None, False, 20, {}),
+        (None, False, 10, {"ignored": True}),
+    ],
+    "confirmed_placeholder": [
+        (None, False, 30, {"confirmed": True}),
+        (None, False, 20, {}),
+        (None, True, 10, {}),
+    ],
+    "manual_before_stock": [
+        (None, False, 30, {"source": MANUAL}),
+        (None, False, 20, {}),
+        (None, True, 10, {}),
+    ],
+}
+
+
+@pytest.mark.parametrize("case", PARITY_CASES)
+def test_sql_and_python_rules_agree(session, case):
+    make_store(session, "a")
+    product = make_product(session, store_id="a", title=case)
+    base = datetime(2026, 1, 1)
+    for i, (variant_id, available, hours_ago, extra) in enumerate(PARITY_CASES[case]):
+        session.add(
+            PriceSnapshot(
+                product_id=product.id,
+                variant_id=variant_id,
+                price=100 + i,
+                available=available,
+                recorded_at=base - timedelta(hours=hours_ago),
+                **extra,
+            )
+        )
+    session.commit()
+    mine = PriceSnapshot.product_id == product.id
+
+    in_sql = session.exec(
+        select(PriceSnapshot.id).where(mine, effective(pre_stock=True))
+    ).all()
+    snaps = session.exec(select(PriceSnapshot).where(mine)).all()
+    in_python = [s.id for s in split_ignored(list(snaps), pre_stock=True)[0]]
+
+    assert sorted(in_sql) == sorted(in_python)

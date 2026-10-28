@@ -7,7 +7,8 @@ so no listing is ever left priceless.
 Shops often list a game out of stock at a placeholder price before it lands.
 With `IGNORE_PRE_STOCK` on, a listing's scraped out-of-stock readings from
 before its first in-stock reading don't count either. A variant never in stock
-keeps them, as the placeholders are all there is.
+keeps only its latest, so it has a current price but no history to move.
+A `confirmed` reading is exempt: restoring one says its price was real.
 """
 
 from __future__ import annotations
@@ -38,17 +39,23 @@ def effective(snap: type[PriceSnapshot] = PriceSnapshot, pre_stock: bool | None 
     kept = select(other.product_id).where(other.ignored == False)  # noqa: E712
     counted = snap.ignored == False  # noqa: E712
     if pre_stock:
-        same_stocked = (
+        same_kept = (
             other.product_id == snap.product_id,
             other.variant_id.is_not_distinct_from(snap.variant_id),
             other.ignored == False,  # noqa: E712
-            other.available == True,  # noqa: E712
         )
         placeholder = and_(
             snap.available == False,  # noqa: E712
             snap.source == SCRAPE,
-            exists().where(*same_stocked),
-            not_(exists().where(*same_stocked, other.recorded_at < snap.recorded_at)),
+            snap.confirmed == False,  # noqa: E712
+            exists().where(*same_kept, other.recorded_at > snap.recorded_at),
+            not_(
+                exists().where(
+                    *same_kept,
+                    other.available == True,  # noqa: E712
+                    other.recorded_at < snap.recorded_at,
+                )
+            ),
         )
         counted = and_(counted, not_(placeholder))
     return or_(counted, snap.product_id.notin_(kept))
@@ -57,7 +64,10 @@ def effective(snap: type[PriceSnapshot] = PriceSnapshot, pre_stock: bool | None 
 def split_ignored(
     snaps: list[PriceSnapshot], pre_stock: bool | None = None
 ) -> tuple[list[PriceSnapshot], list[PriceSnapshot]]:
-    """One listing's readings as (counted, ignored), applying the same rules."""
+    """One listing's readings as (counted, ignored), applying the same rules.
+
+    Skipped placeholders land in ignored too, told apart by `ignored` being false.
+    """
     if pre_stock is None:
         pre_stock = ignore_pre_stock()
     kept = [s for s in snaps if not s.ignored]
@@ -66,18 +76,22 @@ def split_ignored(
         return ignored, []
     if pre_stock:
         stocked_at: dict[str | None, datetime] = {}
+        latest_at: dict[str | None, datetime] = {}
         for s in kept:
-            if s.available and (
-                s.variant_id not in stocked_at
-                or s.recorded_at < stocked_at[s.variant_id]
-            ):
-                stocked_at[s.variant_id] = s.recorded_at
+            v = s.variant_id
+            if s.available and (v not in stocked_at or s.recorded_at < stocked_at[v]):
+                stocked_at[v] = s.recorded_at
+            if v not in latest_at or s.recorded_at > latest_at[v]:
+                latest_at[v] = s.recorded_at
         kept = [
             s
             for s in kept
             if s.available
             or s.source != SCRAPE
-            or s.variant_id not in stocked_at
-            or s.recorded_at > stocked_at[s.variant_id]
+            or s.confirmed
+            or s.recorded_at >= latest_at[s.variant_id]
+            or s.recorded_at > stocked_at.get(s.variant_id, datetime.max)
         ]
+        counted = {id(s) for s in kept}
+        ignored = [s for s in snaps if id(s) not in counted]
     return kept, ignored

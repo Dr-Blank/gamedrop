@@ -119,6 +119,8 @@ class PriceSnapshot(SQLModel, table=True):
     #: Buyable now but ships later; only meaningful while `available`.
     preorder: bool = Field(default=False)
     ignored: bool = Field(default=False)
+    #: Restored by hand, so automatic skip rules leave it counted.
+    confirmed: bool = Field(default=False)
     source: str = Field(default="scrape")  # "scrape" | "manual"
     recorded_at: datetime = Field(default_factory=datetime.utcnow)
 

@@ -78,6 +78,8 @@ def _set_ignored(snapshot_id: int, value: bool, session: Session) -> PriceSnapsh
     if not snap:
         raise HTTPException(404, "Snapshot not found")
     snap.ignored = value
+    if not value:
+        snap.confirmed = True
     session.add(snap)
     session.commit()
     session.refresh(snap)
@@ -98,6 +100,7 @@ def ignore_snapshot(snapshot_id: int, session: Session = Depends(get_session)):
 
 @router.delete("/snapshot/{snapshot_id}/ignore")
 def restore_snapshot(snapshot_id: int, session: Session = Depends(get_session)):
+    """Count a reading again, exempt from automatic skips too."""
     return _set_ignored(snapshot_id, False, session)
 
 

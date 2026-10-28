@@ -197,6 +197,14 @@
 					{#if s.source === 'manual'}
 						{@render manualTag()}
 					{/if}
+					{#if s.ignored === false}
+						<span
+							title="Out of stock before the listing first stocked; restore it if the price was real"
+							class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase"
+						>
+							Skipped placeholder
+						</span>
+					{/if}
 					<span class="flex-1"></span>
 					{#if onrestore}
 						<button

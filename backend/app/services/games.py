@@ -503,6 +503,7 @@ def _reading(snap: PriceSnapshot) -> dict:
         "price": snap.price,
         "available": snap.available,
         "source": snap.source,
+        "ignored": snap.ignored,
         "recorded_at": snap.recorded_at,
     }
 

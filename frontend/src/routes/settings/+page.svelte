@@ -348,7 +348,8 @@
 					Some shops list a game out of stock at a placeholder price before it lands, so the real
 					price shows up as a rise. Skipping those out-of-stock readings from before a listing's
 					first stock leaves them on record but out of charts, stats, filters and the change feed. A
-					listing never in stock keeps them, since they are all it has.
+					listing never in stock keeps only its latest, so it shows a price but no history. Skipped
+					readings sit under Ignored on the game page; restore one if its price was real.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-1.5">
