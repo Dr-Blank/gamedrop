@@ -1,7 +1,8 @@
 import httpx
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from ..adapters.shopify import MAX_REQUEST_GAP_SEC, REQUEST_GAP_KEY, request_gap
 from ..config import get_all_settings, get_setting, set_setting
 from ..logger import get_logger
 from ..snapshots import IGNORE_PRE_STOCK, ignore_pre_stock
@@ -18,6 +19,9 @@ class SettingsUpdate(BaseModel):
     ntfy_topic: str = ""
     ntfy_token: str = ""
     ignore_pre_stock_prices: bool | None = None
+    shopify_request_gap_sec: float | None = Field(
+        default=None, ge=0, le=MAX_REQUEST_GAP_SEC
+    )
 
 
 @router.get("/")
@@ -27,6 +31,7 @@ def read_settings():
     data["bgg_api_token"] = "****" if data.get("bgg_api_token") else ""
     data["ntfy_token"] = "****" if data.get("ntfy_token") else ""
     data[IGNORE_PRE_STOCK] = ignore_pre_stock()
+    data[REQUEST_GAP_KEY] = request_gap()
     return data
 
 
@@ -42,6 +47,9 @@ def update_settings(body: SettingsUpdate):
     if body.ignore_pre_stock_prices is not None:
         set_setting(IGNORE_PRE_STOCK, str(body.ignore_pre_stock_prices).lower())
         changed.append(IGNORE_PRE_STOCK)
+    if body.shopify_request_gap_sec is not None:
+        set_setting(REQUEST_GAP_KEY, str(body.shopify_request_gap_sec))
+        changed.append(REQUEST_GAP_KEY)
     # Log which keys changed — never the values (tokens are secret).
     log.info("settings updated: %s", ", ".join(changed) or "none")
     return {"ok": True}

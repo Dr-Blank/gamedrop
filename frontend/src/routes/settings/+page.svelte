@@ -14,6 +14,7 @@
 		{ id: 'dates', label: 'Date & time' },
 		{ id: 'prices', label: 'Prices' },
 		{ id: 'history', label: 'Price history' },
+		{ id: 'shopify', label: 'Shopify pacing' },
 		{ id: 'headless', label: 'Headless deployment' }
 	];
 
@@ -51,6 +52,7 @@
 	let testBgg = $state({ loading: false, ok: null, message: '' });
 	let testNtfy = $state({ loading: false, ok: null, message: '' });
 	let ignorePreStock = $state(true);
+	let shopifyGap = $state(2);
 	let activeSection = $state(SECTIONS[0].id);
 	let now = $state(new Date().toISOString());
 
@@ -65,6 +67,7 @@
 		bggTokenSet = res.bgg_api_token === '****';
 		ntfyTokenSet = res.ntfy_token === '****';
 		ignorePreStock = res.ignore_pre_stock_prices;
+		shopifyGap = res.shopify_request_gap_sec;
 	}
 
 	let bggTokenSet = $state(false);
@@ -91,6 +94,16 @@
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ ignore_pre_stock_prices: value })
 		});
+	}
+
+	async function saveShopifyGap() {
+		await fetch(API, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ shopify_request_gap_sec: shopifyGap })
+		});
+		// A refused value snaps back; `load` would also wipe unsaved fields elsewhere on the page.
+		shopifyGap = (await fetch(API).then((r) => r.json())).shopify_request_gap_sec;
 	}
 
 	async function runTestBgg() {
@@ -372,6 +385,32 @@
 						</button>
 					{/each}
 				</div>
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root id="shopify" class="scroll-mt-6">
+			<Card.Header>
+				<Card.Title>Shopify pacing</Card.Title>
+				<Card.Description>
+					Shopify shops can refuse requests together, so they all share one pace. Raise this if
+					syncs keep failing with 429 errors; every refusal already pauses all of them for as long
+					as Shopify asks.
+				</Card.Description>
+			</Card.Header>
+			<Card.Content class="space-y-1.5">
+				<label for="shopify-gap" class="text-xs font-medium text-muted-foreground">
+					Seconds between requests (0–60)
+				</label>
+				<Input
+					id="shopify-gap"
+					type="number"
+					min="0"
+					max="60"
+					step="0.5"
+					class="w-24"
+					bind:value={shopifyGap}
+					onchange={saveShopifyGap}
+				/>
 			</Card.Content>
 		</Card.Root>
 

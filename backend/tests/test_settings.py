@@ -27,6 +27,19 @@ def test_put_settings_updates_value(client: TestClient):
     assert r.json()["ok"] is True
 
 
+def test_shopify_request_gap_round_trips(client: TestClient):
+    assert client.get("/api/settings").json()["shopify_request_gap_sec"] == 2
+    r = client.put("/api/settings", json={"shopify_request_gap_sec": 4.5})
+    assert r.status_code == 200
+    assert client.get("/api/settings").json()["shopify_request_gap_sec"] == 4.5
+
+
+def test_shopify_request_gap_rejects_out_of_range(client: TestClient):
+    for bad in (-1, 61):
+        r = client.put("/api/settings", json={"shopify_request_gap_sec": bad})
+        assert r.status_code == 422
+
+
 def test_put_settings_ignores_placeholder(client: TestClient):
     r = client.put(
         "/api/settings",

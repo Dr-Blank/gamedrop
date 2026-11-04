@@ -12,12 +12,12 @@ from urllib.parse import urlsplit
 import httpx
 
 from .base import StoreAdapter, store_cfg
+from .throttle import retry_after
 from .woocommerce import USER_AGENT
 
 PAGE_LIMIT = 100
 RETRIES = 5
 BACKOFF_SEC = 30
-MAX_WAIT_SEC = 900
 #: Gap between pages once the shop has pushed back, doubling per refusal.
 THROTTLED_DELAY_SEC = 5
 MAX_DELAY_SEC = 60
@@ -151,13 +151,6 @@ def is_opencart(response: httpx.Response) -> bool:
     return "OCSESSID" in response.cookies or "catalog/view/" in response.text
 
 
-def _retry_after(response: httpx.Response) -> float | None:
-    try:
-        return min(float(response.headers["retry-after"]), MAX_WAIT_SEC)
-    except (KeyError, ValueError):
-        return None
-
-
 class OpenCartAdapter(StoreAdapter):
     async def fetch_products(self) -> list[dict]:
         base = self.store.base_url.rstrip("/")
@@ -216,7 +209,7 @@ class OpenCartAdapter(StoreAdapter):
             else:
                 if r.status_code in RETRY_STATUSES:
                     problem = f"HTTP {r.status_code}"
-                    wait = _retry_after(r) or wait
+                    wait = retry_after(r) or wait
                 else:
                     r.raise_for_status()
                     cards = parse_cards(r.text)
