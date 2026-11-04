@@ -1,5 +1,5 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { Activity, CheckCheck, Clock, EyeOff, Heart } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -45,10 +45,19 @@
 		watchlist: false
 	});
 
+	/** Every kind chosen shows what none chosen shows, so it is kept as none. */
+	const normalized = (/** @type {ReturnType<typeof defaults>} */ f) => ({
+		...f,
+		kinds: KINDS.every((k) => f.kinds.includes(k)) ? [] : f.kinds
+	});
+
 	function restore() {
 		if (!browser) return defaults();
 		try {
-			return { ...defaults(), ...JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') };
+			return normalized({
+				...defaults(),
+				...JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+			});
 		} catch {
 			return defaults();
 		}
@@ -120,7 +129,7 @@
 	}
 
 	function update(/** @type {Partial<ReturnType<typeof defaults>>} */ patch) {
-		filters = { ...filters, ...patch };
+		filters = normalized({ ...filters, ...patch });
 		try {
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
 		} catch {
@@ -128,6 +137,14 @@
 		}
 		load();
 	}
+
+	// A remembered shop that no longer exists has no chip to clear it. No names means not loaded.
+	$effect(() => {
+		const { names } = storeColors;
+		if (!names.size) return;
+		const known = filters.stores.filter((id) => names.has(id));
+		if (known.length < filters.stores.length) untrack(() => update({ stores: known }));
+	});
 
 	function toggleHidden() {
 		showHidden = !showHidden;
@@ -198,16 +215,22 @@
 				Every price and stock move across shops, newest first.
 			</p>
 		</div>
-		<Button
-			size="sm"
-			variant={unseen ? 'default' : 'outline'}
-			disabled={!unseen || narrowed}
-			title={narrowed ? 'Clear the shop, kind and size filters to mark caught up' : undefined}
-			onclick={markCaughtUp}
-		>
-			<CheckCheck class="size-4" />
-			{unseen ? `Mark ${unseen}${cursor ? '+' : ''} as seen` : 'Caught up'}
-		</Button>
+		<div class="flex flex-col items-end gap-1">
+			<Button
+				size="sm"
+				variant={unseen ? 'default' : 'outline'}
+				disabled={!unseen || narrowed}
+				onclick={markCaughtUp}
+			>
+				<CheckCheck class="size-4" />
+				{unseen ? `Mark ${unseen}${cursor ? '+' : ''} as seen` : 'Caught up'}
+			</Button>
+			{#if unseen && narrowed}
+				<p class="text-right text-xs text-muted-foreground">
+					Clear the shop, kind, price and watchlist filters to mark as seen
+				</p>
+			{/if}
+		</div>
 	</div>
 
 	<div class="flex flex-col gap-3 rounded-lg border p-3">

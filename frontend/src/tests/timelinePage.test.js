@@ -196,6 +196,55 @@ describe('timeline page', () => {
 			await screen.findByText('Ark Nova');
 			await fireEvent.click(screen.getByRole('button', { name: 'Drops' }));
 			expect(screen.getByRole('button', { name: /Mark 1 as seen/ })).toBeDisabled();
+			expect(screen.getByText(/Clear the shop, kind, price and watchlist/)).toBeVisible();
+		});
+
+		it('treats a remembered choice of every kind as no filter', async () => {
+			localStorage.setItem(
+				'gd-timeline-filters',
+				JSON.stringify({ kinds: ['rise', 'drop', 'listed', 'restock', 'oos'] })
+			);
+			render(Timeline);
+			expect(await screen.findByRole('button', { name: /Mark 1 as seen/ })).toBeEnabled();
+			expect(lastParams().kinds).toBe('');
+			expect(screen.queryByText(/Clear the shop/)).not.toBeInTheDocument();
+		});
+
+		it('treats choosing every kind by hand as no filter', async () => {
+			render(Timeline);
+			await screen.findByText('Ark Nova');
+			for (const name of ['Drops', 'Rises', 'Restocks', 'Sold out', 'New']) {
+				await fireEvent.click(screen.getByRole('button', { name }));
+			}
+			expect(lastParams().kinds).toBe('');
+			expect(JSON.parse(localStorage.getItem('gd-timeline-filters') ?? '{}').kinds).toEqual([]);
+			expect(await screen.findByRole('button', { name: /Mark 1 as seen/ })).toBeEnabled();
+		});
+
+		it('forgets a remembered shop that no longer exists', async () => {
+			localStorage.setItem('gd-timeline-filters', JSON.stringify({ stores: ['gone'] }));
+			render(Timeline);
+			expect(await screen.findByRole('button', { name: /Mark 1 as seen/ })).toBeEnabled();
+			expect(lastParams().stores).toBe('');
+			expect(JSON.parse(localStorage.getItem('gd-timeline-filters') ?? '{}').stores).toEqual([]);
+		});
+
+		it('keeps a remembered shop that still exists', async () => {
+			localStorage.setItem('gd-timeline-filters', JSON.stringify({ stores: ['gone', 'a'] }));
+			render(Timeline);
+			await screen.findByText('Ark Nova');
+			expect(lastParams().stores).toBe('a');
+			expect(screen.getByRole('button', { name: /Mark 1 as seen/ })).toBeDisabled();
+		});
+
+		it('keeps remembered shops until the shop names arrive', async () => {
+			storeColors.names = new Map();
+			localStorage.setItem('gd-timeline-filters', JSON.stringify({ stores: ['a', 'gone'] }));
+			render(Timeline);
+			await screen.findByText('Ark Nova');
+			expect(lastParams().stores).toBe('a,gone');
+			storeColors.names = new Map([['a', 'Shop A']]);
+			await waitFor(() => expect(lastParams().stores).toBe('a'));
 		});
 	});
 });
