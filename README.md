@@ -319,14 +319,21 @@ BGG client enforces a minimum 1.1s gap between requests and processes one at a t
 
 ## Publishing to GHCR
 
-Push to `main` or a version tag — the GitHub Actions workflow in `.github/workflows/docker.yml` builds and pushes automatically:
+Push to `main` or a version tag. CI (`.github/workflows/ci.yml`) runs lint, tests and the frontend build, then boots the image on an empty database. An image is published only if all of that passes:
 
 ```bash
+git push origin main
+# → ghcr.io/dr-blank/gamedrop:latest
+# → ghcr.io/dr-blank/gamedrop:sha-<commit>
+
 git tag v1.0.0
 git push origin v1.0.0
 # → ghcr.io/dr-blank/gamedrop:1.0.0
-# → ghcr.io/dr-blank/gamedrop:latest
+# → ghcr.io/dr-blank/gamedrop:1.0
+# → ghcr.io/dr-blank/gamedrop:sha-<commit>
 ```
+
+Pull requests run the same checks and image boot but never publish. To re-run a publish, use **Run workflow** on the CI workflow; there is no way to publish without the checks.
 
 ---
 

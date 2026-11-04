@@ -1,22 +1,21 @@
 name: Docker
 
+# Only CI calls this, after its checks pass, so nothing untested gets published.
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      push:
+        description: Publish the image once it passes the smoke test
+        type: boolean
+        required: true
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
-    name: Build & push image
+  build:
+    name: Build, smoke test, publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,7 +26,32 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Build for smoke test
+        uses: docker/build-push-action@v6
+        timeout-minutes: 30
+        with:
+          context: .
+          load: true
+          tags: gamedrop:smoke
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Health answers only after startup, so this also runs every migration on an empty DB.
+      - name: Smoke test
+        timeout-minutes: 3
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:8000:8000 gamedrop:smoke
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:8000/api/health
+          curl -fsS -o index.html http://127.0.0.1:8000/
+          grep -qi '<html' index.html
+
+      - name: Show container logs
+        if: failure()
+        run: docker logs smoke
+
       - name: Log in to GHCR
+        if: inputs.push
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -35,6 +59,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
+        if: inputs.push
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -46,6 +71,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Build and push
+        if: inputs.push
         uses: docker/build-push-action@v6
         timeout-minutes: 30
         with:
