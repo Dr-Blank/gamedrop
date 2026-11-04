@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { collapseFlaps, groupEvents, pctMove, valuesAt } from '$lib/timeline.js';
+import {
+	collapseFlaps,
+	groupEvents,
+	hasShopLineAhead,
+	isSeen,
+	pctMove,
+	seenLine,
+	valuesAt
+} from '$lib/timeline.js';
 
 let nextId = 1;
 const ev = (game_id, kind, at, extra = {}) => ({
@@ -31,9 +39,23 @@ describe('groupEvents', () => {
 	it('splits a game at the seen line', () => {
 		const days = groupEvents(
 			[ev(1, 'drop', '2026-10-16T10:00:00'), ev(1, 'rise', '2026-10-16T08:00:00')],
-			Date.parse('2026-10-16T09:00:00Z')
+			{ seen_at: '2026-10-16T09:00:00', stores: {} }
 		);
 		expect(days[0].groups.map((g) => g.seen)).toEqual([false, true]);
+	});
+
+	it('splits a game row by each shop’s own line', () => {
+		const days = groupEvents(
+			[
+				ev(1, 'drop', '2026-10-16T10:00:00', { store_id: 'a' }),
+				ev(1, 'drop', '2026-10-16T10:00:00', { store_id: 'b' })
+			],
+			{ seen_at: null, stores: { a: '2026-10-16T11:00:00' } }
+		);
+		expect(days[0].groups.map((g) => [g.seen, g.events[0].store_id])).toEqual([
+			[true, 'a'],
+			[false, 'b']
+		]);
 	});
 
 	it('folds a later page into groups already shown', () => {
@@ -104,5 +126,32 @@ describe('valuesAt', () => {
 		];
 		const t = Date.parse('2026-10-11T00:00:00Z');
 		expect(valuesAt(series, t)).toEqual([{ store_id: 'a', price: 80, available: false }]);
+	});
+});
+
+describe('seen lines', () => {
+	const early = '2026-10-16T08:00:00';
+	const late = '2026-10-16T10:00:00';
+
+	it('takes the later of the global line and the shop’s own', () => {
+		expect(seenLine({ seen_at: early, stores: { a: late } }, 'a')).toBe(late);
+		expect(seenLine({ seen_at: late, stores: { a: early } }, 'a')).toBe(late);
+		expect(seenLine({ seen_at: early, stores: { a: late } }, 'b')).toBe(early);
+		expect(seenLine({ seen_at: null, stores: { a: late } }, 'a')).toBe(late);
+		expect(seenLine({ seen_at: null, stores: {} }, 'a')).toBeNull();
+		expect(seenLine(null, 'a')).toBeNull();
+	});
+
+	it('counts a move on the line as seen', () => {
+		const seen = { seen_at: null, stores: { a: late } };
+		expect(isSeen({ at: late, store_id: 'a' }, seen)).toBe(true);
+		expect(isSeen({ at: late, store_id: 'b' }, seen)).toBe(false);
+	});
+
+	it('spots a shop line running ahead of the global one', () => {
+		expect(hasShopLineAhead({ seen_at: null, stores: {} })).toBe(false);
+		expect(hasShopLineAhead({ seen_at: null, stores: { a: early } })).toBe(true);
+		expect(hasShopLineAhead({ seen_at: early, stores: { a: late } })).toBe(true);
+		expect(hasShopLineAhead({ seen_at: late, stores: { a: early } })).toBe(false);
 	});
 });

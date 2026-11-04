@@ -174,24 +174,55 @@ def test_rejects_unknown_kinds_and_bad_cursors(client, session):
 
 
 def test_caught_up_line_starts_unset(client):
-    assert client.get("/api/timeline/seen").json() == {"seen_at": None}
+    assert client.get("/api/timeline/seen").json() == {"seen_at": None, "stores": {}}
 
 
 def test_caught_up_line_moves_forward_only(client):
     later, earlier = "2026-10-16T10:00:00", "2026-10-15T10:00:00"
     assert client.put("/api/timeline/seen", json={"seen_at": later}).status_code == 200
     client.put("/api/timeline/seen", json={"seen_at": earlier})
-    assert client.get("/api/timeline/seen").json() == {"seen_at": later}
+    assert client.get("/api/timeline/seen").json()["seen_at"] == later
 
 
 def test_caught_up_line_takes_a_zoned_time_as_utc(client):
     client.put("/api/timeline/seen", json={"seen_at": "2026-10-16T15:30:00+05:30"})
-    assert client.get("/api/timeline/seen").json() == {"seen_at": "2026-10-16T10:00:00"}
+    assert client.get("/api/timeline/seen").json()["seen_at"] == "2026-10-16T10:00:00"
 
 
 def test_caught_up_defaults_to_now(client):
     body = client.put("/api/timeline/seen", json={}).json()
     assert datetime.fromisoformat(body["seen_at"]) > _now() - timedelta(minutes=1)
+
+
+def test_marking_a_shop_leaves_the_others_and_the_global_line(client):
+    at = "2026-10-16T10:00:00"
+    body = client.put(
+        "/api/timeline/seen", json={"seen_at": at, "store_ids": ["a"]}
+    ).json()
+    assert body == {"seen_at": None, "stores": {"a": at}}
+    assert client.get("/api/timeline/seen").json() == body
+
+
+def test_marking_several_shops_moves_each_line(client):
+    at = "2026-10-16T10:00:00"
+    client.put("/api/timeline/seen", json={"seen_at": at, "store_ids": ["a", "b"]})
+    assert client.get("/api/timeline/seen").json()["stores"] == {"a": at, "b": at}
+
+
+def test_a_shop_line_moves_forward_only(client):
+    later, earlier = "2026-10-16T10:00:00", "2026-10-15T10:00:00"
+    client.put("/api/timeline/seen", json={"seen_at": later, "store_ids": ["a"]})
+    body = client.put(
+        "/api/timeline/seen", json={"seen_at": earlier, "store_ids": ["a", "b"]}
+    ).json()
+    assert body["stores"] == {"a": later, "b": earlier}
+
+
+def test_global_mark_keeps_shop_lines(client):
+    shop, everyone = "2026-10-16T10:00:00", "2026-10-15T10:00:00"
+    client.put("/api/timeline/seen", json={"seen_at": shop, "store_ids": ["a"]})
+    body = client.put("/api/timeline/seen", json={"seen_at": everyone}).json()
+    assert body == {"seen_at": everyone, "stores": {"a": shop}}
 
 
 def test_chart_enters_at_the_price_standing_before_it(client, session):

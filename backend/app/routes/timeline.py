@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -51,24 +52,44 @@ def list_events(
 
 
 SEEN_KEY = "timeline_seen_at"
+SEEN_STORES_KEY = "timeline_seen_stores"
 
 
 class Seen(BaseModel):
     seen_at: datetime | None = None
+    store_ids: list[str] = []
+
+
+def _store_lines() -> dict[str, datetime]:
+    saved = json.loads(get_setting(SEEN_STORES_KEY) or "{}")
+    return {store: datetime.fromisoformat(at) for store, at in saved.items()}
 
 
 @router.get("/seen")
 def read_seen():
     value = get_setting(SEEN_KEY)
-    return {"seen_at": datetime.fromisoformat(value) if value else None}
+    return {
+        "seen_at": datetime.fromisoformat(value) if value else None,
+        "stores": _store_lines(),
+    }
 
 
 @router.put("/seen")
 def mark_seen(body: Seen):
-    """Move the caught-up line; it never moves back, so a stale tab can't undo it."""
-    current = get_setting(SEEN_KEY)
+    """Move the caught-up line, or only these shops' lines.
+
+    A line never moves back, so a stale tab can't undo it.
+    """
     at = _to_datetime(body.seen_at or datetime.utcnow())
-    if current and datetime.fromisoformat(current) >= at:
-        at = datetime.fromisoformat(current)
-    set_setting(SEEN_KEY, at.isoformat())
-    return {"seen_at": at}
+    if body.store_ids:
+        lines = _store_lines()
+        for store in body.store_ids:
+            lines[store] = max(at, lines.get(store, at))
+        saved = {store: line.isoformat() for store, line in lines.items()}
+        set_setting(SEEN_STORES_KEY, json.dumps(saved))
+    else:
+        current = get_setting(SEEN_KEY)
+        if current and datetime.fromisoformat(current) >= at:
+            at = datetime.fromisoformat(current)
+        set_setting(SEEN_KEY, at.isoformat())
+    return read_seen()

@@ -11,7 +11,16 @@
 	import { storeColors } from '$lib/storeColors.svelte.js';
 	import { inrDelta, inrExact } from '$lib/priceFormat.svelte.js';
 	import { fmtDateParts } from '$lib/dateFormat.svelte.js';
-	import { KINDS, groupEvents, localDay, pctMove, stampOf } from '$lib/timeline.js';
+	import {
+		KINDS,
+		groupEvents,
+		hasShopLineAhead,
+		isSeen,
+		localDay,
+		pctMove,
+		seenLine,
+		stampOf
+	} from '$lib/timeline.js';
 	import { toast } from '$lib/toast.svelte.js';
 
 	const STORAGE_KEY = 'gd-timeline-filters';
@@ -74,19 +83,25 @@
 	let request = 0;
 	// Pinned per fresh load so later pages page through the same window.
 	let loadedAt = $state(Date.now());
-	let seenAt = $state(/** @type {string|null} */ (null));
+	let seen = $state(
+		/** @type {{seen_at: string|null, stores: Record<string, string>}} */ ({
+			seen_at: null,
+			stores: {}
+		})
+	);
 
 	const stores = $derived([...storeColors.names.keys()].sort());
-	const seenStamp = $derived(seenAt ? stampOf(seenAt) : null);
-	const days = $derived(groupEvents(events, seenStamp));
-	const unseen = $derived(
-		seenStamp == null ? events.length : events.filter((e) => stampOf(e.at) > seenStamp).length
-	);
-	const caughtUpKey = $derived(days.flatMap((d) => d.groups).find((g) => g.seen)?.key ?? null);
-	// The seen line is global, so marking from a narrowed view would skip what it hides.
-	const narrowed = $derived(
-		!!(filters.stores.length || filters.kinds.length || filters.minPct || filters.watchlist)
-	);
+	const days = $derived(groupEvents(events, seen));
+	const unseen = $derived(events.filter((e) => !isSeen(e, seen)).length);
+	// With a shop's line ahead, pages not loaded yet may still hold another shop's unseen moves.
+	const settled = $derived(!cursor || !hasShopLineAhead(seen));
+	const caughtUp = $derived.by(() => {
+		if (!settled) return null;
+		const groups = days.flatMap((d) => d.groups);
+		return groups[groups.findLastIndex((g) => !g.seen) + 1] ?? null;
+	});
+	// Lines go by time, so marking from these views would skip the moves they hide. Shops have their own.
+	const narrowed = $derived(!!(filters.kinds.length || filters.minPct || filters.watchlist));
 
 	function params(before = /** @type {string|null} */ (null)) {
 		const span = WINDOWS.find((w) => w.key === filters.window)?.ms;
@@ -158,14 +173,14 @@
 	onMount(() => {
 		load();
 		getTimelineSeen()
-			.then((body) => (seenAt = body.seen_at))
+			.then((body) => (seen = body))
 			.catch(() => {});
 	});
 
 	/** Up to the newest move loaded, not "now": a change landing meanwhile stays new. */
 	async function markCaughtUp() {
 		try {
-			seenAt = (await markTimelineSeen(events[0]?.at ?? null)).seen_at;
+			seen = await markTimelineSeen(events[0]?.at ?? null, filters.stores);
 		} catch (e) {
 			toast.error(`Could not mark caught up: ${e}`);
 		}
@@ -223,11 +238,15 @@
 				onclick={markCaughtUp}
 			>
 				<CheckCheck class="size-4" />
-				{unseen ? `Mark ${unseen}${cursor ? '+' : ''} as seen` : 'Caught up'}
+				{unseen
+					? `Mark ${unseen}${cursor ? '+' : ''} as seen`
+					: settled
+						? 'Caught up'
+						: 'Nothing new so far'}
 			</Button>
 			{#if unseen && narrowed}
 				<p class="text-right text-xs text-muted-foreground">
-					Clear the shop, kind, price and watchlist filters to mark as seen
+					Clear the kind, price and watchlist filters to mark as seen
 				</p>
 			{/if}
 		</div>
@@ -342,11 +361,11 @@
 			{#each day.groups as group (group.key)}
 				{@const game = games[group.game_id]}
 				{@const series = chartSeries(game)}
-				{#if group.key === caughtUpKey}
+				{#if group.key === caughtUp?.key}
 					<div class="flex items-center gap-3 py-2 text-xs font-medium text-primary">
 						<span class="h-px flex-1 bg-primary/40"></span>
 						<CheckCheck class="size-4" />
-						Caught up — seen {fmtDateParts(seenAt, {
+						Caught up — seen {fmtDateParts(seenLine(seen, group.events[0].store_id), {
 							day: 'numeric',
 							month: 'short',
 							hour: '2-digit',
@@ -355,7 +374,11 @@
 						<span class="h-px flex-1 bg-primary/40"></span>
 					</div>
 				{/if}
-				<article class="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row">
+				<article
+					class="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row {group.seen
+						? 'opacity-60'
+						: ''}"
+				>
 					<div class="flex min-w-0 flex-1 gap-3">
 						<a href="/games/{group.game_id}" class="shrink-0">
 							<ProductImage

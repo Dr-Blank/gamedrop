@@ -188,5 +188,8 @@ export const getTimelineEvents = (params = {}) => {
 	return req(`/timeline/events?${q}`);
 };
 export const getTimelineSeen = () => req('/timeline/seen');
-export const markTimelineSeen = (seenAt) =>
-	req('/timeline/seen', { method: 'PUT', body: JSON.stringify({ seen_at: seenAt ?? null }) });
+export const markTimelineSeen = (seenAt, storeIds = []) =>
+	req('/timeline/seen', {
+		method: 'PUT',
+		body: JSON.stringify({ seen_at: seenAt ?? null, store_ids: storeIds })
+	});
