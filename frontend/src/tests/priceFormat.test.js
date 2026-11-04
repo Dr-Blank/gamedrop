@@ -119,12 +119,13 @@ describe('PriceChart', () => {
 	});
 
 	it('states the change in rupees, not in percent', () => {
+		const daysAgo = (days) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 19);
 		const moved = [
 			{
 				store_id: 'a',
 				history: [
-					{ price: 1999, recorded_at: '2026-08-01T00:00:00' },
-					{ price: 1799, recorded_at: '2026-08-05T00:00:00' }
+					{ price: 1999, recorded_at: daysAgo(10) },
+					{ price: 1799, recorded_at: daysAgo(5) }
 				]
 			}
 		];
