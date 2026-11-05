@@ -1,7 +1,12 @@
 import json
 from abc import ABC, abstractmethod
 
-DEFAULTS = {"timeout_sec": 30, "request_delay_sec": 1, "sync_interval_hours": 6}
+DEFAULTS = {
+    "timeout_sec": 30,
+    "request_delay_sec": 1,
+    "sync_interval_hours": 6,
+    "rate_limit_retries": 2,
+}
 
 
 def store_cfg(store, key):

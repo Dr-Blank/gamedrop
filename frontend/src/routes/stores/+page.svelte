@@ -53,6 +53,7 @@
 		json_api: 'JSON API'
 	};
 	const DEFAULT_SCRAPE_CONFIG = { timeout_sec: 30, request_delay_sec: 1, sync_interval_hours: 6 };
+	const DEFAULT_RATE_LIMIT_RETRIES = 2;
 	let storeTypes = $state([
 		{ type: 'shopify', default_collection_path: '/collections/board-games' }
 	]);
@@ -346,6 +347,10 @@
 		syncResults[storeId] = null;
 		try {
 			syncResults[storeId] = await syncStore(storeId);
+		} catch {
+			// A failed sync is recorded on the store, which the reload below shows.
+		}
+		try {
 			await load();
 			if (logsOpen[storeId]) await loadLogs(storeId);
 		} finally {
@@ -567,7 +572,16 @@
 							</div>
 
 							<div class="text-xs">
-								{#if store.last_sync_error}
+								{#if store.rate_limited}
+									<div class="flex items-center gap-1 font-medium text-amber-600">
+										<TriangleAlert class="size-3.5 shrink-0" />
+										Rate limited
+									</div>
+									<div class="max-w-xs break-words text-muted-foreground">
+										{store.last_sync_error}. This shop is refusing this app, so syncing again won't
+										help until it lifts.
+									</div>
+								{:else if store.last_sync_error}
 									<div class="font-medium text-destructive">✗ Sync failed</div>
 									<div class="max-w-xs break-words text-muted-foreground">
 										{store.last_sync_error}
@@ -695,6 +709,19 @@
 											class="h-8 text-xs"
 										/>
 									</label>
+									{#if store.type === 'shopify'}
+										<label class="space-y-1">
+											<span class="text-xs text-muted-foreground">Retries when rate limited</span>
+											<Input
+												type="number"
+												min="0"
+												max="10"
+												placeholder={String(DEFAULT_RATE_LIMIT_RETRIES)}
+												bind:value={editingConfig[store.id].rate_limit_retries}
+												class="h-8 text-xs"
+											/>
+										</label>
+									{/if}
 								</div>
 								{#if store.type === 'json_api'}
 									<JsonApiMapping
@@ -729,6 +756,9 @@
 								<span>Timeout {cfg.timeout_sec ?? 30}s</span>
 								<span>Page delay {cfg.request_delay_sec ?? 1}s</span>
 								<span>Sync every {cfg.sync_interval_hours ?? 6}h</span>
+								{#if store.type === 'shopify'}
+									<span>Retries {cfg.rate_limit_retries ?? DEFAULT_RATE_LIMIT_RETRIES}</span>
+								{/if}
 								<button
 									onclick={() => startEditCfg(store)}
 									class="hover:text-foreground hover:underline"

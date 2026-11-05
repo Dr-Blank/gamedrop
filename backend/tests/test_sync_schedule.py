@@ -195,3 +195,22 @@ def test_planner_stats_refresh_only_after_stores_sync(session: Session):
 
         asyncio.run(sync_due_stores(T0 + TICK, slack=SLACK))
         assert refresh.call_count == 1
+
+
+def test_a_shop_waiting_out_a_limit_does_not_hold_up_the_others(session: Session):
+    _store(session, "slow", hours=6)
+    _store(session, "quick", hours=6)
+
+    async def run():
+        quick_done = asyncio.Event()
+
+        async def fake_sync(store: Store):
+            if store.id == "slow":
+                await quick_done.wait()
+            else:
+                quick_done.set()
+
+        with patch("app.scraper.sync_store", fake_sync):
+            await asyncio.wait_for(sync_due_stores(T0), timeout=5)
+
+    asyncio.run(run())

@@ -12,7 +12,7 @@ class Store(SQLModel, table=True):
     enabled: bool = True
     #: Hex accent for charts and store labels. Null means the derived default.
     color: str | None = None
-    # JSON: timeout_sec, request_delay_sec, sync_interval_hours
+    # JSON: timeout_sec, request_delay_sec, sync_interval_hours, rate_limit_retries
     scrape_config: str = (
         '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":6}'
     )

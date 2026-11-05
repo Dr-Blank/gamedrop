@@ -9,6 +9,7 @@ from sqlalchemy import func
 from sqlmodel import Session, desc, select
 
 from ..adapters.detect import TIMEOUT, detect_platform, inspect_json_api
+from ..adapters.throttle import RATE_LIMITED_PREFIX, ShopRateLimited
 from ..adapters.woocommerce import USER_AGENT
 from ..db import get_session
 from ..logger import get_logger
@@ -271,6 +272,7 @@ def shaped(session: Session, store: Store) -> dict:
         **store.model_dump(),
         "urls": urls_of(session, store.id),
         "listing_count": listing_count(session, store.id),
+        "rate_limited": (store.last_sync_error or "").startswith(RATE_LIMITED_PREFIX),
     }
 
 
@@ -516,8 +518,10 @@ async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
     if not store:
         raise HTTPException(404, "Store not found")
     log.info("manual sync triggered: %s", store_id, extra={"store_id": store_id})
-    result = await sync_store(store)
-    return result
+    try:
+        return await sync_store(store)
+    except ShopRateLimited as e:
+        raise HTTPException(429, str(e)) from e
 
 
 @router.get("/{store_id}/logs")

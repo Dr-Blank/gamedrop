@@ -392,9 +392,9 @@
 			<Card.Header>
 				<Card.Title>Shopify pacing</Card.Title>
 				<Card.Description>
-					Shopify shops can refuse requests together, so they all share one pace. Raise this if
-					syncs keep failing with 429 errors; every refusal already pauses all of them for as long
-					as Shopify asks.
+					Shopify shops all share one pace. Raise this if syncs keep failing with 429 errors; a
+					refusal pauses only the shop that sent it, and one that keeps refusing is left alone for a
+					while.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-1.5">

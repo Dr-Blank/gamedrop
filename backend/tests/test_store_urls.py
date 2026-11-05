@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.adapters.throttle import ShopRateLimited
 from app.models import Product, Store, StoreUrl
 from app.scraper import sync_store
 
@@ -318,6 +319,20 @@ def test_sync_reports_which_url_failed(session: Session):
 
     session.expire_all()
     assert "/collections/b" in session.get(Store, "shop-a").last_sync_error
+
+
+def test_rate_limit_stops_the_walk_at_the_first_refusal(session: Session):
+    store = _store_with_paths(session, "/collections/a", "/collections/b")
+    adapter = _PathAdapter(
+        {"/collections/a": ShopRateLimited(60), "/collections/b": [_listing("e1")]}
+    )
+
+    with pytest.raises(ShopRateLimited):
+        _sync(store, adapter)
+
+    assert adapter.walked == ["/collections/a"]
+    session.expire_all()
+    assert session.get(Store, "shop-a").last_sync_error.startswith("rate limited")
 
 
 def test_sync_refuses_a_store_with_no_urls(session: Session):

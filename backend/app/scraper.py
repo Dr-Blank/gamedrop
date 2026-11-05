@@ -10,6 +10,7 @@ from .adapters.base import DEFAULTS, store_cfg
 from .adapters.json_api import JsonApiAdapter
 from .adapters.opencart import OpenCartAdapter
 from .adapters.shopify import ShopifyAdapter
+from .adapters.throttle import ShopRateLimited
 from .adapters.wix import WixAdapter
 from .adapters.woocommerce import WooCommerceAdapter
 from .logger import get_logger
@@ -259,6 +260,8 @@ async def _fetch_all(store: Store, paths: list[str]) -> list[dict]:
     for path in paths:
         try:
             batch = await get_adapter(store, path).fetch_products()
+        except ShopRateLimited:
+            raise
         except Exception as e:
             raise RuntimeError(f"{path}: {e}") from e
         for p in batch:
@@ -282,6 +285,10 @@ async def sync_store(store: Store) -> dict:
 
     try:
         raw_products = await _fetch_all(store, paths)
+    except ShopRateLimited as e:
+        log.warning("sync skipped: %s", e, extra={"store_id": store.id})
+        _write_sync_result(store.id, started_at, error=str(e))
+        raise
     except Exception as e:
         error_msg = f"fetch failed: {e}"
         log.error(
@@ -447,12 +454,16 @@ def due_stores(now: datetime, slack: timedelta = timedelta(0)) -> list[Store]:
 async def sync_due_stores(now: datetime | None = None, slack: timedelta = timedelta(0)):
     """Sync only the stores whose own interval has elapsed."""
     stores = due_stores(now or datetime.utcnow(), slack)
-    for store in stores:
+
+    async def sync_one(store: Store) -> None:
         try:
             await sync_store(store)
         except Exception:
             # The failure is already on the store and its log; one shop being
             # unreachable or misconfigured shouldn't cost the rest the run.
             log.exception("sync failed", extra={"store_id": store.id})
+
+    # Together, so a shop waiting out a rate limit can't hold up the others.
+    await asyncio.gather(*(sync_one(s) for s in stores))
     if stores:
         await asyncio.to_thread(_db.refresh_stats)

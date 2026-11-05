@@ -416,3 +416,63 @@ describe('a shop on its own JSON API', () => {
 		expect(api.addStore).not.toHaveBeenCalled();
 	});
 });
+
+describe('rate limits', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		api.getStoreLogs.mockResolvedValue([]);
+		api.getStoreTypes.mockResolvedValue([]);
+		api.getOrphanListings.mockResolvedValue(noOrphans());
+	});
+
+	it('calls out a rate-limited shop instead of a plain failure', async () => {
+		api.getStores.mockResolvedValue([
+			store({ rate_limited: true, last_sync_error: 'rate limited by shop, next try in 1h' })
+		]);
+		render(StoresPage);
+
+		expect(await screen.findByText('Rate limited')).toBeInTheDocument();
+		expect(screen.getByText(/next try in 1h/)).toBeInTheDocument();
+		expect(screen.queryByText(/Sync failed/)).not.toBeInTheDocument();
+	});
+
+	it('shows the status of a manual sync that failed', async () => {
+		api.getStores.mockResolvedValueOnce([store()]);
+		api.getStores.mockResolvedValue([
+			store({ rate_limited: true, last_sync_error: 'rate limited by shop, next try in 1h' })
+		]);
+		api.syncStore.mockRejectedValue(new Error('429'));
+		render(StoresPage);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Sync now' }));
+
+		expect(await screen.findByText('Rate limited')).toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: 'Sync now' })).toBeEnabled();
+	});
+
+	it('offers retries on Shopify shops and saves them', async () => {
+		api.getStores.mockResolvedValue([store()]);
+		api.patchStore.mockResolvedValue({});
+		render(StoresPage);
+
+		expect(await screen.findByText('Retries 2')).toBeInTheDocument();
+		const [editConfig] = screen.getAllByRole('button', { name: 'Edit' }).slice(-1);
+		await fireEvent.click(editConfig);
+		await fireEvent.input(await screen.findByLabelText('Retries when rate limited'), {
+			target: { value: '5' }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		const body = api.patchStore.mock.calls[0][1];
+		expect(JSON.parse(body.scrape_config).rate_limit_retries).toBe(5);
+	});
+
+	it('does not offer retries on other shop types', async () => {
+		api.getStores.mockResolvedValue([store({ type: 'woocommerce' })]);
+		render(StoresPage);
+
+		await screen.findAllByText('Shop A');
+		expect(screen.queryByText(/^Retries/)).not.toBeInTheDocument();
+	});
+});

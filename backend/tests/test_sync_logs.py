@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.adapters.throttle import ShopRateLimited
 from app.models import PriceSnapshot, Store, StoreUrl, SyncLog
 from app.scraper import sync_store
 
@@ -184,3 +185,35 @@ def test_an_arrival_still_records_its_first_price(session: Session):
 
     prices = [s.price for s in session.exec(select(PriceSnapshot)).all()]
     assert prices == [500.0]
+
+
+class _RateLimitedAdapter:
+    def __call__(self, store, collection_path="/"):
+        return self
+
+    async def fetch_products(self):
+        raise ShopRateLimited(3600)
+
+
+def test_rate_limited_sync_is_told_apart_from_a_failure(
+    client: TestClient, session: Session
+):
+    _store(session)
+    with patch("app.scraper.get_adapter", _RateLimitedAdapter()):
+        r = client.post("/api/stores/s1/sync")
+
+    assert r.status_code == 429
+    session.expire_all()
+    [store] = client.get("/api/stores/").json()
+    assert store["rate_limited"] is True
+    assert store["last_sync_error"] == "rate limited by shop, next try in 1h"
+
+
+def test_other_sync_errors_are_not_rate_limited(client: TestClient, session: Session):
+    s = _store(session)
+    s.last_sync_error = "fetch failed: 503"
+    session.add(s)
+    session.commit()
+
+    [store] = client.get("/api/stores/").json()
+    assert store["rate_limited"] is False

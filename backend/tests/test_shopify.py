@@ -1,6 +1,7 @@
 """Shopify adapter: one pace across shops. HTTP is served by an httpx MockTransport."""
 
 import asyncio
+import json
 from functools import partial
 from types import SimpleNamespace
 
@@ -8,11 +9,18 @@ import httpx
 import pytest
 
 from app.adapters import shopify, throttle
-from app.adapters.shopify import RETRIES, ShopifyAdapter, request_gap
-from app.adapters.throttle import RequestGate
+from app.adapters.base import DEFAULTS
+from app.adapters.shopify import ShopifyAdapter, rate_limit_retries, request_gap
+from app.adapters.throttle import (
+    FIRST_BLOCK_SEC,
+    MAX_WAIT_SEC,
+    RequestGate,
+    ShopRateLimited,
+)
 from app.config import set_setting
 
 GAP = shopify.DEFAULT_REQUEST_GAP_SEC
+RETRIES = DEFAULTS["rate_limit_retries"]
 PRODUCT = {
     "id": 1,
     "title": "Ark Nova",
@@ -38,10 +46,10 @@ def clock(monkeypatch) -> SimpleNamespace:
     return state
 
 
-def _store(name: str = "a") -> SimpleNamespace:
+def _store(name: str = "a", **config) -> SimpleNamespace:
     return SimpleNamespace(
         base_url=f"https://{name}.test",
-        scrape_config='{"timeout_sec":5,"request_delay_sec":0}',
+        scrape_config=json.dumps({"timeout_sec": 5, "request_delay_sec": 0, **config}),
     )
 
 
@@ -88,7 +96,7 @@ def test_shops_share_one_pace(monkeypatch, clock):
     assert [b - a for a, b in zip(times, times[1:], strict=False)] == [GAP] * 3
 
 
-def test_429_waits_retry_after_for_every_shop_then_retries(monkeypatch, clock):
+def test_429_waits_retry_after_then_retries(monkeypatch, clock):
     calls = []
 
     def handler(request):
@@ -101,8 +109,18 @@ def test_429_waits_retry_after_for_every_shop_then_retries(monkeypatch, clock):
     a, b = _fetch(_store("a"), _store("b"))
     assert a and b
     refused_at = calls[0][1]
-    assert all(at >= refused_at + 7.5 for _, at in calls[1:])
+    retried_at = next(at for host, at in calls[1:] if host == "a.test")
+    assert retried_at >= refused_at + 7.5
     assert sum(host == "a.test" for host, _ in calls) == 3
+
+
+def test_a_pause_holds_back_only_that_shop(clock):
+    gate = RequestGate()
+    gate.pause("a", 100)
+    asyncio.run(gate.wait("b", 0))
+    assert clock.now == 1000.0
+    asyncio.run(gate.wait("a", 0))
+    assert clock.now == 1100.0
 
 
 def test_retry_after_zero_is_taken_at_its_word(monkeypatch, clock):
@@ -139,9 +157,84 @@ def test_gives_up_after_the_last_retry_with_the_429(monkeypatch):
         return httpx.Response(429, headers={"Retry-After": "1"})
 
     _serve(monkeypatch, handler)
-    with pytest.raises(httpx.HTTPStatusError, match="429"):
+    with pytest.raises(ShopRateLimited, match="rate limited by shop"):
         _fetch(_store())
     assert len(calls) == RETRIES + 1
+
+
+@pytest.mark.parametrize("retries", [0, 5])
+def test_retries_are_set_per_shop(monkeypatch, retries):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, headers={"Retry-After": "1"})
+
+    _serve(monkeypatch, handler)
+    with pytest.raises(ShopRateLimited):
+        _fetch(_store(rate_limit_retries=retries))
+    assert len(calls) == retries + 1
+
+
+@pytest.mark.parametrize("bad", ["soon", -1, 11, None, float("inf")])
+def test_unusable_retries_mean_the_default(bad):
+    assert rate_limit_retries(_store(rate_limit_retries=bad)) == RETRIES
+
+
+def test_backoff_without_retry_after_is_capped(monkeypatch, clock):
+    times = []
+
+    def handler(request):
+        times.append(clock.now)
+        return httpx.Response(429)
+
+    _serve(monkeypatch, handler)
+    with pytest.raises(ShopRateLimited):
+        _fetch(_store(rate_limit_retries=10))
+    assert max(b - a for a, b in zip(times, times[1:], strict=False)) == MAX_WAIT_SEC
+
+
+def test_a_blocked_shop_gets_no_requests_until_the_block_ends(monkeypatch, clock):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.host)
+        if request.url.host == "a.test":
+            return httpx.Response(429, headers={"Retry-After": "1"})
+        return _one_page(request)
+
+    _serve(monkeypatch, handler)
+    with pytest.raises(ShopRateLimited):
+        _fetch(_store("a"))
+    calls.clear()
+
+    with pytest.raises(ShopRateLimited, match="next try in 1h"):
+        _fetch(_store("a"))
+    assert calls == []
+
+    assert _fetch(_store("b"))[0]
+
+    clock.now += FIRST_BLOCK_SEC
+    calls.clear()
+    with pytest.raises(ShopRateLimited, match="next try in 2h"):
+        _fetch(_store("a"))
+    assert calls == ["a.test"] * (RETRIES + 1)
+
+
+def test_blocks_grow_up_to_a_cap_and_success_resets_them():
+    gate = RequestGate()
+    messages = [str(gate.block("a")) for _ in range(6)]
+    assert [m.rsplit(" ", 1)[1] for m in messages] == [
+        "1h",
+        "2h",
+        "4h",
+        "8h",
+        "12h",
+        "12h",
+    ]
+    gate.clear("a")
+    assert str(gate.block("a")).endswith("1h")
+    asyncio.run(gate.wait("b", 0))
 
 
 def test_other_errors_are_not_retried(monkeypatch):
@@ -177,10 +270,10 @@ def test_a_pause_landing_mid_wait_extends_it(clock):
     gate = RequestGate()
 
     async def run():
-        await gate.wait(GAP)
-        waiting = asyncio.create_task(gate.wait(GAP))
+        await gate.wait("a", GAP)
+        waiting = asyncio.create_task(gate.wait("a", GAP))
         await asyncio.sleep(0)
-        gate.pause(10)
+        gate.pause("a", 10)
         await waiting
 
     asyncio.run(run())
