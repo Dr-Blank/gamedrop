@@ -20,6 +20,11 @@ def store_cfg(store, key):
 
 
 class StoreAdapter(ABC):
+    @classmethod
+    def warning(cls) -> dict | None:
+        """Advice shown on every store of this type; None while there's nothing to say."""
+        return None
+
     def __init__(self, store, collection_path: str = "/"):
         self.store = store
         #: The one listing page this instance walks; a store has several.

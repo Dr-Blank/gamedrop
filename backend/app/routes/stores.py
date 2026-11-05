@@ -283,11 +283,12 @@ def list_stores(session: Session = Depends(get_session)):
 
 @router.get("/types")
 def list_store_types():
-    """Platforms this build can sync, with each one's default listing path."""
+    """Platforms this build can sync, with each one's listing path and any warning."""
     return [
         {
             "type": name,
             "default_collection_path": DEFAULT_COLLECTION_PATHS.get(name, ""),
+            "warning": ADAPTERS[name].warning(),
         }
         for name in sorted(ADAPTERS)
     ]

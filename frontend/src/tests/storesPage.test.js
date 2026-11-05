@@ -418,6 +418,13 @@ describe('a shop on its own JSON API', () => {
 });
 
 describe('rate limits', () => {
+	const warning = {
+		title: 'Shopify has rate limited a sync',
+		since: '2026-08-31T06:00:00',
+		tips: ['Sync every 24h or longer.', 'Keep retries at 2.']
+	};
+	const shopifyType = { type: 'shopify', default_collection_path: '/', warning };
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		localStorage.clear();
@@ -449,6 +456,31 @@ describe('rate limits', () => {
 
 		expect(await screen.findByText('Rate limited')).toBeInTheDocument();
 		expect(await screen.findByRole('button', { name: 'Sync now' })).toBeEnabled();
+	});
+
+	it('keeps the warning to a triangle until it is clicked', async () => {
+		api.getStores.mockResolvedValue([store()]);
+		api.getStoreTypes.mockResolvedValue([shopifyType]);
+		render(StoresPage);
+
+		const triangle = await screen.findByRole('button', { name: warning.title });
+		expect(screen.queryByText(warning.tips[0])).not.toBeInTheDocument();
+
+		await fireEvent.click(triangle);
+		expect(await screen.findByText(warning.tips[0])).toBeInTheDocument();
+		expect(screen.getByText(warning.tips[1])).toBeInTheDocument();
+
+		await fireEvent.click(triangle);
+		expect(screen.queryByText(warning.tips[0])).not.toBeInTheDocument();
+	});
+
+	it('shows no triangle without a warning for that shop type', async () => {
+		api.getStores.mockResolvedValue([store({ type: 'woocommerce' })]);
+		api.getStoreTypes.mockResolvedValue([shopifyType]);
+		render(StoresPage);
+
+		await screen.findAllByText('Shop A');
+		expect(screen.queryByRole('button', { name: warning.title })).not.toBeInTheDocument();
 	});
 
 	it('offers retries on Shopify shops and saves them', async () => {

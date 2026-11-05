@@ -34,6 +34,7 @@
 	let syncing = $state({});
 	let syncingAll = $state(false);
 	let syncResults = $state({});
+	let warningOpen = $state({});
 	let syncAllResults = $state(null);
 	let addError = $state('');
 	let logsOpen = $state({});
@@ -539,6 +540,7 @@
 			<h2 class="text-sm font-medium text-muted-foreground">Configured stores</h2>
 			{#each stores as store}
 				{@const cfg = parseCfg(store)}
+				{@const warning = storeTypes.find((t) => t.type === store.type)?.warning}
 				<Card.Root class="px-4 py-3">
 					<div class="space-y-3">
 						<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
@@ -562,6 +564,18 @@
 										<span class="truncate font-medium">{store.name}</span>
 									{/if}
 									<Badge variant="outline" class="text-xs">{store.type}</Badge>
+									{#if warning}
+										<button
+											type="button"
+											aria-label={warning.title}
+											aria-expanded={!!warningOpen[store.id]}
+											title={warning.title}
+											onclick={() => (warningOpen[store.id] = !warningOpen[store.id])}
+											class="text-amber-600 hover:text-amber-700"
+										>
+											<TriangleAlert class="size-4" />
+										</button>
+									{/if}
 									{#if !store.enabled}
 										<Badge variant="secondary" class="text-xs">disabled</Badge>
 									{/if}
@@ -599,6 +613,21 @@
 								{/if}
 							</div>
 						</div>
+
+						{#if warning && warningOpen[store.id]}
+							<div
+								class="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+							>
+								<p class="font-medium text-amber-600">
+									{warning.title} (first on {fmtDate(warning.since)})
+								</p>
+								<ul class="list-disc space-y-0.5 pl-4 text-muted-foreground">
+									{#each warning.tips as tip}
+										<li>{tip}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
 
 						{#if editingBasic[store.id]}
 							<label class="block space-y-1">

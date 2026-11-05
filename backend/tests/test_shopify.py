@@ -17,7 +17,8 @@ from app.adapters.throttle import (
     RequestGate,
     ShopRateLimited,
 )
-from app.config import set_setting
+from app.config import get_setting, set_setting
+from app.scraper import ADAPTERS
 
 GAP = shopify.DEFAULT_REQUEST_GAP_SEC
 RETRIES = DEFAULTS["rate_limit_retries"]
@@ -295,3 +296,36 @@ def test_request_gap_ignores_unusable_values(bad):
 def test_request_gap_of_zero_means_no_gap():
     set_setting(shopify.REQUEST_GAP_KEY, "0")
     assert request_gap() == 0
+
+
+def test_no_warning_until_a_shop_answers_429(monkeypatch):
+    _serve(monkeypatch, _one_page)
+    _fetch(_store())
+    assert ShopifyAdapter.warning() is None
+
+
+def test_first_429_from_any_shop_raises_the_warning_and_keeps_its_date(monkeypatch):
+    answers = [httpx.Response(429, headers={"Retry-After": "0"})]
+    _serve(
+        monkeypatch,
+        lambda request: answers.pop() if answers else _one_page(request),
+    )
+    _fetch(_store("a"))
+
+    warning = ShopifyAdapter.warning()
+    first = warning["since"]
+    assert first == get_setting(shopify.FIRST_429_KEY)
+    assert any("24h" in tip for tip in warning["tips"])
+    assert any("retries" in tip for tip in warning["tips"])
+
+    answers.append(httpx.Response(429, headers={"Retry-After": "0"}))
+    set_setting(shopify.FIRST_429_KEY, "2020-01-01T00:00:00")
+    _fetch(_store("b"))
+    assert ShopifyAdapter.warning()["since"] == "2020-01-01T00:00:00"
+
+
+def test_only_shopify_has_a_warning(monkeypatch):
+    set_setting(shopify.FIRST_429_KEY, "2020-01-01T00:00:00")
+    assert ShopifyAdapter.warning()
+    others = [a for name, a in ADAPTERS.items() if name != "shopify"]
+    assert others and all(a.warning() is None for a in others)

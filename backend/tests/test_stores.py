@@ -1,5 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app.adapters.shopify import FIRST_429_KEY
+from app.config import set_setting
+
 
 def _store_payload(**overrides):
     return {
@@ -99,3 +102,16 @@ def test_patch_without_colour_keeps_it(client: TestClient):
     r = client.patch("/api/stores/test-store", json={"name": "Renamed"})
     assert r.json()["color"] == "#4f46e5"
     assert r.json()["name"] == "Renamed"
+
+
+def test_store_types_carry_each_platforms_warning(client: TestClient):
+    def warnings():
+        types = client.get("/api/stores/types").json()
+        return {t["type"]: t["warning"] for t in types}
+
+    assert not any(warnings().values())
+
+    set_setting(FIRST_429_KEY, "2020-01-01T00:00:00")
+    got = warnings()
+    assert got["shopify"]["since"] == "2020-01-01T00:00:00"
+    assert not any(w for name, w in got.items() if name != "shopify")

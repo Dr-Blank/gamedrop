@@ -1,8 +1,9 @@
 import asyncio
+from datetime import datetime
 
 import httpx
 
-from ..config import get_setting
+from ..config import get_setting, set_setting
 from ..logger import get_logger
 from .base import DEFAULTS, StoreAdapter, store_cfg
 from .throttle import MAX_WAIT_SEC, RequestGate, retry_after
@@ -15,6 +16,7 @@ BACKOFF_SEC = 30
 REQUEST_GAP_KEY = "shopify_request_gap_sec"
 DEFAULT_REQUEST_GAP_SEC = 2.0
 MAX_REQUEST_GAP_SEC = 60.0
+FIRST_429_KEY = "shopify_first_429_at"
 
 _gate = RequestGate()
 
@@ -48,6 +50,8 @@ async def _get(client: httpx.AsyncClient, url: str, retries: int) -> httpx.Respo
             r.raise_for_status()
             _gate.clear(shop)
             return r
+        if not get_setting(FIRST_429_KEY):
+            set_setting(FIRST_429_KEY, datetime.utcnow().isoformat())
         if attempt < retries:
             asked = retry_after(r)
             backoff = min(BACKOFF_SEC * 2**attempt, MAX_WAIT_SEC)
@@ -59,6 +63,27 @@ async def _get(client: httpx.AsyncClient, url: str, retries: int) -> httpx.Respo
 
 
 class ShopifyAdapter(StoreAdapter):
+    @classmethod
+    def warning(cls) -> dict | None:
+        """Shown on every Shopify shop once any of them has answered 429."""
+        since = get_setting(FIRST_429_KEY)
+        if not since:
+            return None
+        return {
+            "title": "Shopify has rate limited a sync",
+            "since": since,
+            "tips": [
+                f"Sync every {DEFAULTS['sync_interval_hours']}h or longer. Shorter "
+                "intervals make refusals more likely.",
+                f"Keep retries at {DEFAULTS['rate_limit_retries']}. Go up to "
+                f"{MAX_RETRIES} only for shops that matter most: retries make a sync "
+                "wait longer, but won't lift a block.",
+                "Don't keep pressing Sync now on a rate-limited shop. It stays blocked "
+                "for a while, and asking again won't help.",
+                "If refusals are brief, raise Shopify pacing in Settings.",
+            ],
+        }
+
     async def fetch_products(self) -> list[dict]:
         results = []
         page = 1
