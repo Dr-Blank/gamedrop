@@ -295,6 +295,145 @@ def test_unrejecting_puts_the_pair_back_in_the_queue(
     assert client.get("/api/games/suggestions").json()["total"] == 1
 
 
+def _two_games_across_four_shops(session: Session) -> tuple[Product, ...]:
+    """Two games, each already merged across two shops."""
+    _stores(session)
+    make_store(session, "shopify-c", name="C")
+    make_store(session, "shopify-d", name="D")
+    a1 = _listing(session, "shopify-a", "Azul", price=2000)
+    a2 = _listing(session, "woo-b", "Azul", price=1900)
+    b1 = _listing(session, "shopify-c", "Azul Summer Pavilion", price=1800)
+    b2 = _listing(session, "shopify-d", "Azul Summer Pavilion", price=1700)
+    service.merge(session, a1.id, a2.id)
+    service.merge(session, b1.id, b2.id)
+    return a1, a2, b1, b2
+
+
+def test_rejecting_one_listing_pair_answers_for_both_games(
+    client: TestClient, session: Session
+):
+    a1, a2, b1, b2 = _two_games_across_four_shops(session)
+    service.reject(session, a1.id, b1.id)
+
+    assert client.get("/api/games/suggestions").json()["total"] == 0
+    for listing in (a1, a2, b1, b2):
+        assert (
+            client.get(f"/api/products/{listing.id}/merge-suggestions").json()["items"]
+            == []
+        )
+
+
+def test_rejection_survives_a_later_merge_into_either_game(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    make_store(session, "shopify-c", name="C")
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Summer Pavilion", price=1900)
+    c = _listing(session, "shopify-c", "Azul Summer Pavilion", price=1800)
+    service.merge(session, b.id, c.id)
+    service.reject(session, a.id, b.id)
+
+    d = _listing(session, "shopify-c", "Azul Summer Pavilion Deluxe", price=1700)
+    service.merge(session, b.id, d.id)
+
+    assert client.get("/api/games/suggestions").json()["total"] == 0
+
+
+def test_one_rejection_covers_a_game_merged_across_five_shops(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    for shop in ("shopify-c", "shopify-d", "shopify-e", "shopify-f"):
+        make_store(session, shop, name=shop)
+    shops = ("shopify-a", "woo-b", "shopify-c", "shopify-d", "shopify-e")
+    listings = [_listing(session, shop, "Azul", price=2000) for shop in shops]
+    for listing in listings[1:]:
+        service.merge(session, listings[0].id, listing.id)
+    other = _listing(session, "shopify-f", "Azul Summer Pavilion", price=1800)
+
+    body = client.get("/api/games/suggestions").json()
+    assert body["total"] == 1
+    item = body["items"][0]
+    client.post(
+        "/api/games/suggestions/decide",
+        json={
+            "rejects": [[item["left"]["product"]["id"], item["right"]["product"]["id"]]]
+        },
+    )
+
+    assert client.get("/api/games/suggestions").json()["total"] == 0
+    assert session.exec(select(MergeRejection)).all() != []
+    for listing in [*listings, other]:
+        assert (
+            client.get(f"/api/products/{listing.id}/merge-suggestions").json()["items"]
+            == []
+        )
+
+
+def test_suggestion_queue_asks_about_two_games_once(
+    client: TestClient, session: Session
+):
+    """Disjoint listing pairs of the same two games are one question."""
+    _two_games_across_four_shops(session)
+
+    body = client.get("/api/games/suggestions").json()
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+
+
+def test_manual_search_flags_every_listing_of_a_rejected_game(
+    client: TestClient, session: Session
+):
+    a1, _, b1, b2 = _two_games_across_four_shops(session)
+    service.reject(session, a1.id, b1.id)
+
+    items = client.get(f"/api/products/{a1.id}/merge-candidates?q=pavilion").json()[
+        "items"
+    ]
+    assert {i["item"]["product"]["id"] for i in items} == {b1.id, b2.id}
+    assert all(i["rejected"] for i in items)
+
+
+def test_rejected_queue_lists_two_games_once(client: TestClient, session: Session):
+    a1, a2, b1, b2 = _two_games_across_four_shops(session)
+    service.reject(session, a1.id, b1.id)
+    service.reject(session, a2.id, b2.id)
+
+    body = client.get("/api/games/suggestions/rejected").json()
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+
+
+def test_unrejecting_clears_every_rejection_between_the_two_games(
+    client: TestClient, session: Session
+):
+    a1, a2, b1, b2 = _two_games_across_four_shops(session)
+    service.reject(session, a1.id, b1.id)
+    service.reject(session, a2.id, b2.id)
+
+    client.post("/api/games/suggestions/decide", json={"unrejects": [[a1.id, b1.id]]})
+
+    assert client.get("/api/games/suggestions/rejected").json()["total"] == 0
+    assert client.get("/api/games/suggestions").json()["total"] == 1
+
+
+def test_unrejecting_leaves_other_games_rejections_alone(
+    client: TestClient, session: Session
+):
+    _stores(session)
+    a = _listing(session, "shopify-a", "Azul", price=2000)
+    b = _listing(session, "woo-b", "Azul Summer Pavilion", price=1900)
+    c = _listing(session, "woo-b", "Azul Queen's Garden", price=1800)
+    service.reject(session, a.id, b.id)
+    service.reject(session, a.id, c.id)
+
+    service.unreject(session, a.id, b.id)
+
+    assert session.get(MergeRejection, (a.id, c.id)) is not None
+    assert session.get(MergeRejection, (a.id, b.id)) is None
+
+
 def test_decide_skips_a_pair_that_no_longer_applies(
     client: TestClient, session: Session
 ):

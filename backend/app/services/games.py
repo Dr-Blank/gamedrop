@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 
+from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from ..logger import get_logger
@@ -40,17 +41,18 @@ def _pair(a: int, b: int) -> tuple[int, int]:
     return (a, b) if a < b else (b, a)
 
 
-def _rejected_with(session: Session, product_id: int) -> set[int]:
-    """Listing ids rejected against this one."""
+def _rejected_game_pairs(session: Session) -> set[tuple[int, int]]:
+    """Game pairs turned down through any of their listings.
+
+    Scoring uses game titles, so one listing pair's no answers for both games.
+    """
+    side_a, side_b = aliased(Product), aliased(Product)
     rows = session.exec(
-        select(MergeRejection).where(
-            (MergeRejection.product_a_id == product_id)
-            | (MergeRejection.product_b_id == product_id)
-        )
+        select(side_a.game_id, side_b.game_id)
+        .join(MergeRejection, MergeRejection.product_a_id == side_a.id)
+        .join(side_b, MergeRejection.product_b_id == side_b.id)
     ).all()
-    return {
-        r.product_b_id if r.product_a_id == product_id else r.product_a_id for r in rows
-    }
+    return {_pair(a, b) for a, b in rows}
 
 
 def _candidate_rows(session: Session, product: Product):
@@ -77,13 +79,16 @@ def suggestions_for(
     if game is None:
         return []
 
-    rejected = _rejected_with(session, product_id)
+    rejected = _rejected_game_pairs(session)
     key_tokens = set(match_key(game.title).split())
 
     scored: list[tuple[int, float]] = []
     seen_games: set[int] = set()
     for cand_id, cand_title, cand_game in _candidate_rows(session, product):
-        if cand_id in rejected or cand_game == product.game_id:
+        if (
+            cand_game == product.game_id
+            or _pair(product.game_id, cand_game) in rejected
+        ):
             continue
         # Score only listings that share an identifying word.
         if key_tokens and not (key_tokens & set(match_key(cand_title).split())):
@@ -117,9 +122,13 @@ def search_candidates(
         if cand_game != product.game_id
     ]
     ranked = rank_titles(query, candidates, limit=limit)
-    return _suggestion_cards(
-        session, ranked, rejected=_rejected_with(session, product_id)
-    )
+    rejected_games = _rejected_game_pairs(session)
+    rejected = {
+        cand_id
+        for cand_id, _, cand_game in rows
+        if _pair(product.game_id, cand_game) in rejected_games
+    }
+    return _suggestion_cards(session, ranked, rejected=rejected)
 
 
 def _suggestion_cards(
@@ -146,18 +155,15 @@ def suggestion_queue(
 ) -> dict:
     """Catalog-wide merge candidates, best first, one decision per listing.
 
-    A listing appears in at most one pair: a shop sells a given game once, so
-    its best match is the only one worth deciding, and the rest would only be
-    the same call asked again.
+    A listing appears in at most one pair, and two games in at most one: a shop
+    sells a given game once, so anything more is the same call asked again.
     """
     rows = session.exec(
         select(Product.id, Game.title, Product.store_id, Product.game_id)
         .join(Game, Product.game_id == Game.id)
         .where(Game.hidden == False)  # noqa: E712
     ).all()
-    rejected = {
-        (r.product_a_id, r.product_b_id) for r in session.exec(select(MergeRejection))
-    }
+    rejected = _rejected_game_pairs(session)
     floor = max(min_score, MERGE_CUTOFF)
 
     by_token: dict[str, list[tuple]] = defaultdict(list)
@@ -165,7 +171,7 @@ def suggestion_queue(
         for token in set(match_key(row[1]).split()):
             by_token[token].append(row)
 
-    best: dict[tuple[int, int], float] = {}
+    best: dict[tuple[int, int], tuple[float, tuple[int, int]]] = {}
     for bucket in by_token.values():
         if len(bucket) < 2 or len(bucket) > COMMON_TOKEN_LIMIT:
             continue
@@ -174,18 +180,21 @@ def suggestion_queue(
                 if a_store == b_store or a_game == b_game:
                     continue
                 key = _pair(a_id, b_id)
-                if key in rejected or key in best:
+                games = _pair(a_game, b_game)
+                if games in rejected or key in best:
                     continue
                 score = similarity(a_title, b_title)
                 if score >= floor:
-                    best[key] = score
+                    best[key] = (score, games)
 
     claimed: set[int] = set()
+    asked: set[tuple[int, int]] = set()
     top: list[tuple[tuple[int, int], float]] = []
-    for pair, score in sorted(best.items(), key=lambda kv: -kv[1]):
-        if pair[0] in claimed or pair[1] in claimed:
+    for pair, (score, games) in sorted(best.items(), key=lambda kv: -kv[1][0]):
+        if pair[0] in claimed or pair[1] in claimed or games in asked:
             continue
         claimed.update(pair)
+        asked.add(games)
         top.append((pair, score))
 
     total = len(top)
@@ -221,12 +230,15 @@ def rejected_queue(session: Session, limit: int = 50, min_score: float = 0.0) ->
     }
 
     scored: list[tuple[tuple[int, int], float]] = []
+    seen_games: set[tuple[int, int]] = set()
     for row in rows:
         a, b = row.product_a_id, row.product_b_id
         if a not in listings or b not in listings:
             continue
-        if listings[a][1] == listings[b][1]:
+        games = _pair(listings[a][1], listings[b][1])
+        if games[0] == games[1] or games in seen_games:
             continue
+        seen_games.add(games)
         score = similarity(listings[a][0], listings[b][0])
         if score >= min_score:
             scored.append(((a, b), score))
@@ -245,11 +257,25 @@ def rejected_queue(session: Session, limit: int = 50, min_score: float = 0.0) ->
 
 
 def unreject(session: Session, product_id: int, other_id: int) -> None:
-    """Forget that two listings were called different games."""
-    row = session.get(MergeRejection, _pair(product_id, other_id))
-    if row is None:
+    """Forget that two listings' games were called different."""
+    a = session.get(Product, product_id)
+    b = session.get(Product, other_id)
+    if a is None or b is None:
         return
-    session.delete(row)
+    side_a, side_b = aliased(Product), aliased(Product)
+    games = {a.game_id, b.game_id}
+    rows = session.exec(
+        select(MergeRejection)
+        .join(side_a, MergeRejection.product_a_id == side_a.id)
+        .join(side_b, MergeRejection.product_b_id == side_b.id)
+        .where(
+            side_a.game_id.in_(games),
+            side_b.game_id.in_(games),
+            side_a.game_id != side_b.game_id,
+        )
+    ).all()
+    for row in rows:
+        session.delete(row)
     session.commit()
 
 
