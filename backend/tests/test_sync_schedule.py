@@ -157,7 +157,7 @@ def test_missing_or_bad_interval_falls_back_to_default(session: Session):
     broken.scrape_config = "{not json"
 
     for store in (missing, junk, zero, broken):
-        assert sync_interval(store) == timedelta(hours=6)
+        assert sync_interval(store) == timedelta(hours=24)
 
 
 def test_fractional_interval_is_honoured(session: Session):

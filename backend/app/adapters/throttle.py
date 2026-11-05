@@ -7,6 +7,7 @@ import httpx
 
 MAX_WAIT_SEC = 900
 FIRST_BLOCK_SEC = 3600
+#: Below the default sync interval, so a block can't swallow every scheduled sync.
 MAX_BLOCK_SEC = 12 * 3600
 RATE_LIMITED_PREFIX = "rate limited by shop"
 

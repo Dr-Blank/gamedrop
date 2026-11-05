@@ -402,7 +402,7 @@ describe('a shop on its own JSON API', () => {
 		expect(JSON.parse(body.scrape_config)).toEqual({
 			timeout_sec: 30,
 			request_delay_sec: 1,
-			sync_interval_hours: 6,
+			sync_interval_hours: 24,
 			json_api: config
 		});
 	});

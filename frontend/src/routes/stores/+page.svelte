@@ -52,7 +52,12 @@
 		opencart: 'OpenCart',
 		json_api: 'JSON API'
 	};
-	const DEFAULT_SCRAPE_CONFIG = { timeout_sec: 30, request_delay_sec: 1, sync_interval_hours: 6 };
+	const DEFAULT_SYNC_HOURS = 24;
+	const DEFAULT_SCRAPE_CONFIG = {
+		timeout_sec: 30,
+		request_delay_sec: 1,
+		sync_interval_hours: DEFAULT_SYNC_HOURS
+	};
 	const DEFAULT_RATE_LIMIT_RETRIES = 2;
 	let storeTypes = $state([
 		{ type: 'shopify', default_collection_path: '/collections/board-games' }
@@ -755,7 +760,7 @@
 							>
 								<span>Timeout {cfg.timeout_sec ?? 30}s</span>
 								<span>Page delay {cfg.request_delay_sec ?? 1}s</span>
-								<span>Sync every {cfg.sync_interval_hours ?? 6}h</span>
+								<span>Sync every {cfg.sync_interval_hours ?? DEFAULT_SYNC_HOURS}h</span>
 								{#if store.type === 'shopify'}
 									<span>Retries {cfg.rate_limit_retries ?? DEFAULT_RATE_LIMIT_RETRIES}</span>
 								{/if}

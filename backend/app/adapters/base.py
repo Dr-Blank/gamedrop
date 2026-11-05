@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 DEFAULTS = {
     "timeout_sec": 30,
     "request_delay_sec": 1,
-    "sync_interval_hours": 6,
+    "sync_interval_hours": 24,
     "rate_limit_retries": 2,
 }
 

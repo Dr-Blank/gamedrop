@@ -14,7 +14,7 @@ class Store(SQLModel, table=True):
     color: str | None = None
     # JSON: timeout_sec, request_delay_sec, sync_interval_hours, rate_limit_retries
     scrape_config: str = (
-        '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":6}'
+        '{"timeout_sec":30,"request_delay_sec":1,"sync_interval_hours":24}'
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_synced_at: datetime | None = None
