@@ -25,4 +25,5 @@ COPY backend/ ./
 COPY --from=frontend-builder /frontend/build ./static
 
 EXPOSE 8000
-CMD ["uv", "run", "--no-dev", "--no-sync", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run uvicorn directly: a `uv run` wrapper stays resident as PID 1 (~20MB).
+CMD ["/app/.venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
