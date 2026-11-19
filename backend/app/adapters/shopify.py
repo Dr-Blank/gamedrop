@@ -62,6 +62,39 @@ async def _get(client: httpx.AsyncClient, url: str, retries: int) -> httpx.Respo
     raise _gate.block(shop)
 
 
+def parse_products(base_url: str, products: list[dict]) -> list[dict]:
+    """Map Shopify `products.json` entries to the shape a sync stores."""
+    base = base_url.rstrip("/")
+    results = []
+    for p in products:
+        images = p.get("images") or []
+        handle = p.get("handle")
+        results.append(
+            {
+                "external_id": str(p["id"]),
+                "title": p["title"],
+                "handle": handle,
+                "url": f"{base}/products/{handle}" if handle else None,
+                "image_url": images[0]["src"] if images else None,
+                "variants": [
+                    {
+                        "variant_id": str(v["id"]),
+                        "variant_title": v.get("title", "Default"),
+                        "price": float(v.get("price", 0)),
+                        "compare_at_price": (
+                            float(v["compare_at_price"])
+                            if v.get("compare_at_price")
+                            else None
+                        ),
+                        "available": v.get("available", True),
+                    }
+                    for v in p.get("variants", [])
+                ],
+            }
+        )
+    return results
+
+
 class ShopifyAdapter(StoreAdapter):
     @classmethod
     def warning(cls) -> dict | None:
@@ -100,36 +133,7 @@ class ShopifyAdapter(StoreAdapter):
                 products = r.json().get("products", [])
                 if not products:
                     break
-                for p in products:
-                    images = p.get("images", [])
-                    image_url = images[0]["src"] if images else None
-                    results.append(
-                        {
-                            "external_id": str(p["id"]),
-                            "title": p["title"],
-                            "handle": p.get("handle"),
-                            "url": (
-                                f"{base}/products/{p['handle']}"
-                                if p.get("handle")
-                                else None
-                            ),
-                            "image_url": image_url,
-                            "variants": [
-                                {
-                                    "variant_id": str(v["id"]),
-                                    "variant_title": v.get("title", "Default"),
-                                    "price": float(v.get("price", 0)),
-                                    "compare_at_price": (
-                                        float(v["compare_at_price"])
-                                        if v.get("compare_at_price")
-                                        else None
-                                    ),
-                                    "available": v.get("available", True),
-                                }
-                                for v in p.get("variants", [])
-                            ],
-                        }
-                    )
+                results.extend(parse_products(base, products))
                 page += 1
                 if delay:
                     await asyncio.sleep(delay)

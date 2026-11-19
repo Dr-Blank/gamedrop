@@ -9,12 +9,13 @@ from sqlalchemy import func
 from sqlmodel import Session, desc, select
 
 from ..adapters.detect import TIMEOUT, detect_platform, inspect_json_api
+from ..adapters.shopify import parse_products
 from ..adapters.throttle import RATE_LIMITED_PREFIX, ShopRateLimited
 from ..adapters.woocommerce import USER_AGENT
 from ..db import get_session
 from ..logger import get_logger
 from ..models import Product, Store, StoreUrl, SyncLog
-from ..scraper import ADAPTERS, sync_store
+from ..scraper import ADAPTERS, import_products, sync_store
 from ..services import listings as listing_service
 
 router = APIRouter(prefix="/stores", tags=["stores"])
@@ -523,6 +524,34 @@ async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
         return await sync_store(store)
     except ShopRateLimited as e:
         raise HTTPException(429, str(e)) from e
+
+
+class ImportBody(BaseModel):
+    products: list[dict]
+
+
+@router.post("/{store_id}/import")
+def import_listings(
+    store_id: str, body: ImportBody, session: Session = Depends(get_session)
+):
+    """Take a Shopify shop's `products.json` entries fetched by the browser.
+
+    For shops that refuse the server but still serve a person's browser.
+    """
+    store = session.get(Store, store_id)
+    if not store:
+        raise HTTPException(404, "Store not found")
+    if store.type != "shopify":
+        raise HTTPException(400, "Import takes Shopify products.json only")
+    unique = list({str(p.get("id")): p for p in body.products}.values())
+    try:
+        raw = parse_products(store.base_url, unique)
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(422, f"Not Shopify products.json entries: {e}") from e
+    if not raw:
+        raise HTTPException(422, "No products to import")
+    log.info("browser import: %s", store_id, extra={"store_id": store_id})
+    return import_products(store, raw)
 
 
 @router.get("/{store_id}/logs")

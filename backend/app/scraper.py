@@ -298,6 +298,21 @@ async def sync_store(store: Store) -> dict:
         _write_sync_result(store.id, started_at, error=error_msg)
         raise
 
+    return _apply_products(store, raw_products, started_at)
+
+
+def import_products(store: Store, raw_products: list[dict]) -> dict:
+    """Record listings fetched elsewhere, as if this sync had fetched them."""
+    started_at = datetime.utcnow()
+    log.info(
+        "import start: %d listings", len(raw_products), extra={"store_id": store.id}
+    )
+    return _apply_products(store, raw_products, started_at)
+
+
+def _apply_products(
+    store: Store, raw_products: list[dict], started_at: datetime
+) -> dict:
     new_products = 0
     updated_products = 0
     price_changes = 0
