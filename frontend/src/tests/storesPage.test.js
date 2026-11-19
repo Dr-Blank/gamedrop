@@ -284,6 +284,18 @@ describe('a store with several category URLs', () => {
 
 		expect(api.patchStoreUrl).toHaveBeenCalledWith('shop-a', 1, { enabled: false });
 	});
+
+	it('syncs only one category URL', async () => {
+		api.getStores.mockResolvedValue([store()]);
+		api.syncStore.mockResolvedValue({ new_products: 0, price_changes: 0 });
+		render(StoresPage);
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Sync only /collections/board-games' })
+		);
+
+		expect(api.syncStore).toHaveBeenCalledWith('shop-a', 1);
+	});
 });
 
 describe('checking a pasted URL', () => {

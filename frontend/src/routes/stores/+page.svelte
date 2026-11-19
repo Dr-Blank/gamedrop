@@ -348,11 +348,12 @@
 		}
 	}
 
-	async function sync(storeId) {
-		syncing[storeId] = true;
+	async function sync(storeId, urlId = null) {
+		const key = urlId == null ? storeId : `${storeId}:${urlId}`;
+		syncing[key] = true;
 		syncResults[storeId] = null;
 		try {
-			syncResults[storeId] = await syncStore(storeId);
+			syncResults[storeId] = await syncStore(storeId, urlId);
 		} catch {
 			// A failed sync is recorded on the store, which the reload below shows.
 		}
@@ -360,7 +361,7 @@
 			await load();
 			if (logsOpen[storeId]) await loadLogs(storeId);
 		} finally {
-			syncing[storeId] = false;
+			syncing[key] = false;
 		}
 	}
 
@@ -671,6 +672,14 @@
 										class="text-xs text-muted-foreground hover:text-foreground hover:underline"
 									>
 										{u.enabled ? 'Pause' : 'Resume'}
+									</button>
+									<button
+										onclick={() => sync(store.id, u.id)}
+										disabled={syncing[store.id] || syncing[`${store.id}:${u.id}`]}
+										aria-label="Sync only {u.collection_path}"
+										class="text-xs text-muted-foreground hover:text-foreground hover:underline disabled:opacity-50"
+									>
+										{syncing[`${store.id}:${u.id}`] ? 'Syncing…' : 'Sync'}
 									</button>
 									<button
 										onclick={() => removeUrl(store, u)}

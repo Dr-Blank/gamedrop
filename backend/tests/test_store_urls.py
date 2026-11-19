@@ -392,3 +392,42 @@ def test_a_failing_store_does_not_cost_the_others_their_sync(session: Session):
     session.expire_all()
     assert session.get(Store, "shop-b").last_sync_error is None
     assert [p.store_id for p in session.exec(select(Product)).all()] == ["shop-b"]
+
+
+# --- syncing one listing URL ------------------------------------------------
+
+
+def test_sync_only_walks_the_one_path_given(session: Session):
+    store = _store_with_paths(session, "/collections/a", "/collections/b")
+    adapter = _PathAdapter(
+        {"/collections/a": [_listing("e1")], "/collections/b": [_listing("e2")]}
+    )
+
+    result = _sync(store, adapter, manual=True, only_path="/collections/b")
+
+    assert adapter.walked == ["/collections/b"]
+    assert result["new_products"] == 1
+
+
+def test_sync_endpoint_syncs_the_named_url(client: TestClient):
+    data = _create(client)
+    client.post(
+        "/api/stores/shop-a/urls", json={"collection_path": "/collections/toys"}
+    )
+    toys = client.get("/api/stores/").json()[0]["urls"][1]
+    adapter = _PathAdapter(
+        {"/collections/board-games": [_listing("e1")], "/collections/toys": []}
+    )
+
+    with patch("app.scraper.get_adapter", adapter):
+        r = client.post(f"/api/stores/{data['id']}/sync?url_id={toys['id']}")
+
+    assert r.status_code == 200, r.text
+    assert adapter.walked == ["/collections/toys"]
+
+
+def test_sync_endpoint_rejects_another_stores_url(client: TestClient):
+    _create(client)
+    other = _create(client, id="shop-b", base_url="https://shop-b.com")
+    r = client.post(f"/api/stores/shop-a/sync?url_id={other['urls'][0]['id']}")
+    assert r.status_code == 404

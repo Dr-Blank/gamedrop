@@ -29,7 +29,8 @@ export const patchStoreUrl = (id, urlId, body) =>
 	req(`/stores/${id}/urls/${urlId}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteStoreUrl = (id, urlId) =>
 	req(`/stores/${id}/urls/${urlId}`, { method: 'DELETE' });
-export const syncStore = (id) => req(`/stores/${id}/sync`, { method: 'POST' });
+export const syncStore = (id, urlId = null) =>
+	req(`/stores/${id}/sync${urlId == null ? '' : `?url_id=${urlId}`}`, { method: 'POST' });
 export const syncAllStores = () => req('/stores/sync-all', { method: 'POST' });
 export const getStoreLogs = (id, limit = 20) => req(`/stores/${id}/logs?limit=${limit}`);
 export const searchProducts = (storeId, q) =>

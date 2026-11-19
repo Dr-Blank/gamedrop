@@ -275,12 +275,17 @@ async def _fetch_all(store: Store, paths: list[str]) -> list[dict]:
     return raw_products
 
 
-async def sync_store(store: Store, manual: bool = False) -> dict | None:
+async def sync_store(
+    store: Store, manual: bool = False, only_path: str | None = None
+) -> dict | None:
     """Sync a store, or return None when a scheduled run finds every path paused."""
     started_at = datetime.utcnow()
-    log.info("sync start", extra={"store_id": store.id})
+    log.info("sync start", extra={"store_id": store.id, "path": only_path})
 
-    paths = listing_paths(store.id, include_paused=manual)
+    if only_path is not None:
+        paths = [only_path]
+    else:
+        paths = listing_paths(store.id, include_paused=manual)
     if not paths and not manual and listing_paths(store.id, include_paused=True):
         log.info("sync skipped: every listing URL paused", extra={"store_id": store.id})
         return None

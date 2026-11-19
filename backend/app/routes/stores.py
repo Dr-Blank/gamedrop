@@ -515,13 +515,22 @@ async def sync_all_stores(session: Session = Depends(get_session)):
 
 
 @router.post("/{store_id}/sync")
-async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
+async def trigger_sync(
+    store_id: str, url_id: int | None = None, session: Session = Depends(get_session)
+):
+    """Sync every listing URL of a store, or only the one `url_id` names."""
     store = session.get(Store, store_id)
     if not store:
         raise HTTPException(404, "Store not found")
+    only_path = None
+    if url_id is not None:
+        url = session.get(StoreUrl, url_id)
+        if not url or url.store_id != store_id:
+            raise HTTPException(404, "Listing URL not found")
+        only_path = url.collection_path
     log.info("manual sync triggered: %s", store_id, extra={"store_id": store_id})
     try:
-        return await sync_store(store, manual=True)
+        return await sync_store(store, manual=True, only_path=only_path)
     except ShopRateLimited as e:
         raise HTTPException(429, str(e)) from e
 
