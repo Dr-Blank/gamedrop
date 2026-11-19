@@ -3,9 +3,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 load_dotenv()  # must run before app modules that read os.environ
 
@@ -322,15 +324,30 @@ def health():
     return {"ok": True}
 
 
-# Serve SvelteKit SPA — must be last so /api routes take priority.
-# Hashed build assets are mounted; every other non-/api path falls back to
-# index.html so client-side routes survive a full reload (F5) / deep link.
+# Serve SvelteKit SPA. Hashed build assets are mounted; every other non-/api
+# path falls back to index.html so client-side routes survive a full reload.
 if STATIC_DIR.exists():
     app.mount("/_app", StaticFiles(directory=STATIC_DIR / "_app"), name="_app")
 
-    @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+
+@app.exception_handler(StarletteHTTPException)
+async def spa_fallback(request: Request, exc: StarletteHTTPException):
+    """Serve the SPA for an unrouted page.
+
+    A 404 handler rather than a catch-all route, so API paths keep their JSON
+    404s and their trailing-slash redirects.
+    """
+    path = request.url.path
+    if (
+        exc.status_code != 404
+        or request.method != "GET"
+        or path.startswith(("/api/", "/_app/"))
+        or path == "/api"
+        or not STATIC_DIR.exists()
+    ):
+        return await http_exception_handler(request, exc)
+    static_root = STATIC_DIR.resolve()
+    candidate = (static_root / path.lstrip("/")).resolve()
+    if candidate.is_relative_to(static_root) and candidate.is_file():
+        return FileResponse(candidate)
+    return FileResponse(static_root / "index.html")
