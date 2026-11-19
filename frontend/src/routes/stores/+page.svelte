@@ -664,7 +664,10 @@
 									{/if}
 									<button
 										onclick={() => toggleUrl(store, u)}
-										aria-label="{u.enabled ? 'Pause' : 'Resume'} syncing {u.collection_path}"
+										aria-label="{u.enabled
+											? 'Pause'
+											: 'Resume'} scheduled syncing {u.collection_path}"
+										title="Paused URLs skip scheduled syncs; Sync now still fetches them"
 										class="text-xs text-muted-foreground hover:text-foreground hover:underline"
 									>
 										{u.enabled ? 'Pause' : 'Resume'}

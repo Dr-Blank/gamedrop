@@ -503,7 +503,7 @@ async def sync_all_stores(session: Session = Depends(get_session)):
     stores = session.exec(select(Store).where(Store.enabled == True)).all()  # noqa: E712
     log.info("manual sync-all triggered: %d stores", len(stores))
     results = await asyncio.gather(
-        *[sync_store(s) for s in stores], return_exceptions=True
+        *[sync_store(s, manual=True) for s in stores], return_exceptions=True
     )
     return [
         {
@@ -521,7 +521,7 @@ async def trigger_sync(store_id: str, session: Session = Depends(get_session)):
         raise HTTPException(404, "Store not found")
     log.info("manual sync triggered: %s", store_id, extra={"store_id": store_id})
     try:
-        return await sync_store(store)
+        return await sync_store(store, manual=True)
     except ShopRateLimited as e:
         raise HTTPException(429, str(e)) from e
 

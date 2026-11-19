@@ -277,7 +277,9 @@ describe('a store with several category URLs', () => {
 		render(StoresPage);
 
 		await fireEvent.click(
-			await screen.findByRole('button', { name: 'Pause syncing /collections/board-games' })
+			await screen.findByRole('button', {
+				name: 'Pause scheduled syncing /collections/board-games'
+			})
 		);
 
 		expect(api.patchStoreUrl).toHaveBeenCalledWith('shop-a', 1, { enabled: false });

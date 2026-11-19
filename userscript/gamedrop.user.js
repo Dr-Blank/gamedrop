@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GameDrop
 // @namespace    https://github.com/dr-blank/gamedrop
-// @version      0.2.1
+// @version      0.2.2
 // @description  Cross-reference BGG ↔ local store prices, and sync shops from the browser
 // @match        https://boardgamegeek.com/*
 // @match        *://*/collections/*
@@ -205,9 +205,10 @@ function addSyncButton(store) {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      const paths = store.urls.filter(u => u.enabled).map(u => u.collection_path);
-      log(`sync ${store.id}: paths`, paths, 'all URLs', store.urls);
-      if (!paths.length) throw new Error('no enabled listing URLs');
+      // A paused URL sits out scheduled syncs only; this sync is manual.
+      const paths = store.urls.map(u => u.collection_path);
+      log(`sync ${store.id}: paths`, paths);
+      if (!paths.length) throw new Error('no listing URLs configured');
       const products = [];
       const empty = [];
       for (const p of paths) {

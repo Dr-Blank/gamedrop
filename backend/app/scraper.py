@@ -240,14 +240,16 @@ def _write_sync_result(
         session.commit()
 
 
-def listing_paths(store_id: str) -> list[str]:
-    """The enabled listing paths a store syncs, oldest first."""
+def listing_paths(store_id: str, include_paused: bool = False) -> list[str]:
+    """The listing paths a store syncs, oldest first.
+
+    A paused path sits out scheduled syncs only; a manual sync still walks it.
+    """
     with Session(_db.engine) as session:
-        urls = session.exec(
-            select(StoreUrl)
-            .where(StoreUrl.store_id == store_id, StoreUrl.enabled)
-            .order_by(StoreUrl.id)
-        ).all()
+        query = select(StoreUrl).where(StoreUrl.store_id == store_id)
+        if not include_paused:
+            query = query.where(StoreUrl.enabled)
+        urls = session.exec(query.order_by(StoreUrl.id)).all()
     return [u.collection_path for u in urls]
 
 
@@ -273,11 +275,15 @@ async def _fetch_all(store: Store, paths: list[str]) -> list[dict]:
     return raw_products
 
 
-async def sync_store(store: Store) -> dict:
+async def sync_store(store: Store, manual: bool = False) -> dict | None:
+    """Sync a store, or return None when a scheduled run finds every path paused."""
     started_at = datetime.utcnow()
     log.info("sync start", extra={"store_id": store.id})
 
-    paths = listing_paths(store.id)
+    paths = listing_paths(store.id, include_paused=manual)
+    if not paths and not manual and listing_paths(store.id, include_paused=True):
+        log.info("sync skipped: every listing URL paused", extra={"store_id": store.id})
+        return None
     if not paths:
         error_msg = "no listing URLs configured"
         log.error("sync skipped: %s", error_msg, extra={"store_id": store.id})

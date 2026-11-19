@@ -259,9 +259,16 @@ def _store_with_paths(session: Session, *paths: str) -> Store:
     return store
 
 
-def _sync(store: Store, adapter: _PathAdapter) -> dict:
+def _sync(store: Store, adapter: _PathAdapter, **kwargs) -> dict | None:
     with patch("app.scraper.get_adapter", adapter):
-        return asyncio.run(sync_store(store))
+        return asyncio.run(sync_store(store, **kwargs))
+
+
+def _pause(session: Session, path: str) -> None:
+    url = session.exec(select(StoreUrl).where(StoreUrl.collection_path == path)).one()
+    url.enabled = False
+    session.add(url)
+    session.commit()
 
 
 def test_sync_walks_every_configured_url(session: Session):
@@ -290,19 +297,39 @@ def test_a_listing_in_two_categories_is_recorded_once(session: Session):
     assert len(session.exec(select(Product)).all()) == 1
 
 
-def test_sync_skips_a_disabled_url(session: Session):
+def test_scheduled_sync_skips_a_paused_url(session: Session):
     store = _store_with_paths(session, "/collections/a", "/collections/b")
-    disabled = session.exec(
-        select(StoreUrl).where(StoreUrl.collection_path == "/collections/b")
-    ).one()
-    disabled.enabled = False
-    session.add(disabled)
-    session.commit()
+    _pause(session, "/collections/b")
 
     adapter = _PathAdapter({"/collections/a": [_listing("e1")]})
     _sync(store, adapter)
 
     assert adapter.walked == ["/collections/a"]
+
+
+def test_manual_sync_walks_a_paused_url(session: Session):
+    store = _store_with_paths(session, "/collections/a", "/collections/b")
+    _pause(session, "/collections/b")
+
+    adapter = _PathAdapter(
+        {"/collections/a": [_listing("e1")], "/collections/b": [_listing("e2")]}
+    )
+    result = _sync(store, adapter, manual=True)
+
+    assert adapter.walked == ["/collections/a", "/collections/b"]
+    assert result["new_products"] == 2
+
+
+def test_scheduled_sync_of_a_fully_paused_store_is_quiet(session: Session):
+    store = _store_with_paths(session, "/collections/a")
+    _pause(session, "/collections/a")
+
+    adapter = _PathAdapter({})
+    assert _sync(store, adapter) is None
+
+    assert adapter.walked == []
+    session.expire_all()
+    assert session.get(Store, "shop-a").last_sync_error is None
 
 
 def test_sync_reports_which_url_failed(session: Session):
