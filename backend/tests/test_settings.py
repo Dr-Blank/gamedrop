@@ -28,7 +28,7 @@ def test_put_settings_updates_value(client: TestClient):
 
 
 def test_shopify_request_gap_round_trips(client: TestClient):
-    assert client.get("/api/settings").json()["shopify_request_gap_sec"] == 2
+    assert client.get("/api/settings").json()["shopify_request_gap_sec"] == 10
     r = client.put("/api/settings", json={"shopify_request_gap_sec": 4.5})
     assert r.status_code == 200
     assert client.get("/api/settings").json()["shopify_request_gap_sec"] == 4.5

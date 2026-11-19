@@ -257,14 +257,14 @@ def test_image_fetch_shares_the_gate_and_retries(monkeypatch, clock):
     def handler(request):
         times.append(clock.now)
         if len(times) == 1:
-            return httpx.Response(429, headers={"Retry-After": "3"})
+            return httpx.Response(429, headers={"Retry-After": str(GAP + 3)})
         return httpx.Response(200, json={"product": PRODUCT})
 
     _serve(monkeypatch, handler)
     product = SimpleNamespace(handle="ark-nova")
     url = asyncio.run(ShopifyAdapter(_store()).fetch_product_image(product))
     assert url == "https://img/ark.png"
-    assert times[1] - times[0] == 3
+    assert times[1] - times[0] == GAP + 3
 
 
 def test_a_pause_landing_mid_wait_extends_it(clock):

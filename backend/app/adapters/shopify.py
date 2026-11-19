@@ -14,7 +14,7 @@ HEADERS = {"User-Agent": "board-game-tracker/1.0"}
 MAX_RETRIES = 10
 BACKOFF_SEC = 30
 REQUEST_GAP_KEY = "shopify_request_gap_sec"
-DEFAULT_REQUEST_GAP_SEC = 2.0
+DEFAULT_REQUEST_GAP_SEC = 10.0
 MAX_REQUEST_GAP_SEC = 60.0
 FIRST_429_KEY = "shopify_first_429_at"
 

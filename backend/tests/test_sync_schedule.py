@@ -3,17 +3,35 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
+from itertools import pairwise
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlmodel import Session
 
 from app import db as _db
+from app import scraper
+from app.adapters.throttle import RATE_LIMITED_PREFIX
 from app.models import Store, SyncLog
 from app.scheduler import TICK, start_scheduler
-from app.scraper import due_stores, sync_due_stores, sync_interval
+from app.scraper import (
+    MAX_REFUSED_INTERVAL,
+    SCHEDULE_JITTER,
+    due_stores,
+    jitter,
+    scheduled_interval,
+    sync_due_stores,
+    sync_interval,
+)
 
 T0 = datetime(2026, 1, 1, 0, 0)
 SLACK = TICK / 2
+
+
+@pytest.fixture(autouse=True)
+def exact_schedule(monkeypatch):
+    """Pin jitter so schedules land on exact hours; jitter tests restore it."""
+    monkeypatch.setattr(scraper, "jitter", lambda *_: 1.0)
 
 
 def _store(session: Session, store_id: str, hours=None, **fields) -> Store:
@@ -36,27 +54,39 @@ def _store(session: Session, store_id: str, hours=None, **fields) -> Store:
 class _Clock:
     """Fake `sync_store` that logs each attempt at the simulated time."""
 
-    def __init__(self, start: datetime, fail: set[str] = frozenset()):
+    def __init__(
+        self,
+        start: datetime,
+        fail: frozenset[str] = frozenset(),
+        refuse: frozenset[str] = frozenset(),
+    ):
         self.now = start
         self.fail = fail
+        self.refuse = set(refuse)
         self.calls: list[tuple[str, datetime]] = []
         self.start_delay = timedelta(0)
+
+    def _error(self, store_id: str) -> str | None:
+        if store_id in self.refuse:
+            return f"{RATE_LIMITED_PREFIX}, next try in 1h"
+        return "boom" if store_id in self.fail else None
 
     async def __call__(self, store: Store):
         started = self.now + self.start_delay
         self.calls.append((store.id, started))
+        error = self._error(store.id)
         with Session(_db.engine) as session:
             session.add(
                 SyncLog(
                     store_id=store.id,
                     started_at=started,
                     finished_at=started,
-                    error="boom" if store.id in self.fail else None,
+                    error=error,
                 )
             )
             session.commit()
-        if store.id in self.fail:
-            raise RuntimeError("boom")
+        if error:
+            raise RuntimeError(error)
 
     def times(self, store_id: str) -> list[datetime]:
         return [t for s, t in self.calls if s == store_id]
@@ -127,6 +157,77 @@ def test_a_failing_store_waits_its_interval_and_spares_the_others(session: Sessi
 
     assert _hours(clock.times("broken")) == [0, 6, 12]
     assert _hours(clock.times("fine")) == [0, 6, 12]
+
+
+def test_a_refusing_shop_is_asked_half_as_often_each_time(session: Session):
+    _store(session, "refusing", hours=6)
+    _store(session, "fine", hours=6)
+
+    clock = _Clock(T0, refuse={"refusing"})
+    _run_ticks(clock, hours=48)
+
+    assert _hours(clock.times("refusing")) == [0, 12, 36]
+    assert _hours(clock.times("fine")) == [6 * i for i in range(9)]
+
+
+def test_other_errors_do_not_slow_the_schedule(session: Session):
+    _store(session, "broken", hours=6)
+
+    clock = _Clock(T0, fail={"broken"})
+    _run_ticks(clock, hours=24)
+
+    assert _hours(clock.times("broken")) == [0, 6, 12, 18, 24]
+
+
+def test_a_successful_sync_or_import_ends_the_backoff(session: Session):
+    _store(session, "shop", hours=6)
+    clock = _Clock(T0, refuse={"shop"})
+    _run_ticks(clock, hours=12)
+    assert _hours(clock.times("shop")) == [0, 12]
+
+    session.add(SyncLog(store_id="shop", started_at=T0 + timedelta(hours=13)))
+    session.commit()
+
+    assert due_stores(T0 + timedelta(hours=18)) == []
+    assert [s.id for s in due_stores(T0 + timedelta(hours=19))] == ["shop"]
+
+
+def test_backoff_stops_at_a_week_and_never_shortens_a_longer_interval(
+    session: Session,
+):
+    daily = _store(session, "daily", hours=24)
+    fortnightly = _store(session, "fortnightly", hours=24 * 14)
+
+    assert scheduled_interval(daily, 0) == timedelta(hours=24)
+    assert scheduled_interval(daily, 2) == timedelta(hours=96)
+    assert scheduled_interval(daily, 8) == MAX_REFUSED_INTERVAL
+    assert scheduled_interval(fortnightly, 3) == timedelta(days=14)
+
+
+def test_jitter_stays_near_one_and_agrees_with_itself():
+    factors = [jitter("shop", T0 + timedelta(hours=h)) for h in range(50)]
+
+    assert all(1 - SCHEDULE_JITTER <= f <= 1 + SCHEDULE_JITTER for f in factors)
+    assert len(set(factors)) == len(factors)
+    assert jitter("shop", T0) == jitter("shop", T0)
+    assert jitter("shop", T0) != jitter("other", T0)
+
+
+def test_daily_syncs_drift_around_a_day_rather_than_landing_on_it(
+    session: Session, monkeypatch
+):
+    monkeypatch.setattr(scraper, "jitter", jitter)
+    _store(session, "daily", hours=24)
+
+    clock = _Clock(T0)
+    _run_ticks(clock, hours=24 * 20)
+
+    times = clock.times("daily")
+    gaps = [(b - a) / timedelta(hours=1) for a, b in pairwise(times)]
+    low, high = 24 * (1 - SCHEDULE_JITTER), 24 * (1 + SCHEDULE_JITTER)
+    assert len(gaps) >= 15
+    assert all(low - 0.25 <= g <= high + 0.25 for g in gaps)
+    assert len(set(gaps)) > 3
 
 
 def test_a_manual_sync_restarts_the_stores_clock(session: Session):

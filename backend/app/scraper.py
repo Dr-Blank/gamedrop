@@ -1,4 +1,5 @@
 import asyncio
+import random
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -10,7 +11,7 @@ from .adapters.base import DEFAULTS, store_cfg
 from .adapters.json_api import JsonApiAdapter
 from .adapters.opencart import OpenCartAdapter
 from .adapters.shopify import ShopifyAdapter
-from .adapters.throttle import ShopRateLimited
+from .adapters.throttle import RATE_LIMITED_PREFIX, ShopRateLimited
 from .adapters.wix import WixAdapter
 from .adapters.woocommerce import WooCommerceAdapter
 from .logger import get_logger
@@ -428,6 +429,50 @@ def sync_interval(store: Store) -> timedelta:
     return timedelta(hours=hours)
 
 
+MAX_REFUSED_INTERVAL = timedelta(days=7)
+#: Enough recent attempts to reach the cap from any interval worth setting.
+_REFUSAL_LOOKBACK = 8
+
+
+def refusal_streak(session: Session, store_id: str) -> int:
+    """How many of the store's latest attempts in a row the shop rate limited."""
+    errors = session.exec(
+        select(SyncLog.error)
+        .where(SyncLog.store_id == store_id)
+        .order_by(desc(SyncLog.started_at))
+        .limit(_REFUSAL_LOOKBACK)
+    ).all()
+    streak = 0
+    for error in errors:
+        if not (error or "").startswith(RATE_LIMITED_PREFIX):
+            break
+        streak += 1
+    return streak
+
+
+def scheduled_interval(store: Store, refusals: int) -> timedelta:
+    """The store's interval, doubled for each refusal in a row, up to a week.
+
+    A shop that keeps refusing is asked less, so it has a chance to forget us.
+    """
+    interval = sync_interval(store)
+    if refusals == 0:
+        return interval
+    return max(interval, min(interval * 2**refusals, MAX_REFUSED_INTERVAL))
+
+
+SCHEDULE_JITTER = 0.1
+
+
+def jitter(store_id: str, last_attempt: datetime) -> float:
+    """A factor near 1 that stretches or shrinks one wait between syncs.
+
+    Seeded by the last attempt so every tick of the same wait agrees on it.
+    """
+    rng = random.Random(f"{store_id}|{last_attempt.isoformat()}")
+    return rng.uniform(1 - SCHEDULE_JITTER, 1 + SCHEDULE_JITTER)
+
+
 def due_stores(now: datetime, slack: timedelta = timedelta(0)) -> list[Store]:
     """Enabled stores whose last sync attempt is at least their interval old.
 
@@ -443,11 +488,13 @@ def due_stores(now: datetime, slack: timedelta = timedelta(0)) -> list[Store]:
             ).all()
         )
         stores = session.exec(select(Store).where(Store.enabled)).all()
+        refusals = {s.id: refusal_streak(session, s.id) for s in stores}
     return [
         s
         for s in stores
         if (last := last_attempt.get(s.id)) is None
-        or now - last + slack >= sync_interval(s)
+        or now - last + slack
+        >= scheduled_interval(s, refusals[s.id]) * jitter(s.id, last)
     ]
 
 
