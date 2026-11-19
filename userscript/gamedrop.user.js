@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GameDrop
 // @namespace    https://github.com/dr-blank/gamedrop
-// @version      0.2.0
+// @version      0.2.1
 // @description  Cross-reference BGG ↔ local store prices, and sync shops from the browser
 // @match        https://boardgamegeek.com/*
 // @match        *://*/collections/*
@@ -20,26 +20,39 @@
 const API_BASE = GM_getValue('api_base', 'http://localhost:8765/api');
 const PAGE_GAP_MS = 3000;
 
+const log = (...args) => console.log('[GameDrop]', ...args);
+const warn = (...args) => console.warn('[GameDrop]', ...args);
+const logError = (...args) => console.error('[GameDrop]', ...args);
+const snippet = text => (text || '').slice(0, 500);
+
 GM_registerMenuCommand('Set GameDrop API address', () => {
   const next = window.prompt('GameDrop API address', API_BASE);
   if (next) GM_setValue('api_base', next.trim().replace(/\/+$/, ''));
 });
 
 function apiRequest(method, path, body) {
+  const url = `${API_BASE}${path}`;
   return new Promise((resolve, reject) => {
     GM_xmlhttpRequest({
       method,
-      url: `${API_BASE}${path}`,
+      url,
       headers: body ? { 'Content-Type': 'application/json' } : {},
       data: body ? JSON.stringify(body) : undefined,
       onload: r => {
-        let data;
+        let data = null;
         try { data = JSON.parse(r.responseText); }
-        catch (e) { return reject(e); }
-        if (r.status >= 400) reject(new Error(data.detail || `HTTP ${r.status}`));
+        catch {}
+        if (r.status >= 400 || data === null) {
+          logError(`${method} ${url} → HTTP ${r.status}`, snippet(r.responseText));
+        }
+        if (r.status >= 400) reject(new Error(data?.detail || `HTTP ${r.status}`));
+        else if (data === null) reject(new Error(`HTTP ${r.status}: not JSON`));
         else resolve(data);
       },
-      onerror: reject,
+      onerror: r => {
+        logError(`${method} ${url} → network error`, r);
+        reject(new Error(`GameDrop API unreachable at ${API_BASE}`));
+      },
     });
   });
 }
@@ -143,10 +156,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function trackedStore() {
   const stores = await apiFetch('/stores/');
-  return stores.find(s => {
+  const matches = stores.filter(s => {
     try { return bareHost(new URL(s.base_url).hostname) === bareHost(location.hostname); }
     catch { return false; }
   });
+  if (matches.length > 1) warn(`${matches.length} stores match this host; using ${matches[0].id}`, matches);
+  return matches[0];
 }
 
 async function fetchListing(collectionPath, report) {
@@ -154,10 +169,24 @@ async function fetchListing(collectionPath, report) {
   const prefix = collectionPath === '/' ? '' : collectionPath.replace(/\/+$/, '');
   for (let page = 1; ; page++) {
     report(`${collectionPath} page ${page}…`);
-    const r = await fetch(`${prefix}/products.json?limit=250&page=${page}`, { credentials: 'omit' });
-    if (!r.ok) throw new Error(`${collectionPath} page ${page}: HTTP ${r.status}`);
-    const batch = (await r.json()).products || [];
-    if (!batch.length) return products;
+    const url = `${prefix}/products.json?limit=250&page=${page}`;
+    const r = await fetch(url, { credentials: 'omit' });
+    if (!r.ok) {
+      logError(`GET ${url} → HTTP ${r.status}`, snippet(await r.text()));
+      throw new Error(`${collectionPath} page ${page}: HTTP ${r.status}`);
+    }
+    const text = await r.text();
+    let batch;
+    try { batch = JSON.parse(text).products || []; }
+    catch {
+      logError(`GET ${url} → not JSON`, snippet(text));
+      throw new Error(`${collectionPath} page ${page}: not JSON`);
+    }
+    log(`GET ${url} → ${batch.length} listings`);
+    if (!batch.length) {
+      if (page === 1) warn(`${collectionPath} returned no listings; check the store's listing URL`);
+      return products;
+    }
     products.push(...batch);
     await sleep(PAGE_GAP_MS);
   }
@@ -177,12 +206,25 @@ function addSyncButton(store) {
     btn.disabled = true;
     try {
       const paths = store.urls.filter(u => u.enabled).map(u => u.collection_path);
+      log(`sync ${store.id}: paths`, paths, 'all URLs', store.urls);
+      if (!paths.length) throw new Error('no enabled listing URLs');
       const products = [];
-      for (const p of paths) products.push(...await fetchListing(p, report));
+      const empty = [];
+      for (const p of paths) {
+        const batch = await fetchListing(p, report);
+        if (!batch.length) empty.push(p);
+        products.push(...batch);
+      }
+      // Shopify answers an unknown collection with an empty list, not a 404.
+      if (!products.length) throw new Error(`no listings at ${empty.join(', ')}`);
       report(`Sending ${products.length} listings…`);
+      log(`POST /stores/${store.id}/import: ${products.length} listings`);
       const res = await apiRequest('POST', `/stores/${store.id}/import`, { products });
-      report(`Synced: +${res.new_products} new, ${res.price_changes} changes`);
+      log(`sync ${store.id} done`, res);
+      const note = empty.length ? ` (empty: ${empty.join(', ')})` : '';
+      report(`Synced: +${res.new_products} new, ${res.price_changes} changes${note}`);
     } catch (e) {
+      logError(`sync ${store.id} failed:`, e);
       report(`Sync failed: ${e.message}`);
     } finally {
       btn.disabled = false;
@@ -194,8 +236,12 @@ function addSyncButton(store) {
 async function injectOnStore() {
   let store;
   try { store = await trackedStore(); }
-  catch { return; }
+  catch (e) {
+    warn('could not load tracked stores:', e.message);
+    return;
+  }
   if (!store) return;
+  log(`tracked store ${store.id} (${store.type})`);
   if (store.type === 'shopify') addSyncButton(store);
   if (path.startsWith('/products/')) injectOnStoreProduct();
   else if (path.startsWith('/collections/')) injectOnStoreCollection();
